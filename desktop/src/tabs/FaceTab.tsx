@@ -17,6 +17,8 @@ export function FaceTab() {
   const [tracking, setTracking] = useState<TrackingSettings | null>(null);
   const [strength, setStrength] = useState(0.85);
   const [swapMode, setSwapMode] = useState<SwapMode | null>(null);
+  const [enhancers, setEnhancers] = useState<string[]>([]);
+  const [enhancer, setEnhancerState] = useState("none");
   const fileRef = useRef<HTMLInputElement>(null);
   const { active, faces } = usePipeline();
 
@@ -26,7 +28,13 @@ export function FaceTab() {
     api.getTracking().then(setTracking).catch(() => setTracking(null));
     api.getSwapStrength().then((s) => setStrength(s.strength)).catch(() => undefined);
     api.getSwapMode().then(setSwapMode).catch(() => setSwapMode(null));
+    api.getEnhancers().then((e) => setEnhancers(e.available)).catch(() => setEnhancers([]));
   }, []);
+
+  const changeEnhancer = (kind: string) => {
+    setEnhancerState(kind);
+    api.setEnhancer(kind).then((r) => setEnhancerState(r.active)).catch(() => undefined);
+  };
 
   const changeMode = (mode: "fast" | "neural") => {
     setSwapMode((m) => (m ? { ...m, mode } : m));
@@ -217,6 +225,23 @@ export function FaceTab() {
               <p className="muted">
                 Realistic mode isn't available on this machine (models or AI runtime missing).
               </p>
+            )}
+            {swapMode.mode === "neural" && enhancers.length > 0 && (
+              <>
+                <label className="row">
+                  Face enhancement
+                  <select value={enhancer} onChange={(e) => changeEnhancer(e.target.value)}>
+                    <option value="none">Off (fastest)</option>
+                    {enhancers.includes("gfpgan") && <option value="gfpgan">GFPGAN — sharp &amp; clean</option>}
+                    {enhancers.includes("codeformer") && <option value="codeformer">CodeFormer — natural</option>}
+                  </select>
+                </label>
+                <p className="muted">
+                  Restores and sharpens the swapped face for a professional look. Runs on
+                  onnxruntime (works on CPU and GPU). Adds processing time — instant on a GPU,
+                  a few extra seconds per frame on CPU.
+                </p>
+              </>
             )}
           </>
         )}

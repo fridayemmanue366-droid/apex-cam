@@ -160,11 +160,12 @@ export const api = {
 
   setupStatus: () => req<SetupStatus>("/setup"),
   installGpu: () => req<{ started: boolean }>("/setup/gpu", { method: "POST" }),
-  setEnhancer: (enabled: boolean) =>
-    req<{ enabled: boolean; active: boolean; available: boolean }>("/setup/enhancer", {
+  getEnhancers: () => req<{ available: string[] }>("/setup/enhancers"),
+  setEnhancer: (kind: string) =>
+    req<{ kind: string; active: string; available: string[] }>("/setup/enhancer", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify({ kind }),
     }),
   getVoice: () => req<VoiceState>("/voice"),
   setVoice: (s: VoiceState) => put<VoiceState>("/voice", s),

@@ -92,10 +92,9 @@ class NeuralFaceSwapEngine:
     def __init__(self, use_enhancer: bool = False) -> None:
         self._app = None          # FaceAnalysis
         self._swapper = None      # INSwapper
-        self._enhancer = None     # GFPGAN (optional)
         self._source_face = None  # target identity embedding/face
         self._loaded = False
-        self.use_enhancer = use_enhancer
+        self.enhancer_kind = "none"  # "none" | "gfpgan" | "codeformer"
         self.strength = 1.0
 
     @property
@@ -122,10 +121,6 @@ class NeuralFaceSwapEngine:
             self._app.prepare(ctx_id=ctx_id, det_size=det)
             model_path = best_inswapper()
             self._swapper = get_model(str(model_path), providers=providers)
-
-            if self.use_enhancer:
-                self._load_enhancer(providers)
-
             self._loaded = True
             log.info("Neural swap engine loaded (%s, providers=%s)",
                      model_path.name, providers)
@@ -135,30 +130,19 @@ class NeuralFaceSwapEngine:
             self._loaded = False
             return False
 
-    def _load_enhancer(self, providers: list[str]) -> None:
-        try:
-            from gfpgan import GFPGANer  # type: ignore
+    def set_enhancer(self, kind: str) -> str:
+        """Select the ONNX face restorer: 'none' | 'gfpgan' | 'codeformer'.
+        Runs on onnxruntime (CPU or GPU) — no PyTorch. Returns the active kind."""
+        from app.engines.face.enhancer import face_enhancer
 
-            if GFPGAN_FILE.exists():
-                self._enhancer = GFPGANer(
-                    model_path=str(GFPGAN_FILE), upscale=1, arch="clean",
-                    channel_multiplier=2, bg_upsampler=None,
-                )
-                log.info("GFPGAN enhancer loaded")
-        except Exception as exc:
-            log.info("GFPGAN enhancer not loaded (optional): %s", exc)
-            self._enhancer = None
-
-    def set_enhancer(self, enabled: bool) -> bool:
-        """Turn the GFPGAN face restorer on/off at runtime. Returns whether the
-        enhancer is active afterwards."""
-        self.use_enhancer = enabled
-        if not enabled:
-            self._enhancer = None
-            return False
-        if self._loaded and self._enhancer is None:
-            self._load_enhancer(_providers())
-        return self._enhancer is not None
+        if kind == "none" or not kind:
+            self.enhancer_kind = "none"
+            return "none"
+        if face_enhancer.load(kind):
+            self.enhancer_kind = kind
+            return kind
+        self.enhancer_kind = "none"
+        return "none"
 
     def set_target(self, image_bgr: np.ndarray | None) -> bool:
         """Pick the largest face in the target image as the identity to wear."""
@@ -175,27 +159,21 @@ class NeuralFaceSwapEngine:
 
     def swap_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
         """Detect every face in the live frame and swap identity in, preserving
-        the driver's pose/expression/blink."""
+        the driver's pose/expression/blink. Then optionally restore each face
+        with the ONNX enhancer (GFPGAN/CodeFormer)."""
         if not self.ready:
             return frame_bgr
         try:
+            from app.engines.face.enhancer import face_enhancer
+
             faces = self._app.get(frame_bgr)
             for face in faces:
                 frame_bgr = self._swapper.get(frame_bgr, face, self._source_face, paste_back=True)
-                if self._enhancer is not None:
-                    frame_bgr = self._enhance(frame_bgr)
+                if self.enhancer_kind != "none":
+                    frame_bgr = face_enhancer.enhance(frame_bgr, face.kps)
         except Exception as exc:
             log.debug("neural swap frame skipped: %s", exc)
         return frame_bgr
-
-    def _enhance(self, frame_bgr: np.ndarray) -> np.ndarray:
-        try:
-            _, _, output = self._enhancer.enhance(
-                frame_bgr, has_aligned=False, only_center_face=False, paste_back=True,
-            )
-            return output if output is not None else frame_bgr
-        except Exception:
-            return frame_bgr
 
     @staticmethod
     def download_model() -> bool:

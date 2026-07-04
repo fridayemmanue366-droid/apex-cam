@@ -185,13 +185,13 @@ class Pipeline:
             return self.swapper.set_target(img, target_landmarks)
         return self.swapper.ready
 
-    def set_enhancer(self, enabled: bool) -> bool:
-        """Toggle the GFPGAN face restorer on the neural swapper. No-op if the
-        neural engine isn't loaded/available."""
+    def set_enhancer(self, kind: str) -> str:
+        """Select the ONNX face restorer ('none'|'gfpgan'|'codeformer') on the
+        neural swapper. Runs on onnxruntime (CPU or GPU)."""
         if not self.neural_available:
-            return False
+            return "none"
         self._ensure_neural()
-        return self.neural_swapper.set_enhancer(enabled)
+        return self.neural_swapper.set_enhancer(kind)
 
     def set_swap_mode(self, mode: str) -> bool:
         """Switch between 'fast' (landmark) and 'neural' (realistic). Loading of

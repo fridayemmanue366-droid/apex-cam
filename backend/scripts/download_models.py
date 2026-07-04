@@ -39,20 +39,17 @@ CORE = {
         109, "Face detector used by GFPGAN."),
 }
 
-# Optional higher-quality / extra-capability models (bigger downloads).
+# ONNX enhancers/masks — run on onnxruntime (CPU or GPU), NO PyTorch needed.
+_FF = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0"
 EXTRA = {
-    "codeformer.onnx": (MODELS,
-        "https://huggingface.co/facefusion/models/resolve/main/codeformer.onnx",
-        360, "Alternative face restorer (CodeFormer) — very natural."),
-    "GFPGANv1.4.onnx": (MODELS,
-        "https://huggingface.co/facefusion/models/resolve/main/gfpgan_1.4.onnx",
-        333, "GFPGAN as ONNX — runs on onnxruntime, no PyTorch needed."),
-    "2dfan4.onnx": (MODELS,
-        "https://huggingface.co/facefusion/models/resolve/main/2dfan4.onnx",
-        90, "68-point face landmarks — better alignment/masking."),
-    "xseg.onnx": (MODELS,
-        "https://huggingface.co/facefusion/models/resolve/main/xseg_1.onnx",
-        50, "Face segmentation mask — full-head coverage."),
+    "gfpgan_1.4.onnx": (MODELS, f"{_FF}/gfpgan_1.4.onnx",
+        340, "GFPGAN face restorer (ONNX) — sharp, clean. CPU or GPU, no torch."),
+    "codeformer.onnx": (MODELS, f"{_FF}/codeformer.onnx",
+        377, "CodeFormer face restorer (ONNX) — very natural."),
+    "2dfan4.onnx": (MODELS, f"{_FF}/2dfan4.onnx",
+        98, "68-point face landmarks — better alignment/masking."),
+    "bisenet_resnet_34.onnx": (MODELS, f"{_FF}/bisenet_resnet_34.onnx",
+        37, "Face parsing — precise full-face mask (ONNX)."),
 }
 # buffalo_l (detector+recogniser) auto-downloads via insightface on first run.
 

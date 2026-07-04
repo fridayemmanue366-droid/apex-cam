@@ -5,7 +5,6 @@ import { api, type SetupStatus } from "../api/client";
 // (onnxruntime-gpu + torch + GFPGAN) into this machine. Dormant on GPU-less PCs.
 export function GpuSetupPanel() {
   const [s, setS] = useState<SetupStatus | null>(null);
-  const [enhancer, setEnhancer] = useState(false);
   const timer = useRef<number>(0);
 
   const poll = () => api.setupStatus().then(setS).catch(() => setS(null));
@@ -21,12 +20,6 @@ export function GpuSetupPanel() {
     // Poll faster while installing.
     window.clearInterval(timer.current);
     timer.current = window.setInterval(poll, 1500);
-  };
-
-  const toggleEnhancer = async (v: boolean) => {
-    setEnhancer(v);
-    const r = await api.setEnhancer(v).catch(() => null);
-    if (r) setEnhancer(r.active);
   };
 
   if (!s) return null;
@@ -72,16 +65,6 @@ export function GpuSetupPanel() {
           </span>
         )}
       </div>
-
-      <label className="row">
-        <input
-          type="checkbox"
-          checked={enhancer}
-          disabled={!s.enhancer_available}
-          onChange={(e) => void toggleEnhancer(e.target.checked)}
-        />
-        GFPGAN face enhancement (sharper realistic faces — GPU recommended)
-      </label>
 
       {(s.installing || s.install_done) && s.install_tail.length > 0 && (
         <pre className="setup-log">{s.install_tail.join("\n")}</pre>

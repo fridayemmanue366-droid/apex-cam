@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.core.logging import get_logger
+from app.engines.face.enhancer import enhancer_models_available
 from app.engines.face.neural_swap import (
     GFPGAN_FILE,
     enhancer_available,
@@ -48,7 +49,7 @@ class SetupStatus(BaseModel):
 
 
 class EnhancerToggle(BaseModel):
-    enabled: bool
+    kind: str = "none"  # "none" | "gfpgan" | "codeformer"
 
 
 def _nvidia_gpu_name() -> str | None:
@@ -97,7 +98,7 @@ def status() -> SetupStatus:
         onnx_providers=provs,
         on_gpu=any("CUDA" in p or "Tensorrt" in p or "ROCM" in p for p in provs),
         neural_available=neural_swap_available(),
-        enhancer_available=enhancer_available(),
+        enhancer_available=bool(enhancer_models_available()) or enhancer_available(),
         installing=_install["running"],
         install_done=_install["done"],
         install_ok=_install["ok"],
@@ -118,29 +119,22 @@ def _run(cmd: list[str]) -> bool:
 
 
 def _install_gpu_stack() -> None:
-    _install.update(running=True, done=False, ok=False, log=["Starting GPU setup…"])
+    """Switch the ONNX runtime to the CUDA build. Because the whole AI stack
+    (inswapper swap + GFPGAN/CodeFormer enhancers) runs on ONNX, this single
+    package GPU-accelerates everything — no PyTorch needed."""
+    _install.update(running=True, done=False, ok=False,
+                    log=["Enabling GPU acceleration (onnxruntime-gpu)…"])
     py = sys.executable
-    ok = True
-    # GPU inference runtime (falls back to CPU wheel if no CUDA present).
-    ok = _run([py, "-m", "pip", "install", "--upgrade", "onnxruntime-gpu"]) or ok
-    # PyTorch (CUDA 12.1 build) for GFPGAN.
-    ok = _run([py, "-m", "pip", "install", "torch",
-               "--index-url", "https://download.pytorch.org/whl/cu121"]) and ok
-    # GFPGAN + its deps.
-    ok = _run([py, "-m", "pip", "install", "gfpgan", "basicsr", "facexlib"]) and ok
-    # Enhancer weights.
-    if not GFPGAN_FILE.exists():
-        _install["log"].append("Downloading GFPGANv1.4.pth …")
-        try:
-            import urllib.request
-            GFPGAN_FILE.parent.mkdir(parents=True, exist_ok=True)
-            urllib.request.urlretrieve(GFPGAN_URL, GFPGAN_FILE)
-            _install["log"].append("GFPGAN weights downloaded.")
-        except Exception as exc:
-            _install["log"].append(f"GFPGAN download failed: {exc}")
-            ok = False
-    _install["log"].append("Done — restart the AI engine to use realistic GPU mode."
-                           if ok else "Setup finished with errors (see log).")
+    # Replace the CPU runtime with the GPU build.
+    _run([py, "-m", "pip", "uninstall", "-y", "onnxruntime"])
+    ok = _run([py, "-m", "pip", "install", "--upgrade", "onnxruntime-gpu"])
+    if ok:
+        _install["log"].append(
+            "Done. Restart the AI engine — the swap and enhancers now run on your GPU. "
+            "Make sure your NVIDIA driver + CUDA are installed (see docs/GPU_SETUP.md)."
+        )
+    else:
+        _install["log"].append("Setup failed (see log). The app keeps working on CPU.")
     _install.update(running=False, done=True, ok=ok)
 
 
@@ -152,9 +146,15 @@ def install_gpu() -> dict:
     return {"started": True}
 
 
+@router.get("/enhancers")
+def enhancers() -> dict:
+    """Which ONNX restorers are installed (work on CPU or GPU)."""
+    return {"available": enhancer_models_available()}
+
+
 @router.put("/enhancer")
 def set_enhancer(t: EnhancerToggle) -> dict:
     from app.core.pipeline import pipeline
 
-    active = pipeline.set_enhancer(t.enabled)
-    return {"enabled": t.enabled, "active": active, "available": enhancer_available()}
+    active = pipeline.set_enhancer(t.kind)
+    return {"kind": t.kind, "active": active, "available": enhancer_models_available()}
