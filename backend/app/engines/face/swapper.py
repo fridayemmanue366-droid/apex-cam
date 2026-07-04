@@ -87,13 +87,19 @@ class FaceSwapEngine:
         warped = cv2.warpAffine(self._target_img, matrix, (w, h),
                                 borderMode=cv2.BORDER_REFLECT)
 
-        # Elliptical mask over the destination face region.
-        x, y, bw, bh = face.box
-        cx, cy = x + bw // 2, y + bh // 2
-        mask = np.zeros((h, w), dtype=np.uint8)
-        axes = (int(bw * 0.62), int(bh * 0.78))
-        cv2.ellipse(mask, (cx, cy), axes, 0, 0, 360, 255, -1)
-        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=bw * 0.06 + 1)
+        # Build a face-shaped mask in the TARGET image and warp it with the SAME
+        # transform, so the blended area follows the swapped face precisely —
+        # no hair/background/corner bleed like a fixed ellipse on the user's box.
+        th, tw = self._target_img.shape[:2]
+        tl = self._target_lms
+        eye_dist = float(np.linalg.norm(tl[0] - tl[1])) + 1e-3
+        tcx, tcy = tl.mean(axis=0)
+        tmask = np.zeros((th, tw), dtype=np.uint8)
+        axes = (int(eye_dist * 1.5), int(eye_dist * 2.05))  # covers forehead+jaw
+        cv2.ellipse(tmask, (int(tcx), int(tcy - eye_dist * 0.25)), axes,
+                    0, 0, 360, 255, -1)
+        mask = cv2.warpAffine(tmask, matrix, (w, h))
+        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=eye_dist * 0.14 + 1)
 
         warped = self._match_color(warped, frame, mask)
 

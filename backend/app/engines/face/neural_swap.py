@@ -26,6 +26,14 @@ log = get_logger(__name__)
 
 MODELS_DIR = Path("models")
 INSWAPPER_FILE = MODELS_DIR / "inswapper_128.onnx"
+INSWAPPER_FP16 = MODELS_DIR / "inswapper_128_fp16.onnx"
+
+
+def best_inswapper() -> Path:
+    """Prefer the smaller/faster fp16 model when present (better on weak PCs)."""
+    if INSWAPPER_FP16.exists() and INSWAPPER_FP16.stat().st_size > 1_000_000:
+        return INSWAPPER_FP16
+    return INSWAPPER_FILE
 # Override with EMYCAM_INSWAPPER_URL if the default source is unavailable.
 INSWAPPER_URL = os.environ.get(
     "EMYCAM_INSWAPPER_URL",
@@ -112,13 +120,15 @@ class NeuralFaceSwapEngine:
                 name="buffalo_l", root=str(MODELS_DIR.parent), providers=providers,
             )
             self._app.prepare(ctx_id=ctx_id, det_size=det)
-            self._swapper = get_model(str(INSWAPPER_FILE), providers=providers)
+            model_path = best_inswapper()
+            self._swapper = get_model(str(model_path), providers=providers)
 
             if self.use_enhancer:
                 self._load_enhancer(providers)
 
             self._loaded = True
-            log.info("Neural swap engine loaded (providers=%s)", providers)
+            log.info("Neural swap engine loaded (%s, providers=%s)",
+                     model_path.name, providers)
             return True
         except Exception as exc:
             log.warning("Neural swap engine unavailable, falling back to CPU: %s", exc)
