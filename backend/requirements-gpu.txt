@@ -1,0 +1,30 @@
+# GPU / realistic-swap dependencies for EMY CAM.
+#
+# Install these on a machine with an NVIDIA GPU (CUDA) to enable the neural
+# face swap (InsightFace inswapper) that preserves expressions, blinking and
+# mouth movement. See docs/GPU_SETUP.md for the full walkthrough.
+#
+# IMPORTANT: use Python 3.10 or 3.11. insightface / onnxruntime-gpu / torch do
+# NOT have wheels for Python 3.14 (the build machine's version), which is why
+# the realistic path can't run there.
+
+# Base app deps
+-r <(echo)  # (install the base app first: pip install -e .)
+
+# Neural face swap
+insightface==0.7.3
+onnxruntime-gpu>=1.17          # CUDA execution provider
+onnx>=1.15
+
+# Optional face enhancement (sharper output)
+gfpgan>=1.3.8
+basicsr>=1.4.2
+facexlib>=0.3.0
+
+# Torch with CUDA — pick the build matching your CUDA version, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch>=2.1
+
+# Lip-sync (optional; inswapper already preserves the driver's mouth, so this is
+# only needed when driving lips from separate/dubbed audio):
+#   Wav2Lip is installed from source — see docs/GPU_SETUP.md.

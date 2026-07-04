@@ -1,0 +1,27 @@
+# Development environment for the EMY CAM AI backend.
+# The Electron desktop app runs on the host (it needs native camera/mic + GPU
+# display access); this compose file provides a reproducible backend + GPU
+# runtime for development and testing.
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8790:8790"
+    volumes:
+      - ./backend:/app
+      - ./models:/models
+    environment:
+      - EMYCAM_ENV=development
+      - EMYCAM_MODELS_DIR=/models
+      - EMYCAM_LOG_LEVEL=DEBUG
+    # GPU access (requires NVIDIA Container Toolkit). Comment out on CPU-only hosts.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8790 --reload

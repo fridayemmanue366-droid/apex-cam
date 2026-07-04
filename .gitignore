@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv311/
+.venv*/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Electron
+node_modules/
+dist/
+out/
+.vite/
+*.log
+
+# Models & large weights (never commit these)
+models/
+weights/
+*.onnx
+*.pth
+*.pt
+*.engine
+*.bin
+
+# Env & local config
+.env
+.env.local
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build & recordings
+build/
+recordings/
+captures/
+
+# Local user data (face profiles etc.)
+backend/data/

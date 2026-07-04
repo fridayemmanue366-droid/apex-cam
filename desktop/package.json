@@ -1,0 +1,28 @@
+{
+  "name": "emycam-desktop",
+  "version": "0.1.0",
+  "description": "EMY CAM desktop app (Electron + React + TypeScript)",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite build && node scripts/run-electron.mjs",
+    "build": "tsc && vite build && electron-builder",
+    "electron:dev": "vite build && node scripts/run-electron.mjs",
+    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.3",
+    "vite-plugin-electron": "^0.28.7"
+  }
+}
