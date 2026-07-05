@@ -21,6 +21,8 @@ PARSER_FILE = Path("models") / "bisenet_resnet_34.onnx"
 # BiSeNet/CelebAMask-HQ classes to KEEP as "face" (exclude hair 17, background 0,
 # neck 14, cloth 16, hat 18, glasses 6, ears/earring 7/8/9).
 FACE_CLASSES = (1, 2, 3, 4, 5, 10, 11, 12, 13)  # skin, brows, eyes, nose, mouth, lips
+# Full head = face + ears + hair + hat (everything that is "the person's head").
+HEAD_CLASSES = FACE_CLASSES + (7, 8, 9, 17, 18)
 
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -67,9 +69,10 @@ class FaceParser:
             self._session = None
             return False
 
-    def mask_512(self, aligned_bgr: np.ndarray) -> np.ndarray | None:
-        """Return a soft 512x512 float mask (0..1) of the face region for an
-        aligned 512x512 face crop, or None if unavailable."""
+    def mask_512(self, aligned_bgr: np.ndarray, include_hair: bool = False) -> np.ndarray | None:
+        """Return a soft 512x512 float mask (0..1) of the face — or the whole head
+        (face + hair + ears) when ``include_hair`` is set — for an aligned 512x512
+        crop. Returns None if unavailable."""
         if self._session is None and not self.load():
             return None
         try:
@@ -79,7 +82,8 @@ class FaceParser:
             blob = blob.transpose(2, 0, 1)[None]
             out = self._session.run(None, {self._input: blob})[0][0]  # [19,512,512]
             classes = np.argmax(out, axis=0)
-            mask = np.isin(classes, FACE_CLASSES).astype(np.float32)
+            keep = HEAD_CLASSES if include_hair else FACE_CLASSES
+            mask = np.isin(classes, keep).astype(np.float32)
             # tidy: close holes, pull in from the very edge, feather
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
             mask = cv2.erode(mask, np.ones((5, 5), np.uint8))

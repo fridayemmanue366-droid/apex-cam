@@ -94,6 +94,23 @@ class BackgroundEngine:
         pha, self._rec = out[0], out[1:]
         return pha[0, 0]  # HxW
 
+    def matte(self, img_bgr: np.ndarray) -> np.ndarray | None:
+        """One-off person alpha matte (fresh state) — used to cut a generated
+        head cleanly from its background. Returns HxW float alpha or None."""
+        if self._session is None and not self.load():
+            return None
+        try:
+            h, w = img_bgr.shape[:2]
+            src = img_bgr[:, :, ::-1].astype(np.float32) / 255.0
+            src = src.transpose(2, 0, 1)[None]
+            zero = np.zeros([1, 1, 1, 1], np.float32)
+            feeds = {"src": src, "downsample_ratio": np.array([0.5], np.float32),
+                     "r1i": zero, "r2i": zero, "r3i": zero, "r4i": zero}
+            pha = self._session.run(["pha"], feeds)[0][0, 0]
+            return np.clip(pha, 0, 1)
+        except Exception:
+            return None
+
     def process(self, frame_bgr: np.ndarray) -> np.ndarray:
         if self.mode == "off":
             return frame_bgr

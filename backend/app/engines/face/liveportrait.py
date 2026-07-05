@@ -112,11 +112,16 @@ class LivePortraitEngine:
         kp[..., 0:2] += t[:, None, 0:2]
         return kp.astype(np.float32)
 
-    @staticmethod
-    def _crop(img: np.ndarray, bbox) -> tuple[np.ndarray, tuple[int, int, int]]:
+    # Larger crop so the whole head + hair is captured/generated (not just face).
+    CROP_SCALE = 2.0
+
+    @classmethod
+    def _crop(cls, img: np.ndarray, bbox) -> tuple[np.ndarray, tuple[int, int, int]]:
         x0b, y0b, x1b, y1b = bbox
         cx, cy = (x0b + x1b) / 2, (y0b + y1b) / 2
-        s = int(max(x1b - x0b, y1b - y0b) * 1.4)
+        s = int(max(x1b - x0b, y1b - y0b) * cls.CROP_SCALE)
+        # Bias the crop upward so hair above the face is included.
+        cy -= s * 0.12
         x0, y0 = int(cx - s), int(cy - s)
         pad_t, pad_l = max(0, -y0), max(0, -x0)
         pad_b = max(0, y0 + 2 * s - img.shape[0])
@@ -164,20 +169,31 @@ class LivePortraitEngine:
                                   d["expression"], self._src_scale, self._src_t)
             out = self._gen.run(None, {"feature_volume": self._fv,
                                        "source": self._x_s, "target": x_d})[0][0]
-            gen = np.clip(out.transpose(1, 2, 0)[:, :, ::-1] * 255, 0, 255).astype(np.uint8)
-            gen = cv2.resize(gen, (size, size))
+            gen512 = np.clip(out.transpose(1, 2, 0)[:, :, ::-1] * 255, 0, 255).astype(np.uint8)
+
+            # Cut the generated head cleanly from the photo's background using the
+            # RVM person matte (so hair + head shape come across, not a rectangle
+            # of background). Intersect with a head-region oval to drop shoulders.
+            from app.engines.background import background
+            hm = background.matte(gen512)
+            if hm is None or float(hm.mean()) < 0.02:
+                hm = np.zeros((512, 512), np.float32)
+                cv2.ellipse(hm, (256, 236), (int(512 * 0.42), int(512 * 0.5)), 0, 0, 360, 1.0, -1)
+            else:
+                # Solidify the matte: firm interior, soft edge (clean full-head cut).
+                hm = np.clip((hm - 0.35) / 0.4, 0, 1)
+            hm = cv2.GaussianBlur(hm.astype(np.float32), (0, 0), sigmaX=512 * 0.02)
+
+            gen = cv2.resize(gen512, (size, size))
+            mask = cv2.resize(hm, (size, size))
+            mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=size * 0.02)
 
             h, w = frame_bgr.shape[:2]
             gx0, gy0 = max(0, x0), max(0, y0)
             gx1, gy1 = min(w, x0 + size), min(h, y0 + size)
             cx0, cy0 = gx0 - x0, gy0 - y0
             region = gen[cy0:cy0 + (gy1 - gy0), cx0:cx0 + (gx1 - gx0)]
-            # feathered oval blend
-            mask = np.zeros((size, size), np.uint8)
-            cv2.ellipse(mask, (size // 2, size // 2), (int(size * 0.42), int(size * 0.5)),
-                        0, 0, 360, 255, -1)
-            mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=size * 0.05)
-            m = (mask[cy0:cy0 + (gy1 - gy0), cx0:cx0 + (gx1 - gx0)] / 255.0)[..., None]
+            m = np.clip(mask[cy0:cy0 + (gy1 - gy0), cx0:cx0 + (gx1 - gx0)], 0, 1)[..., None]
             frame_bgr[gy0:gy1, gx0:gx1] = (
                 region * m + frame_bgr[gy0:gy1, gx0:gx1] * (1 - m)
             ).astype(np.uint8)
