@@ -122,15 +122,22 @@ class FaceEnhancer:
         out = np.clip((out.transpose(1, 2, 0) + 1.0) / 2.0, 0, 1) * 255.0
         restored = out.astype(np.uint8)[:, :, ::-1]
 
-        # Paste back with inverse transform + soft oval mask.
+        # Paste back with inverse transform. Use the precise face-parsing mask
+        # when available (follows the real face shape — no hair/edge bleed);
+        # otherwise a soft oval.
         inv = cv2.invertAffineTransform(matrix)
         h, w = frame.shape[:2]
         pasted = cv2.warpAffine(restored, inv, (w, h), borderMode=cv2.BORDER_TRANSPARENT,
                                 dst=frame.copy())
-        mask = np.zeros((512, 512), dtype=np.uint8)
-        cv2.ellipse(mask, (256, 256), (208, 248), 0, 0, 360, 255, -1)
-        mask = cv2.warpAffine(mask, inv, (w, h))
-        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=5).astype(np.float32) / 255.0
+        from app.engines.face.face_parser import face_parser
+        pmask = face_parser.mask_512(restored)
+        if pmask is not None:
+            mask512 = (pmask * 255).astype(np.uint8)
+        else:
+            mask512 = np.zeros((512, 512), dtype=np.uint8)
+            cv2.ellipse(mask512, (256, 256), (208, 248), 0, 0, 360, 255, -1)
+        mask = cv2.warpAffine(mask512, inv, (w, h))
+        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=3).astype(np.float32) / 255.0
         alpha = (mask * self.strength)[..., None]
         blended = pasted.astype(np.float32) * alpha + frame.astype(np.float32) * (1 - alpha)
         return blended.astype(np.uint8)
