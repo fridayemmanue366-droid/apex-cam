@@ -132,6 +132,7 @@ export interface EnhanceSettings {
   contrast: number;
   saturation: number;
   sharpen?: number;
+  beautify?: number;
 }
 
 export interface ModelInfo {

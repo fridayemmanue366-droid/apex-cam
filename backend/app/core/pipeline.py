@@ -373,6 +373,11 @@ class Pipeline:
 
         work = self.face_engine.process(work)
 
+        # Studio Beautify — cinematic tone, clean skin, HD crispness.
+        from app.engines.beautify import beautify
+        if beautify.level > 0.01:
+            work = beautify.process(work, self.latest_faces)
+
         # Full-body pose skeleton overlay (optional).
         from app.engines.body_pose import body_pose
         if body_pose.enabled:

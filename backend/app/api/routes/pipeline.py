@@ -65,6 +65,7 @@ class Enhance(BaseModel):
     contrast: float = 1.1
     saturation: float = 1.08
     sharpen: float = 0.0
+    beautify: float = 0.0
 
 
 def _status() -> PipelineStatus:
@@ -158,16 +159,22 @@ def set_performance(p: PerformanceSettings) -> PerformanceSettings:
 
 @router.get("/enhance")
 def get_enhance() -> Enhance:
+    from app.engines.beautify import beautify
+
     e = pipeline.enhance
     return Enhance(brightness=e.brightness, contrast=e.contrast,
-                   saturation=e.saturation, sharpen=pipeline.sharpen)
+                   saturation=e.saturation, sharpen=pipeline.sharpen,
+                   beautify=beautify.level)
 
 
 @router.put("/enhance")
 def set_enhance(e: Enhance) -> Enhance:
+    from app.engines.beautify import beautify
+
     pipeline.enhance = EnhanceSettings(
         brightness=e.brightness, contrast=e.contrast, saturation=e.saturation)
     pipeline.sharpen = max(0.0, min(e.sharpen, 1.5))
+    beautify.level = max(0.0, min(e.beautify, 1.0))
     return e
 
 

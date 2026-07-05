@@ -24,13 +24,22 @@ export function CameraTab() {
     externalHold,
   } = useMedia();
   const [sharpen, setSharpen] = useState(0);
+  const [beauty, setBeauty] = useState(0);
   const [bg, setBg] = useState<BackgroundSettings | null>(null);
   const bgFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    api.getEnhance().then((e) => setSharpen(e.sharpen ?? 0)).catch(() => undefined);
+    api.getEnhance().then((e) => {
+      setSharpen(e.sharpen ?? 0);
+      setBeauty(e.beautify ?? 0);
+    }).catch(() => undefined);
     api.getBackground().then(setBg).catch(() => setBg(null));
   }, []);
+
+  const changeBeauty = (v: number) => {
+    setBeauty(v);
+    api.setEnhance({ ...enhance, sharpen, beautify: v }).catch(() => undefined);
+  };
 
   const updateBg = (patch: Partial<BackgroundSettings>) => {
     if (!bg) return;
@@ -48,12 +57,12 @@ export function CameraTab() {
   // Sliders drive both the local CSS preview and the backend pipeline.
   const applyEnhance = (e: Enhance) => {
     setEnhance(e);
-    api.setEnhance({ ...e, sharpen }).catch(() => undefined);
+    api.setEnhance({ ...e, sharpen, beautify: beauty }).catch(() => undefined);
   };
 
   const changeSharpen = (v: number) => {
     setSharpen(v);
-    api.setEnhance({ ...enhance, sharpen: v }).catch(() => undefined);
+    api.setEnhance({ ...enhance, sharpen: v, beautify: beauty }).catch(() => undefined);
   };
 
   return (
@@ -116,6 +125,22 @@ export function CameraTab() {
 
       <section className="panel">
         <h3>Picture quality (applies to EMY CAM output)</h3>
+        <label className="row">
+          ✨ Studio Beautify ({Math.round(beauty * 100)}%)
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={beauty}
+            onChange={(e) => changeBeauty(Number(e.target.value))}
+          />
+        </label>
+        <p className="muted">
+          Cinematic HD look — cleans up a cheap/grainy webcam: balanced exposure, smooth
+          natural skin (keeps eyes &amp; detail sharp), warm tone and crisp sharpening. Makes
+          everyone look polished and authentic. Real-time on CPU.
+        </p>
         <label className="row">
           Brightness ({enhance.brightness.toFixed(2)})
           <input
