@@ -88,8 +88,9 @@ def _apply_swap() -> None:
 
 
 class SwapMode(BaseModel):
-    mode: str = "fast"              # "fast" | "neural"
+    mode: str = "fast"              # "fast" | "neural" | "avatar"
     neural_available: bool = False
+    avatar_available: bool = False
     backend: str = "landmark"      # effective backend in use
 
 
@@ -100,6 +101,7 @@ def get_swap_mode() -> SwapMode:
     return SwapMode(
         mode=pipeline.swap_mode,
         neural_available=pipeline.neural_available,
+        avatar_available=pipeline.avatar_available,
         backend=pipeline.swap_backend,
     )
 

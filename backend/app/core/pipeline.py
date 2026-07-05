@@ -98,8 +98,10 @@ class Pipeline:
         # the CPU landmark paste; "neural" is the photorealistic model.
         self.neural_swapper = NeuralFaceSwapEngine()
         self.neural_available = neural_swap_available()
-        self.swap_mode = "fast"  # "fast" | "neural"
+        self.swap_mode = "fast"  # "fast" | "neural" | "avatar"
         self.sharpen = 0.0  # 0..1.5 unsharp-mask strength on the output
+        from app.engines.face.liveportrait import liveportrait_available
+        self.avatar_available = liveportrait_available()
         log.info("Neural swap available: %s", self.neural_available)
         # Fast, light capture defaults for CPU; the Performance tab / GPU builds
         # can raise processing resolution. capture_width=0 means "use the
@@ -178,6 +180,10 @@ class Pipeline:
         if not enabled:
             return False
         img = cv2.imread(target_image_path) if target_image_path else None
+        if self.swap_mode == "avatar" and self._ensure_neural():
+            from app.engines.face.liveportrait import liveportrait
+            liveportrait.load()
+            return liveportrait.set_source(img, self.neural_swapper._app)
         if self.swap_mode == "neural" and self._ensure_neural():
             # Neural swapper runs its own detector; landmarks are ignored.
             return self.neural_swapper.set_target(img)
@@ -194,13 +200,16 @@ class Pipeline:
         return self.neural_swapper.set_enhancer(kind)
 
     def set_swap_mode(self, mode: str) -> bool:
-        """Switch between 'fast' (landmark) and 'neural' (realistic). Loading of
-        the neural model is lazy; returns True if the requested mode is usable."""
-        if mode not in ("fast", "neural"):
+        """Switch swap engine: 'fast' (landmark), 'neural' (realistic swap),
+        'avatar' (LivePortrait animation). Loading is lazy."""
+        if mode not in ("fast", "neural", "avatar"):
             return False
         self.swap_mode = mode
         if mode == "neural":
             return self._ensure_neural()
+        if mode == "avatar":
+            from app.engines.face.liveportrait import liveportrait
+            return self._ensure_neural() and liveportrait.load()
         return True
 
     def enable_vcam(self) -> None:
@@ -328,7 +337,13 @@ class Pipeline:
                 faces = self.latest_faces
             with self._shared.lock:
                 self._shared.stats.faces_detected = len(faces)
-            if self.swap_enabled and self.neural_active and self.neural_swapper.ready:
+            if self.swap_enabled and self.swap_mode == "avatar":
+                # Avatar path: animate the chosen photo with the user's motion.
+                from app.engines.face.liveportrait import liveportrait
+                if liveportrait.ready:
+                    for af in self.neural_swapper._app.get(work):
+                        work = liveportrait.animate(work, af)
+            elif self.swap_enabled and self.neural_active and self.neural_swapper.ready:
                 # Realistic path: inswapper keeps the user's pose/expression/
                 # blink and swaps identity — no separate lip-sync needed.
                 work = self.neural_swapper.swap_frame(work)

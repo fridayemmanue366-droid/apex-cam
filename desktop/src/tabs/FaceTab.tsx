@@ -36,7 +36,7 @@ export function FaceTab() {
     api.setEnhancer(kind).then((r) => setEnhancerState(r.active)).catch(() => undefined);
   };
 
-  const changeMode = (mode: "fast" | "neural") => {
+  const changeMode = (mode: "fast" | "neural" | "avatar") => {
     setSwapMode((m) => (m ? { ...m, mode } : m));
     api.setSwapMode(mode).then(setSwapMode).catch(() => undefined);
   };
@@ -209,10 +209,23 @@ export function FaceTab() {
               >
                 Realistic (neural)
               </button>
-              <span className={swapMode.backend === "neural" ? "pill ok" : "pill"}>
-                {swapMode.backend === "neural" ? "Realistic engine active" : "Fast engine active"}
-              </span>
+              <button
+                type="button"
+                className={swapMode.mode === "avatar" ? "btn primary" : "btn"}
+                disabled={!swapMode.avatar_available}
+                onClick={() => changeMode("avatar")}
+              >
+                Avatar (LivePortrait)
+              </button>
             </div>
+            {swapMode.mode === "avatar" && (
+              <p className="muted">
+                Avatar mode turns your chosen <strong>photo</strong> into a live puppet — it
+                keeps the photo's identity but takes on your head pose, expression, eyes and
+                mouth. The most lifelike mode. Very heavy: smooth on a GPU, slideshow-slow on
+                CPU. Pick a clear real photo below.
+              </p>
+            )}
             {swapMode.mode === "neural" && (
               <p className="muted">
                 Realistic neural swap (inswapper) — keeps your real expressions, mouth and

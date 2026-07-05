@@ -52,8 +52,9 @@ export interface SetupStatus {
 }
 
 export interface SwapMode {
-  mode: "fast" | "neural";
+  mode: "fast" | "neural" | "avatar";
   neural_available: boolean;
+  avatar_available: boolean;
   backend: "landmark" | "neural";
 }
 
@@ -155,8 +156,13 @@ export const api = {
   setSwapStrength: (strength: number) =>
     put<{ strength: number }>("/face/swap/strength", { strength }),
   getSwapMode: () => req<SwapMode>("/face/swap/mode"),
-  setSwapMode: (mode: "fast" | "neural") =>
-    put<SwapMode>("/face/swap/mode", { mode, neural_available: false, backend: "landmark" }),
+  setSwapMode: (mode: "fast" | "neural" | "avatar") =>
+    put<SwapMode>("/face/swap/mode", {
+      mode,
+      neural_available: false,
+      avatar_available: false,
+      backend: "landmark",
+    }),
 
   setupStatus: () => req<SetupStatus>("/setup"),
   installGpu: () => req<{ started: boolean }>("/setup/gpu", { method: "POST" }),

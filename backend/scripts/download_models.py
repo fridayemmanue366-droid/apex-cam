@@ -51,6 +51,17 @@ EXTRA = {
     "bisenet_resnet_34.onnx": (MODELS, f"{_FF}/bisenet_resnet_34.onnx",
         37, "Face parsing — precise full-face mask (ONNX)."),
 }
+
+# LivePortrait — animate a photo with your motion (avatar mode). ONNX, CPU/GPU.
+_LP = MODELS / "liveportrait"
+LIVEPORTRAIT = {
+    "live_portrait_feature_extractor.onnx": (_LP, f"{_FF}/live_portrait_feature_extractor.onnx",
+        3, "LivePortrait appearance features."),
+    "live_portrait_motion_extractor.onnx": (_LP, f"{_FF}/live_portrait_motion_extractor.onnx",
+        113, "LivePortrait motion (pose/expression)."),
+    "live_portrait_generator.onnx": (_LP, f"{_FF}/live_portrait_generator.onnx",
+        222, "LivePortrait generator — the animated face."),
+}
 # buffalo_l (detector+recogniser) auto-downloads via insightface on first run.
 
 
@@ -79,6 +90,9 @@ def main() -> None:
     if args.all:
         print("\nOptional extra models :")
         for name, (dest, url, mb, why) in EXTRA.items():
+            fetch(name, dest, url, mb, why)
+        print("\nLivePortrait (avatar mode) :")
+        for name, (dest, url, mb, why) in LIVEPORTRAIT.items():
             fetch(name, dest, url, mb, why)
     print("\nDone. Missing files can be re-run anytime (existing ones are skipped).")
 
