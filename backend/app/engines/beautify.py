@@ -24,10 +24,15 @@ class BeautifyEngine:
         lv = float(np.clip(self.level, 0, 1))
         out = frame_bgr
 
-        # 1) Cinematic auto-tone: adaptive contrast on luminance + gentle warmth.
+        # 1) Cinematic auto-tone + studio fill-light: adaptive contrast, then lift
+        #    shadows so harsh/dim lighting looks soft and evenly lit.
         lab = cv2.cvtColor(out, cv2.COLOR_BGR2LAB)
         l = self._clahe.apply(lab[:, :, 0])
         lab[:, :, 0] = cv2.addWeighted(lab[:, :, 0], 1 - 0.6 * lv, l, 0.6 * lv, 0)
+        lf = lab[:, :, 0].astype(np.float32)
+        fill = (255.0 - lf) / 255.0                 # how dark each pixel is
+        lf = lf + (0.28 * lv) * fill * fill * 120   # lift shadows (studio fill)
+        lab[:, :, 0] = np.clip(lf, 0, 255).astype(np.uint8)
         out = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
         if lv > 0:  # subtle warm grade
             out = out.astype(np.float32)
