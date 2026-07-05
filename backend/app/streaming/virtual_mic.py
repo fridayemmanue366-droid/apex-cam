@@ -2,7 +2,7 @@
 
 Isolates the OS-specific virtual-audio backend. The real implementation
 (Phase 5) writes processed audio into a standard virtual audio device so any app
-that lets the user pick a microphone can select EMY CAM's output.
+that lets the user pick a microphone can select Apex Cam's output.
 """
 from __future__ import annotations
 

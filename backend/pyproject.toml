@@ -1,7 +1,7 @@
 [project]
-name = "emycam-backend"
+name = "apexcam-backend"
 version = "0.1.0"
-description = "EMY CAM AI backend — real-time face & voice transformation"
+description = "Apex Cam AI backend — real-time face & voice transformation"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111",

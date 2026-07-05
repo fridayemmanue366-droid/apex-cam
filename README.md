@@ -1,14 +1,14 @@
-# EMY CAM
+# Apex Cam
 
 Real-time AI face transformation and AI voice transformation for the desktop.
 
-EMY CAM processes your webcam and microphone in real time and exposes a
+Apex Cam processes your webcam and microphone in real time and exposes a
 **virtual camera** and **virtual microphone** using standard operating-system
 device interfaces, so any app that lets you pick a camera/mic (Zoom, Discord,
 Google Meet, Microsoft Teams, OBS, etc.) can use the processed stream.
 
 > Compatibility comes only from standard OS camera/microphone interfaces.
-> EMY CAM does **not** reverse-engineer or hook into any specific messaging
+> Apex Cam does **not** reverse-engineer or hook into any specific messaging
 > platform.
 
 ## Architecture at a glance
@@ -37,7 +37,7 @@ phase-by-phase build plan.
 
 ## Responsible use
 
-EMY CAM can alter how you look and sound. Using it to impersonate a real
+Apex Cam can alter how you look and sound. Using it to impersonate a real
 person without their permission may be illegal. Every output is labeled as
 AI-generated and use is governed by [docs/LEGAL.md](docs/LEGAL.md). Reports of
 misuse can lead to blocking/restriction.

@@ -1,4 +1,4 @@
-"""GPU self-setup — makes EMY CAM provision the realistic stack on the user's
+"""GPU self-setup — makes Apex Cam provision the realistic stack on the user's
 own machine.
 
 On a machine with an NVIDIA GPU, the user clicks "Set up realistic GPU mode" and

@@ -34,9 +34,9 @@ def best_inswapper() -> Path:
     if INSWAPPER_FP16.exists() and INSWAPPER_FP16.stat().st_size > 1_000_000:
         return INSWAPPER_FP16
     return INSWAPPER_FILE
-# Override with EMYCAM_INSWAPPER_URL if the default source is unavailable.
+# Override with APEXCAM_INSWAPPER_URL if the default source is unavailable.
 INSWAPPER_URL = os.environ.get(
-    "EMYCAM_INSWAPPER_URL",
+    "APEXCAM_INSWAPPER_URL",
     "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx",
 )
 

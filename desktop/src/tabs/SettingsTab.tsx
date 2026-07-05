@@ -3,8 +3,8 @@ import { usePipeline } from "../context/PipelineContext";
 
 // Theme preference is applied by toggling a class on <body>; dark is default.
 export function SettingsTab() {
-  const [light, setLight] = useState(localStorage.getItem("emycam.theme") === "light");
-  const consentDate = localStorage.getItem("emycam.consent.date");
+  const [light, setLight] = useState(localStorage.getItem("apexcam.theme") === "light");
+  const consentDate = localStorage.getItem("apexcam.consent.date");
   const { resetAll, resetting } = usePipeline();
   const [resetDone, setResetDone] = useState(false);
 
@@ -16,7 +16,7 @@ export function SettingsTab() {
 
   useEffect(() => {
     document.body.classList.toggle("light", light);
-    localStorage.setItem("emycam.theme", light ? "light" : "dark");
+    localStorage.setItem("apexcam.theme", light ? "light" : "dark");
   }, [light]);
 
   return (
@@ -62,7 +62,7 @@ export function SettingsTab() {
           <span>On — records active profile/model per session</span>
         </div>
         <p className="muted">
-          If someone uses EMY CAM to impersonate you without permission, report it — confirmed
+          If someone uses Apex Cam to impersonate you without permission, report it — confirmed
           misuse leads to blocking and restriction. See docs/LEGAL.md.
         </p>
       </section>

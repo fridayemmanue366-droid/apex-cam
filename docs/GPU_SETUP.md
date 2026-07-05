@@ -1,4 +1,4 @@
-# EMY CAM — Realistic (GPU) Swap Setup
+# Apex Cam — Realistic (GPU) Swap Setup
 
 The realistic face swap — which keeps **your** expressions, **blinking**, mouth
 movement and head turns and only changes the identity — uses neural models that
@@ -51,7 +51,7 @@ need an **NVIDIA GPU (CUDA)**. This is the mode that looks lifelike.
 
    If the inswapper download URL is blocked, set an alternate source:
    ```bash
-   set EMYCAM_INSWAPPER_URL=https://your-mirror/inswapper_128.onnx   # Windows
+   set APEXCAM_INSWAPPER_URL=https://your-mirror/inswapper_128.onnx   # Windows
    ```
 
 4. Start the backend as usual (`uvicorn app.main:app --port 8790`). On startup

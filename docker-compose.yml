@@ -1,4 +1,4 @@
-# Development environment for the EMY CAM AI backend.
+# Development environment for the Apex Cam AI backend.
 # The Electron desktop app runs on the host (it needs native camera/mic + GPU
 # display access); this compose file provides a reproducible backend + GPU
 # runtime for development and testing.
@@ -13,9 +13,9 @@ services:
       - ./backend:/app
       - ./models:/models
     environment:
-      - EMYCAM_ENV=development
-      - EMYCAM_MODELS_DIR=/models
-      - EMYCAM_LOG_LEVEL=DEBUG
+      - APEXCAM_ENV=development
+      - APEXCAM_MODELS_DIR=/models
+      - APEXCAM_LOG_LEVEL=DEBUG
     # GPU access (requires NVIDIA Container Toolkit). Comment out on CPU-only hosts.
     deploy:
       resources:

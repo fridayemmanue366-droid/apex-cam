@@ -1,5 +1,5 @@
 // Typed client for the local AI backend (REST now, WebSocket telemetry later).
-// Must match the backend port (EMYCAM_PORT / config.py default).
+// Must match the backend port (APEXCAM_PORT / config.py default).
 const BASE = "http://127.0.0.1:8790";
 
 export interface Health {

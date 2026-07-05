@@ -1,6 +1,6 @@
 """Model manager endpoints.
 
-Lists the AI models EMY CAM supports and their install/load state. In Phase 2
+Lists the AI models Apex Cam supports and their install/load state. In Phase 2
 this is a static registry so the UI's AI Models tab has real data to render;
 download/load actions arrive with the engine phases (6+).
 """

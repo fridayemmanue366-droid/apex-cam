@@ -124,7 +124,7 @@ export function CameraTab() {
       </section>
 
       <section className="panel">
-        <h3>Picture quality (applies to EMY CAM output)</h3>
+        <h3>Picture quality (applies to Apex Cam output)</h3>
         <label className="row">
           ✨ Studio Beautify ({Math.round(beauty * 100)}%)
           <input
@@ -203,7 +203,7 @@ export function CameraTab() {
           </button>
         </div>
         <p className="muted">
-          These adjustments show on the EMY CAM output and are burned into recordings.
+          These adjustments show on the Apex Cam output and are burned into recordings.
         </p>
       </section>
 

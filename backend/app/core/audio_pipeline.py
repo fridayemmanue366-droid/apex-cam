@@ -3,7 +3,7 @@
 Captures the microphone, runs it through the voice engine chain (noise gate →
 voice engine), and writes the processed audio to a virtual audio device
 (VB-CABLE Input) so any app that lets you pick a microphone — Zoom, WhatsApp,
-Telegram, Meet, Teams, Discord — can select EMY CAM's processed voice. Only the
+Telegram, Meet, Teams, Discord — can select Apex Cam's processed voice. Only the
 processed audio is ever published; the raw mic is not.
 
 Runs on a sounddevice callback (its own high-priority audio thread), so it stays

@@ -1,7 +1,7 @@
 {
-  "name": "emycam-desktop",
+  "name": "apexcam-desktop",
   "version": "0.1.0",
-  "description": "EMY CAM desktop app (Electron + React + TypeScript)",
+  "description": "Apex Cam desktop app (Electron + React + TypeScript)",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",

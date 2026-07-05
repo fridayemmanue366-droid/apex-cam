@@ -1,7 +1,7 @@
 """Typed application settings, sourced from environment with sane defaults.
 
-All settings are prefixed with ``EMYCAM_`` in the environment, e.g.
-``EMYCAM_LOG_LEVEL=DEBUG``.
+All settings are prefixed with ``APEXCAM_`` in the environment, e.g.
+``APEXCAM_LOG_LEVEL=DEBUG``.
 """
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="EMYCAM_", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="APEXCAM_", env_file=".env")
 
     env: str = "development"
     host: str = "127.0.0.1"
     # Distinctive default port to avoid colliding with other local dev servers
-    # (8000/8080 are commonly occupied). Override with EMYCAM_PORT.
+    # (8000/8080 are commonly occupied). Override with APEXCAM_PORT.
     port: int = 8790
     log_level: str = "INFO"
 

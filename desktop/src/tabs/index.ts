@@ -34,7 +34,7 @@ export const TAB_SUMMARY: Record<TabName, string> = {
   "AI Models": "Model manager — download, load, and switch face/voice/lip-sync models.",
   Performance: "GPU, FPS, and latency monitors; acceleration settings.",
   Recording: "Record the processed stream and capture screenshots.",
-  Streaming: "How to select EMY CAM's virtual devices in Zoom, Discord, Meet, Teams, OBS.",
+  Streaming: "How to select Apex Cam's virtual devices in Zoom, Discord, Meet, Teams, OBS.",
   Settings: "Appearance, language, and responsible-use status.",
 };
 

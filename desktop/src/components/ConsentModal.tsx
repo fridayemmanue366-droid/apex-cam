@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const CONSENT_KEY = "emycam.consent.v1";
+const CONSENT_KEY = "apexcam.consent.v1";
 
 export function hasConsent(): boolean {
   return localStorage.getItem(CONSENT_KEY) === "accepted";
@@ -13,15 +13,15 @@ export function ConsentModal({ onAccept }: { onAccept: () => void }) {
 
   const accept = () => {
     localStorage.setItem(CONSENT_KEY, "accepted");
-    localStorage.setItem("emycam.consent.date", new Date().toISOString());
+    localStorage.setItem("apexcam.consent.date", new Date().toISOString());
     onAccept();
   };
 
   return (
     <div className="modal-backdrop">
       <div className="modal">
-        <h2>Welcome to EMY CAM</h2>
-        <p>EMY CAM transforms how you look and sound in real time. Before you start:</p>
+        <h2>Welcome to Apex Cam</h2>
+        <p>Apex Cam transforms how you look and sound in real time. Before you start:</p>
         <ul>
           <li>
             <strong>Do not impersonate any real person without their permission.</strong>{" "}

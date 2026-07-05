@@ -1,4 +1,4 @@
-# GPU / realistic-swap dependencies for EMY CAM.
+# GPU / realistic-swap dependencies for Apex Cam.
 #
 # Install these on a machine with an NVIDIA GPU (CUDA) to enable the neural
 # face swap (InsightFace inswapper) that preserves expressions, blinking and

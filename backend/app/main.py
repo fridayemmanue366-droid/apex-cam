@@ -31,16 +31,16 @@ log = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("EMY CAM backend starting (env=%s, version=%s)", settings.env, __version__)
+    log.info("Apex Cam backend starting (env=%s, version=%s)", settings.env, __version__)
     ensure_demo_faces()
     yield
     pipeline.stop()
     audio_pipeline.stop()
-    log.info("EMY CAM backend shutting down")
+    log.info("Apex Cam backend shutting down")
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="EMY CAM Backend", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="Apex Cam Backend", version=__version__, lifespan=lifespan)
 
     # The desktop renderer calls us over loopback. In dev the origin is the Vite
     # server (localhost:5173); in the packaged app the UI loads from file://,

@@ -54,13 +54,13 @@ export function StreamingTab() {
         </p>
         <p className="muted">
           <strong>Privacy by design:</strong> the virtual devices carry only the AI-processed
-          EMY CAM output (with its AI-GENERATED label). Your raw camera feed is never exposed
+          Apex Cam output (with its AI-GENERATED label). Your raw camera feed is never exposed
           to WhatsApp, Telegram, Zoom, or any other app.
         </p>
       </section>
 
       <section className="panel">
-        <h3>Selecting EMY CAM in your apps</h3>
+        <h3>Selecting Apex Cam in your apps</h3>
         <ul className="list">
           <li><strong>Zoom</strong> — Settings → Video → Camera → “OBS Virtual Camera”.</li>
           <li><strong>Discord</strong> — User Settings → Voice &amp; Video → Camera.</li>
@@ -76,8 +76,8 @@ export function StreamingTab() {
           Audio tab.
         </p>
         <p className="muted">
-          While EMY CAM is live, pick the virtual camera device in the app's camera list. The
-          device is provided through standard OS camera interfaces only — EMY CAM never hooks
+          While Apex Cam is live, pick the virtual camera device in the app's camera list. The
+          device is provided through standard OS camera interfaces only — Apex Cam never hooks
           into or reverse-engineers specific apps.
         </p>
       </section>

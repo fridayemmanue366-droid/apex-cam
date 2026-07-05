@@ -1,4 +1,4 @@
-"""One-shot GPU setup helper for EMY CAM's realistic swap.
+"""One-shot GPU setup helper for Apex Cam's realistic swap.
 
 Run on a GPU machine (Python 3.10/3.11) after installing requirements-gpu.txt:
 
@@ -23,7 +23,7 @@ from app.engines.face.neural_swap import (  # noqa: E402
 
 
 def main() -> int:
-    print("== EMY CAM GPU setup ==")
+    print("== Apex Cam GPU setup ==")
 
     try:
         import onnxruntime as ort
@@ -40,7 +40,7 @@ def main() -> int:
     print("Downloading inswapper model (if missing)...")
     if not NeuralFaceSwapEngine.download_model():
         print("Could not download inswapper_128.onnx.")
-        print("Set EMYCAM_INSWAPPER_URL to a reachable copy and retry, or place")
+        print("Set APEXCAM_INSWAPPER_URL to a reachable copy and retry, or place")
         print("the file at backend/models/inswapper_128.onnx manually.")
         return 1
 

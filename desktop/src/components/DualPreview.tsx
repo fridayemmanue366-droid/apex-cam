@@ -5,7 +5,7 @@ import { AiLabelBadge } from "./AiLabelBadge";
 
 export type OutputMediaRef = MutableRefObject<HTMLVideoElement | HTMLImageElement | null>;
 
-// Side-by-side view: the user's raw camera on the left, EMY CAM's output on the
+// Side-by-side view: the user's raw camera on the left, Apex Cam's output on the
 // right. Two modes:
 //  - Local mode: both panes play the UI's getUserMedia stream; the output pane
 //    applies the CSS enhancement filter + badge overlay.
@@ -44,7 +44,7 @@ export function DualPreview({ outputMediaRef }: { outputMediaRef?: OutputMediaRe
           )}
         </div>
         <div className="dual-pane">
-          <div className="pane-label accent">EMY CAM output — what call apps receive</div>
+          <div className="pane-label accent">Apex Cam output — what call apps receive</div>
           {pipeline.outSrc && (
             <img
               src={pipeline.outSrc}
@@ -88,7 +88,7 @@ export function DualPreview({ outputMediaRef }: { outputMediaRef?: OutputMediaRe
         <video ref={rawRef} autoPlay playsInline muted className="preview-video" />
       </div>
       <div className="dual-pane">
-        <div className="pane-label accent">EMY CAM output</div>
+        <div className="pane-label accent">Apex Cam output</div>
         <AiLabelBadge />
         <video ref={outVideoRef} autoPlay playsInline muted className="preview-video" />
       </div>

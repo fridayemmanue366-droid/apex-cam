@@ -1,12 +1,12 @@
-# EMY CAM — Architecture & Build Plan
+# Apex Cam — Architecture & Build Plan
 
-This document is the source of truth for how EMY CAM is structured and the
+This document is the source of truth for how Apex Cam is structured and the
 order in which we build it. It is written so each phase produces a working,
 testable increment rather than one giant drop of code.
 
 ## 1. High-level design
 
-EMY CAM is split into two processes that run on the same machine and talk over
+Apex Cam is split into two processes that run on the same machine and talk over
 loopback (`127.0.0.1`):
 
 | Process        | Tech                                   | Responsibility                                                                 |
@@ -107,7 +107,7 @@ so the rest of the app never cares which OS backend is in use.
 
 **The virtual devices carry only the processed pipeline output** (enhanced +
 engines + AI-GENERATED label). The raw camera/mic feed never leaves the
-pipeline process — calls on WhatsApp/Telegram/Zoom/etc. see the EMY CAM output,
+pipeline process — calls on WhatsApp/Telegram/Zoom/etc. see the Apex Cam output,
 never the user's real unprocessed camera.
 
 ## 6. Performance strategy

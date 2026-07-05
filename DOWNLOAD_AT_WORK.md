@@ -1,4 +1,4 @@
-# 📥 Download at work (free network) — EMY CAM upgrades
+# 📥 Download at work (free network) — Apex Cam upgrades
 
 Everything here is **free / open-source** and makes the local swap better, sharper,
 and faster. Grab it on a fast, unmetered connection. Nothing here is required for

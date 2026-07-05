@@ -1,6 +1,6 @@
 """Abstract engine interfaces.
 
-Every AI capability in EMY CAM implements one of these small interfaces so the
+Every AI capability in Apex Cam implements one of these small interfaces so the
 pipeline can treat engines uniformly and we can swap models (InsightFace,
 MediaPipe, OpenVoice, Wav2Lip, ...) without touching the orchestration code.
 

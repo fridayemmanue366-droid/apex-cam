@@ -19,7 +19,7 @@ export function App() {
         <ConfirmDialog />
 
         <nav className="sidebar">
-          <div className="brand">EMY&nbsp;CAM</div>
+          <div className="brand">Apex&nbsp;Cam</div>
           {TABS.map((t) => (
             <button
               key={t}

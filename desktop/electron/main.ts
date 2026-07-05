@@ -8,7 +8,7 @@ import path from "node:path";
 let backend: ChildProcess | null = null;
 
 function startBackend() {
-  if (process.env.EMYCAM_NO_BACKEND) return;
+  if (process.env.APEXCAM_NO_BACKEND) return;
   const backendDir = path.resolve(__dirname, "../../backend");
   // Prefer the project venv that has the AI stack (insightface/onnxruntime);
   // fall back to a system uvicorn for plain dev.
@@ -37,7 +37,7 @@ function createWindow() {
     height: 820,
     minWidth: 1024,
     minHeight: 680,
-    title: "EMY CAM",
+    title: "Apex Cam",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

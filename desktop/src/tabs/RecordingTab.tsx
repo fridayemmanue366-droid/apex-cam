@@ -3,7 +3,7 @@ import { DualPreview, type OutputMediaRef } from "../components/DualPreview";
 import { enhanceFilter, useMedia } from "../context/MediaContext";
 import { usePipeline } from "../context/PipelineContext";
 
-// Records the EMY CAM output pane. In local mode the enhancement filter and the
+// Records the Apex Cam output pane. In local mode the enhancement filter and the
 // AI-GENERATED badge are composited here; in AI-engine mode the backend has
 // already burned both into the frames, so they're captured as-is.
 export function RecordingTab() {
@@ -76,7 +76,7 @@ export function RecordingTab() {
     canvas.width = w;
     canvas.height = h;
     drawFrame(canvas.getContext("2d")!, w, h);
-    canvas.toBlob((b) => b && download(b, `emycam-${Date.now()}.png`), "image/png");
+    canvas.toBlob((b) => b && download(b, `apexcam-${Date.now()}.png`), "image/png");
   };
 
   const stopRecording = useCallback(() => {
@@ -108,7 +108,7 @@ export function RecordingTab() {
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     rec.onstop = () => {
       cancelAnimationFrame(rafRef.current);
-      download(new Blob(chunks, { type: "video/webm" }), `emycam-${Date.now()}.webm`);
+      download(new Blob(chunks, { type: "video/webm" }), `apexcam-${Date.now()}.webm`);
     };
     rec.start(250);
     recorderRef.current = rec;
@@ -164,7 +164,7 @@ export function RecordingTab() {
         </div>
         {lastFile && <p className="muted">Saved to Downloads: {lastFile}</p>}
         <p className="muted">
-          Captures the EMY CAM output pane (AI-GENERATED label always included) as WebM.
+          Captures the Apex Cam output pane (AI-GENERATED label always included) as WebM.
           Recording stops automatically if the camera or AI engine is turned off.
         </p>
       </section>

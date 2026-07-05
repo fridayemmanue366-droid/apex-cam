@@ -1,4 +1,4 @@
-"""Download the open-source AI models EMY CAM can use, into backend/models/.
+"""Download the open-source AI models Apex Cam can use, into backend/models/.
 
 All of these are FREE / open-source (the same ones Deep-Live-Cam, Roop and
 FaceFusion use). None are proprietary. Run this on a fast connection (e.g. your

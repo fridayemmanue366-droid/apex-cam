@@ -1,6 +1,6 @@
 """Background segmentation (Robust Video Matting, ONNX) — real-time on CPU.
 
-Separates you from your background so EMY CAM can blur it, replace it with an
+Separates you from your background so Apex Cam can blur it, replace it with an
 image, or key it to a solid colour (green screen). Uses RVM's recurrent matting
 for smooth, flicker-free edges across frames. Runs on onnxruntime (CPU or GPU);
 the mobilenet model is light enough for real-time on a laptop.

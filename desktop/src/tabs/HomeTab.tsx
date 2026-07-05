@@ -48,7 +48,7 @@ export function HomeTab() {
         <p className="muted">
           Roadmap: virtual camera/mic devices, face tracking &amp; swapping, voice conversion,
           and lip sync land in the next build phases. See the Streaming tab for how apps will
-          pick up EMY CAM once the virtual devices exist.
+          pick up Apex Cam once the virtual devices exist.
         </p>
       </section>
     </>
