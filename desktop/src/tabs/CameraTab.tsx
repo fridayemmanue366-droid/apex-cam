@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { useEffect, useRef, useState } from "react";
+import { api, type BackgroundSettings } from "../api/client";
 import { AiEngineControl } from "../components/AiEngineControl";
 import { DualPreview } from "../components/DualPreview";
 import {
@@ -24,10 +24,26 @@ export function CameraTab() {
     externalHold,
   } = useMedia();
   const [sharpen, setSharpen] = useState(0);
+  const [bg, setBg] = useState<BackgroundSettings | null>(null);
+  const bgFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.getEnhance().then((e) => setSharpen(e.sharpen ?? 0)).catch(() => undefined);
+    api.getBackground().then(setBg).catch(() => setBg(null));
   }, []);
+
+  const updateBg = (patch: Partial<BackgroundSettings>) => {
+    if (!bg) return;
+    const next = { ...bg, ...patch };
+    setBg(next);
+    api.setBackground(next).then(setBg).catch(() => undefined);
+  };
+
+  const uploadBg = (f: File | undefined) => {
+    if (!f) return;
+    api.uploadBackground(f).then((s) => setBg({ ...s, mode: "image" })).catch(() => undefined);
+    api.setBackground({ ...(bg as BackgroundSettings), mode: "image" }).catch(() => undefined);
+  };
 
   // Sliders drive both the local CSS preview and the backend pipeline.
   const applyEnhance = (e: Enhance) => {
@@ -162,11 +178,69 @@ export function CameraTab() {
           </button>
         </div>
         <p className="muted">
-          These adjustments show on the output pane and are burned into recordings. True
-          GPU sharpening/denoising (and background blur / green screen) arrive with the AI
-          pipeline and virtual camera phases.
+          These adjustments show on the EMY CAM output and are burned into recordings.
         </p>
       </section>
+
+      {bg && (
+        <section className="panel">
+          <h3>Background</h3>
+          {!bg.available && (
+            <p className="muted">
+              Background model not installed. Run scripts/download_models.py (rvm) — it's a
+              15 MB model and runs real-time on CPU.
+            </p>
+          )}
+          <div className="row">
+            {(["off", "blur", "color", "image"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={bg.mode === m ? "btn primary" : "btn"}
+                disabled={!bg.available}
+                onClick={() => (m === "image" ? bgFileRef.current?.click() : updateBg({ mode: m }))}
+              >
+                {m === "off" ? "Off" : m === "blur" ? "Blur" : m === "color" ? "Green screen" : "Image"}
+              </button>
+            ))}
+            <input
+              ref={bgFileRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => uploadBg(e.target.files?.[0])}
+            />
+          </div>
+          {bg.mode === "blur" && (
+            <label className="row">
+              Blur amount ({bg.blur_strength})
+              <input
+                type="range"
+                min={5}
+                max={99}
+                step={2}
+                value={bg.blur_strength}
+                onChange={(e) => updateBg({ blur_strength: Number(e.target.value) })}
+              />
+            </label>
+          )}
+          {bg.mode === "color" && (
+            <label className="row">
+              Colour
+              <input
+                type="color"
+                value={bg.color}
+                onChange={(e) => updateBg({ color: e.target.value })}
+              />
+            </label>
+          )}
+          <p className="muted">
+            Real-time background blur, green-screen, or photo replacement — your whole body
+            stays, the background changes. Runs on CPU (~19 fps) or GPU. Start the AI engine to
+            see it.
+          </p>
+        </section>
+      )}
     </>
   );
 }

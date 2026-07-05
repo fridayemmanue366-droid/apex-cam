@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api.routes import (
     audio,
+    background,
     face,
     models,
     pipeline as pipeline_routes,
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(pipeline_routes.router)
     app.include_router(audio.router)
     app.include_router(setup.router)
+    app.include_router(background.router)
     return app
 
 

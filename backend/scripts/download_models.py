@@ -50,6 +50,9 @@ EXTRA = {
         98, "68-point face landmarks — better alignment/masking."),
     "bisenet_resnet_34.onnx": (MODELS, f"{_FF}/bisenet_resnet_34.onnx",
         37, "Face parsing — precise full-face mask (ONNX)."),
+    "rvm_mobilenetv3_fp32.onnx": (MODELS,
+        "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
+        15, "Background matting — blur/green-screen/replace, real-time on CPU."),
 }
 
 # LivePortrait — animate a photo with your motion (avatar mode). ONNX, CPU/GPU.

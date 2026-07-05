@@ -90,6 +90,14 @@ export interface TrackingSettings {
   lip_sync: boolean;
 }
 
+export interface BackgroundSettings {
+  mode: "off" | "blur" | "color" | "image";
+  blur_strength: number;
+  color: string;
+  available: boolean;
+  has_image: boolean;
+}
+
 export interface AudioDevice {
   index: number;
   name: string;
@@ -203,6 +211,13 @@ export const api = {
   setPerformance: (p: PerformanceSettings) => put<PerformanceSettings>("/performance", p),
   getTracking: () => req<TrackingSettings>("/tracking"),
   setTracking: (t: TrackingSettings) => put<TrackingSettings>("/tracking", t),
+  getBackground: () => req<BackgroundSettings>("/background"),
+  setBackground: (s: BackgroundSettings) => put<BackgroundSettings>("/background", s),
+  uploadBackground: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return req<BackgroundSettings>("/background/image", { method: "POST", body: form });
+  },
 
   audioDevices: () => req<AudioDevices>("/audio/devices"),
   audioStatus: () => req<AudioStatus>("/audio"),

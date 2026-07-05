@@ -124,6 +124,12 @@ class Pipeline:
         with self._shared.lock:
             self._shared.stats = PipelineStats(running=True, camera_index=camera_index,
                                                proc_width=self.proc_width)
+        # Reset background matting temporal state for a clean start.
+        try:
+            from app.engines.background import background
+            background.reset_state()
+        except Exception:
+            pass
         # Start the lightweight mic monitor so lip-sync can hear the user even if
         # the virtual microphone isn't running.
         try:
@@ -325,6 +331,11 @@ class Pipeline:
             work = frame.copy()
 
         work = self._apply_enhance(work)
+
+        # Background matting (blur / green-screen / replace) — real-time on CPU.
+        from app.engines.background import background
+        if background.mode != "off":
+            work = background.process(work)
 
         if self.tracking_enabled and self.tracker.available:
             # Detect every Nth frame and reuse boxes in between — roughly doubles
