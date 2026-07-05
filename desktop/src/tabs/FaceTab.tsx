@@ -128,6 +128,15 @@ export function FaceTab() {
               />
               Lip-sync — mouth moves when you talk
             </label>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={tracking.body_pose}
+                disabled={!tracking.body_pose_available}
+                onChange={(e) => updateTracking({ body_pose: e.target.checked })}
+              />
+              Full-body tracking — 33-point skeleton overlay
+            </label>
           </>
         )}
         <p className="muted">

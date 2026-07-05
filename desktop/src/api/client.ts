@@ -88,6 +88,8 @@ export interface TrackingSettings {
   show_overlay: boolean;
   available: boolean;
   lip_sync: boolean;
+  body_pose: boolean;
+  body_pose_available: boolean;
 }
 
 export interface BackgroundSettings {

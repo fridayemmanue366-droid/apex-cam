@@ -46,6 +46,8 @@ class TrackingSettings(BaseModel):
     show_overlay: bool = True
     available: bool = True
     lip_sync: bool = True
+    body_pose: bool = False
+    body_pose_available: bool = False
 
 
 class PerformanceSettings(BaseModel):
@@ -120,19 +122,26 @@ def vcam_stop() -> PipelineStatus:
 
 @router.get("/tracking")
 def get_tracking() -> TrackingSettings:
+    from app.engines.body_pose import body_pose
+
     return TrackingSettings(
         enabled=pipeline.tracking_enabled,
         show_overlay=pipeline.show_overlay,
         available=pipeline.tracker.available,
         lip_sync=pipeline.lip_sync_enabled,
+        body_pose=body_pose.enabled,
+        body_pose_available=body_pose.available,
     )
 
 
 @router.put("/tracking")
 def set_tracking(t: TrackingSettings) -> TrackingSettings:
+    from app.engines.body_pose import body_pose
+
     pipeline.tracking_enabled = t.enabled
     pipeline.show_overlay = t.show_overlay
     pipeline.lip_sync_enabled = t.lip_sync
+    body_pose.enabled = t.body_pose
     return get_tracking()
 
 

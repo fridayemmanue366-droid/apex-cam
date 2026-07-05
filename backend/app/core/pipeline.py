@@ -373,6 +373,11 @@ class Pipeline:
 
         work = self.face_engine.process(work)
 
+        # Full-body pose skeleton overlay (optional).
+        from app.engines.body_pose import body_pose
+        if body_pose.enabled:
+            work = body_pose.process(work)
+
         if self.sharpen > 0.01:
             work = self._apply_sharpen(work)
 

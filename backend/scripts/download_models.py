@@ -55,6 +55,14 @@ EXTRA = {
         15, "Background matting — blur/green-screen/replace, real-time on CPU."),
 }
 
+# MediaPipe task models (full-body pose). Needs: pip install mediapipe (py<=3.11).
+MEDIAPIPE = {
+    "pose_landmarker_full.task": (MODELS / "mediapipe",
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+        "pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+        9, "Full-body pose — 33 landmarks, real-time on CPU."),
+}
+
 # LivePortrait — animate a photo with your motion (avatar mode). ONNX, CPU/GPU.
 _LP = MODELS / "liveportrait"
 LIVEPORTRAIT = {
@@ -96,6 +104,9 @@ def main() -> None:
             fetch(name, dest, url, mb, why)
         print("\nLivePortrait (avatar mode) :")
         for name, (dest, url, mb, why) in LIVEPORTRAIT.items():
+            fetch(name, dest, url, mb, why)
+        print("\nMediaPipe (full-body pose) :")
+        for name, (dest, url, mb, why) in MEDIAPIPE.items():
             fetch(name, dest, url, mb, why)
     print("\nDone. Missing files can be re-run anytime (existing ones are skipped).")
 
