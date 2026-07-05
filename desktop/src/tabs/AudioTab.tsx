@@ -3,6 +3,7 @@ import {
   api,
   type AudioDevices,
   type AudioStatus,
+  type RVCStatus,
   type VoiceParams,
 } from "../api/client";
 
@@ -15,7 +16,15 @@ export function AudioTab() {
   const [params, setParams] = useState<VoiceParams | null>(null);
   const [inputDevice, setInputDevice] = useState<number | "">("");
   const [outputDevice, setOutputDevice] = useState<number | "">("");
+  const [rvc, setRvcState] = useState<RVCStatus | null>(null);
   const meterRef = useRef<HTMLDivElement>(null);
+
+  const updateRvc = (patch: Partial<{ enabled: boolean; voice: string | null; pitch_shift: number }>) => {
+    if (!rvc) return;
+    const body = { enabled: rvc.enabled, voice: rvc.voice, pitch_shift: rvc.pitch_shift, ...patch };
+    setRvcState({ ...rvc, ...patch });
+    api.setRvc(body).then(setRvcState).catch(() => undefined);
+  };
 
   // Drive the level meter width imperatively (updates twice a second with status).
   useEffect(() => {
@@ -30,6 +39,7 @@ export function AudioTab() {
       if (d.cable_output !== null) setOutputDevice(d.cable_output);
     }).catch(() => setDevices(null));
     api.getVoiceParams().then(setParams).catch(() => setParams(null));
+    api.getRvc().then(setRvcState).catch(() => setRvcState(null));
 
     const id = setInterval(() => {
       api.audioStatus().then(setStatus).catch(() => setStatus(null));
@@ -187,6 +197,59 @@ export function AudioTab() {
           <p className="muted">Backend offline.</p>
         )}
       </section>
+
+      {rvc && (
+        <section className="panel">
+          <h3>Voice cloning (RVC)</h3>
+          {!rvc.base_present || rvc.voices.length === 0 ? (
+            <p className="muted">
+              Voice cloning changes your voice <em>identity</em> (not just pitch) to a target
+              voice. It needs the shared models + a <strong>voice model per voice</strong>, and a
+              GPU for real-time. Put <code>content_vec.onnx</code> and <code>rmvpe.onnx</code> in
+              <code> backend/models/rvc/</code>, and voice models in
+              <code> backend/models/rvc/voices/</code>. See docs/GPU_SETUP.md.
+              {rvc.base_present && " (Base models found — add a voice model to enable.)"}
+            </p>
+          ) : (
+            <>
+              <label className="row">
+                <input
+                  type="checkbox"
+                  checked={rvc.enabled}
+                  onChange={(e) => updateRvc({ enabled: e.target.checked })}
+                />
+                Enable voice cloning{rvc.on_gpu ? " (GPU)" : " (CPU — not real-time)"}
+              </label>
+              <label className="row">
+                Voice
+                <select
+                  value={rvc.voice ?? ""}
+                  onChange={(e) => updateRvc({ voice: e.target.value || null })}
+                >
+                  <option value="">Select a voice…</option>
+                  {rvc.voices.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="row">
+                Pitch ({rvc.pitch_shift > 0 ? "+" : ""}{rvc.pitch_shift})
+                <input
+                  type="range"
+                  min={-12}
+                  max={12}
+                  step={1}
+                  value={rvc.pitch_shift}
+                  onChange={(e) => updateRvc({ pitch_shift: Number(e.target.value) })}
+                />
+              </label>
+              <p className="muted">
+                Sounds like the selected voice while you talk. Real-time on GPU; on CPU it lags.
+              </p>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="panel">
         <h3>Use it in a call</h3>

@@ -169,8 +169,12 @@ class AudioPipeline:
     def _process(self, samples: np.ndarray) -> np.ndarray:
         if self.params.noise_reduction:
             samples = self._noise_gate(samples)
+        # Voice cloning (RVC) — changes voice identity. No-op until models added.
+        from app.engines.voice.rvc import rvc
+        if rvc.enabled and rvc.ready:
+            samples = rvc.convert(samples, SAMPLE_RATE)
         # Real-time pitch/voice shift (deeper/higher, incl. gender-ish shifts).
-        if abs(self.params.pitch) > 0.05:
+        elif abs(self.params.pitch) > 0.05:
             self._pitch.set_semitones(self.params.pitch)
             samples = self._pitch.process(samples)
         # Automatic gain toward the configured target, softly clamped.

@@ -127,6 +127,15 @@ export interface VoiceParams {
   pitch: number;
 }
 
+export interface RVCStatus {
+  base_present: boolean;
+  voices: string[];
+  enabled: boolean;
+  voice: string | null;
+  pitch_shift: number;
+  on_gpu: boolean;
+}
+
 export interface EnhanceSettings {
   brightness: number;
   contrast: number;
@@ -236,6 +245,13 @@ export const api = {
   audioStop: () => req<AudioStatus>("/audio/stop", { method: "POST" }),
   getVoiceParams: () => req<VoiceParams>("/audio/params"),
   setVoiceParams: (p: VoiceParams) => put<VoiceParams>("/audio/params", p),
+  getRvc: () => req<RVCStatus>("/audio/rvc"),
+  setRvc: (s: { enabled: boolean; voice: string | null; pitch_shift: number }) =>
+    req<RVCStatus>("/audio/rvc", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(s),
+    }),
 };
 
 export const WS_PREVIEW_URL = BASE.replace("http", "ws") + "/ws/preview";

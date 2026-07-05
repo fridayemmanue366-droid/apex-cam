@@ -81,6 +81,46 @@ def stop() -> AudioStatus:
     return _status()
 
 
+class RVCStatus(BaseModel):
+    base_present: bool          # shared content + pitch models installed
+    voices: list[str]           # available voice models
+    enabled: bool
+    voice: str | None = None
+    pitch_shift: int = 0
+    on_gpu: bool = False
+
+
+class RVCSettings(BaseModel):
+    enabled: bool = False
+    voice: str | None = None
+    pitch_shift: int = 0
+
+
+@router.get("/rvc")
+def rvc_status() -> RVCStatus:
+    from app.engines.voice.rvc import rvc, base_models_present, list_voices
+
+    return RVCStatus(
+        base_present=base_models_present(),
+        voices=list_voices(),
+        enabled=rvc.enabled,
+        voice=rvc.voice_name,
+        pitch_shift=rvc.pitch_shift,
+        on_gpu=rvc.on_gpu,
+    )
+
+
+@router.put("/rvc")
+def set_rvc(s: RVCSettings) -> RVCStatus:
+    from app.engines.voice.rvc import rvc
+
+    if s.voice and s.voice != rvc.voice_name:
+        rvc.set_voice(s.voice)
+    rvc.pitch_shift = max(-12, min(s.pitch_shift, 12))
+    rvc.enabled = s.enabled and rvc.ready
+    return rvc_status()
+
+
 @router.get("/params")
 def get_params() -> VoiceParams:
     p = audio_pipeline.params
