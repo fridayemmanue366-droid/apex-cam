@@ -166,6 +166,9 @@ export const api = {
   getSwapStrength: () => req<{ strength: number }>("/face/swap/strength"),
   setSwapStrength: (strength: number) =>
     put<{ strength: number }>("/face/swap/strength", { strength }),
+  getSkinMatch: () => req<{ strength: number }>("/face/swap/skin-match"),
+  setSkinMatch: (strength: number) =>
+    put<{ strength: number }>("/face/swap/skin-match", { strength }),
   getSwapMode: () => req<SwapMode>("/face/swap/mode"),
   setSwapMode: (mode: "fast" | "neural" | "avatar") =>
     put<SwapMode>("/face/swap/mode", {

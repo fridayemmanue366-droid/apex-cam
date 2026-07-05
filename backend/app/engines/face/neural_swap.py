@@ -96,6 +96,11 @@ class NeuralFaceSwapEngine:
         self._loaded = False
         self.enhancer_kind = "none"  # "none" | "gfpgan" | "codeformer"
         self.strength = 1.0
+        # Lock the swapped face to the SOURCE PHOTO's exact complexion/brightness
+        # (0 = as-is, may darken to room light; 1 = fully the photo's skin tone).
+        # Fixes the face coming out darker/off from the chosen photo.
+        self.skin_match = 0.9
+        self._source_color = None  # cached LAB mean of the source face
 
     @property
     def ready(self) -> bool:
@@ -155,6 +160,8 @@ class NeuralFaceSwapEngine:
             self._source_face = None
             return False
         self._source_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+        # Remember the photo's exact complexion so the live swap keeps it.
+        self._compute_face_color(image_bgr, self._source_face.bbox)
         return True
 
     def swap_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
@@ -168,12 +175,65 @@ class NeuralFaceSwapEngine:
 
             faces = self._app.get(frame_bgr)
             for face in faces:
+                box = self._clamp_box(face.bbox, frame_bgr.shape)
                 frame_bgr = self._swapper.get(frame_bgr, face, self._source_face, paste_back=True)
+                if self.skin_match > 0 and box and self._source_color is not None:
+                    self._match_to_source(frame_bgr, box)
                 if self.enhancer_kind != "none":
                     frame_bgr = face_enhancer.enhance(frame_bgr, face.kps)
         except Exception as exc:
             log.debug("neural swap frame skipped: %s", exc)
         return frame_bgr
+
+    @staticmethod
+    def _clamp_box(bbox, shape) -> tuple[int, int, int, int] | None:
+        h, w = shape[:2]
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            return None
+        return x1, y1, x2, y2
+
+    def _match_to_source(self, frame: np.ndarray, box) -> None:
+        """Recolour the swapped face to the SOURCE photo's exact complexion, so
+        the result shows the photo's real skin tone/brightness — not darkened by
+        the user's room lighting."""
+        import cv2
+
+        x1, y1, x2, y2 = box
+        swapped = frame[y1:y2, x1:x2]
+        h, w = swapped.shape[:2]
+        mask = np.zeros((h, w), np.float32)
+        cv2.ellipse(mask, (w // 2, h // 2), (int(w * 0.42), int(h * 0.5)), 0, 0, 360, 1.0, -1)
+        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=max(w, h) * 0.06)
+        sel = mask > 0.3
+        if int(sel.sum()) < 20:
+            return
+        lab_s = cv2.cvtColor(swapped, cv2.COLOR_BGR2LAB).astype(np.float32)
+        strength = float(np.clip(self.skin_match, 0, 1))
+        for c in range(3):
+            shift = self._source_color[c] - lab_s[..., c][sel].mean()
+            lab_s[..., c] += shift * strength * mask
+        frame[y1:y2, x1:x2] = cv2.cvtColor(
+            np.clip(lab_s, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
+
+    def _compute_face_color(self, image_bgr: np.ndarray, bbox) -> None:
+        """Cache the source photo's face-oval LAB mean (its complexion)."""
+        import cv2
+
+        box = self._clamp_box(bbox, image_bgr.shape)
+        if not box:
+            self._source_color = None
+            return
+        x1, y1, x2, y2 = box
+        crop = image_bgr[y1:y2, x1:x2]
+        h, w = crop.shape[:2]
+        mask = np.zeros((h, w), np.uint8)
+        cv2.ellipse(mask, (w // 2, h // 2), (int(w * 0.42), int(h * 0.5)), 0, 0, 360, 255, -1)
+        sel = mask > 0
+        lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+        self._source_color = [float(lab[..., c][sel].mean()) for c in range(3)]
 
     @staticmethod
     def download_model() -> bool:

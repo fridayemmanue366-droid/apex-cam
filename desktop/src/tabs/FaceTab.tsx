@@ -19,6 +19,7 @@ export function FaceTab() {
   const [swapMode, setSwapMode] = useState<SwapMode | null>(null);
   const [enhancers, setEnhancers] = useState<string[]>([]);
   const [enhancer, setEnhancerState] = useState("none");
+  const [skinMatch, setSkinMatch] = useState(0.9);
   const fileRef = useRef<HTMLInputElement>(null);
   const { active, faces } = usePipeline();
 
@@ -29,7 +30,13 @@ export function FaceTab() {
     api.getSwapStrength().then((s) => setStrength(s.strength)).catch(() => undefined);
     api.getSwapMode().then(setSwapMode).catch(() => setSwapMode(null));
     api.getEnhancers().then((e) => setEnhancers(e.available)).catch(() => setEnhancers([]));
+    api.getSkinMatch().then((s) => setSkinMatch(s.strength)).catch(() => undefined);
   }, []);
+
+  const changeSkinMatch = (v: number) => {
+    setSkinMatch(v);
+    api.setSkinMatch(v).catch(() => undefined);
+  };
 
   const changeEnhancer = (kind: string) => {
     setEnhancerState(kind);
@@ -247,6 +254,19 @@ export function FaceTab() {
               <p className="muted">
                 Realistic mode isn't available on this machine (models or AI runtime missing).
               </p>
+            )}
+            {swapMode.mode === "neural" && (
+              <label className="row">
+                Keep photo's skin tone ({Math.round(skinMatch * 100)}%)
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={skinMatch}
+                  onChange={(e) => changeSkinMatch(Number(e.target.value))}
+                />
+              </label>
             )}
             {swapMode.mode === "neural" && enhancers.length > 0 && (
               <>

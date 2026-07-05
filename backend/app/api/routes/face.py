@@ -116,6 +116,25 @@ def set_swap_mode(m: SwapMode) -> SwapMode:
     return get_swap_mode()
 
 
+class SkinMatch(BaseModel):
+    strength: float = 0.9
+
+
+@router.get("/swap/skin-match")
+def get_skin_match() -> SkinMatch:
+    from app.core.pipeline import pipeline
+
+    return SkinMatch(strength=pipeline.neural_swapper.skin_match)
+
+
+@router.put("/swap/skin-match")
+def set_skin_match(s: SkinMatch) -> SkinMatch:
+    from app.core.pipeline import pipeline
+
+    pipeline.neural_swapper.skin_match = max(0.0, min(s.strength, 1.0))
+    return SkinMatch(strength=pipeline.neural_swapper.skin_match)
+
+
 @router.get("/swap/strength")
 def get_swap_strength() -> SwapStrength:
     from app.core.pipeline import pipeline
