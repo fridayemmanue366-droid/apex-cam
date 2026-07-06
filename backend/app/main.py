@@ -16,6 +16,7 @@ from app.api.routes import (
     face,
     models,
     pipeline as pipeline_routes,
+    pro,
     setup,
     system,
     voice,
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(audio.router)
     app.include_router(setup.router)
     app.include_router(background.router)
+    app.include_router(pro.router)
     return app
 
 

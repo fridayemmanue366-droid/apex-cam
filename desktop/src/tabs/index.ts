@@ -9,6 +9,7 @@ import { PerformanceTab } from "./PerformanceTab";
 import { RecordingTab } from "./RecordingTab";
 import { StreamingTab } from "./StreamingTab";
 import { SettingsTab } from "./SettingsTab";
+import { ProTab } from "./ProTab";
 
 export const TABS = [
   "Home",
@@ -20,6 +21,7 @@ export const TABS = [
   "Performance",
   "Recording",
   "Streaming",
+  "Apex Pro",
   "Settings",
 ] as const;
 
@@ -35,6 +37,7 @@ export const TAB_SUMMARY: Record<TabName, string> = {
   Performance: "GPU, FPS, and latency monitors; acceleration settings.",
   Recording: "Record the processed stream and capture screenshots.",
   Streaming: "How to select Apex Cam's virtual devices in Zoom, Discord, Meet, Teams, OBS.",
+  "Apex Pro": "Premium cloud engine (Lucy 2.1) — photorealistic full-cam persona.",
   Settings: "Appearance, language, and responsible-use status.",
 };
 
@@ -48,5 +51,6 @@ export const TAB_COMPONENTS: Record<TabName, ComponentType> = {
   Performance: PerformanceTab,
   Recording: RecordingTab,
   Streaming: StreamingTab,
+  "Apex Pro": ProTab,
   Settings: SettingsTab,
 };

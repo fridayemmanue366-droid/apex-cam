@@ -332,6 +332,16 @@ class Pipeline:
 
         work = self._apply_enhance(work)
 
+        # Apex Cam Pro (Lucy cloud) — if active, it does the whole transform in
+        # the cloud; skip the local engines and just label the result.
+        from app.engines.lucy_pro import lucy_pro
+        if lucy_pro.ready:
+            work = lucy_pro.process(work)
+            if work.shape[1] != w:
+                work = cv2.resize(work, (w, h), interpolation=cv2.INTER_LINEAR)
+            self._draw_badge(work)
+            return work
+
         # Background matting (blur / green-screen / replace) — real-time on CPU.
         from app.engines.background import background
         if background.mode != "off":

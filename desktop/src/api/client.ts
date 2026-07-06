@@ -144,6 +144,15 @@ export interface EnhanceSettings {
   beautify?: number;
 }
 
+export interface ProStatus {
+  enabled: boolean;
+  configured: boolean;
+  model: string;
+  has_reference: boolean;
+  prompt: string;
+  error: string | null;
+}
+
 export interface ModelInfo {
   id: string;
   name: string;
@@ -232,6 +241,19 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     return req<BackgroundSettings>("/background/image", { method: "POST", body: form });
+  },
+
+  getPro: () => req<ProStatus>("/pro"),
+  setPro: (cfg: { enabled: boolean; api_key: string | null; prompt: string }) =>
+    req<ProStatus>("/pro", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    }),
+  uploadProReference: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return req<ProStatus>("/pro/reference", { method: "POST", body: form });
   },
 
   audioDevices: () => req<AudioDevices>("/audio/devices"),
