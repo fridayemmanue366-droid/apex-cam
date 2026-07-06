@@ -5,10 +5,15 @@ activates when an API key is set. Payment/credits are handled separately (later)
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, UploadFile
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.engines.lucy_pro import lucy_pro
+
+REFERENCE_IMG = Path("data") / "pro_reference.jpg"
 
 router = APIRouter(prefix="/pro", tags=["pro"])
 
@@ -48,3 +53,10 @@ def set_pro(cfg: ProConfig) -> ProStatus:
 async def set_reference(file: UploadFile) -> ProStatus:
     lucy_pro.set_reference(await file.read())
     return _status()
+
+
+@router.get("/reference")
+def get_reference() -> FileResponse:
+    if not REFERENCE_IMG.exists():
+        raise HTTPException(404, "No reference set")
+    return FileResponse(REFERENCE_IMG)
