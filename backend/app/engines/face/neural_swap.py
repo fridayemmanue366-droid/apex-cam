@@ -184,6 +184,7 @@ class NeuralFaceSwapEngine:
                 frame_bgr = self._swapper.get(frame_bgr, face, self._source_face, paste_back=True)
                 if self.skin_match > 0 and box and self._source_color is not None:
                     self._match_to_source(frame_bgr, box)
+                    self._blend_neck(frame_bgr, box)
                 if self.enhancer_kind != "none":
                     frame_bgr = face_enhancer.enhance(frame_bgr, face.kps)
         except Exception as exc:
@@ -222,6 +223,40 @@ class NeuralFaceSwapEngine:
             lab_s[..., c] += shift * strength * mask
         frame[y1:y2, x1:x2] = cv2.cvtColor(
             np.clip(lab_s, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
+
+    def _blend_neck(self, frame: np.ndarray, box) -> None:
+        """Carry the swapped face's complexion down into the neck/upper-chest
+        skin so there's no colour seam at the jaw — the face and body read as one
+        person, even when the head turns. Targets skin only (leaves clothes),
+        with a gradient that's strong at the jaw and fades downward."""
+        import cv2
+
+        x1, y1, x2, y2 = box
+        fh, fw = y2 - y1, x2 - x1
+        ny1 = max(0, y2 - int(fh * 0.12))
+        ny2 = min(frame.shape[0], y2 + int(fh * 1.1))
+        nx1 = max(0, x1 - int(fw * 0.2))
+        nx2 = min(frame.shape[1], x2 + int(fw * 0.2))
+        if ny2 - ny1 < 8 or nx2 - nx1 < 8:
+            return
+        roi = frame[ny1:ny2, nx1:nx2]
+        h, w = roi.shape[:2]
+        # Skin mask (YCrCb) so we don't recolour clothes/background.
+        ycc = cv2.cvtColor(roi, cv2.COLOR_BGR2YCrCb)
+        cr, cb = ycc[:, :, 1].astype(int), ycc[:, :, 2].astype(int)
+        skin = ((cr > 133) & (cr < 180) & (cb > 77) & (cb < 130)).astype(np.float32)
+        grad = np.linspace(1.0, 0.0, h)[:, None]          # strong at jaw, fade down
+        mask = cv2.GaussianBlur(skin * grad, (0, 0), sigmaX=max(w, h) * 0.05)
+        sel = mask > 0.12
+        if int(sel.sum()) < 30:
+            return
+        lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB).astype(np.float32)
+        strength = float(np.clip(self.skin_match, 0, 1)) * 0.85
+        for c in range(3):
+            shift = self._source_color[c] - lab[..., c][sel].mean()
+            lab[..., c] += shift * strength * mask
+        frame[ny1:ny2, nx1:nx2] = cv2.cvtColor(
+            np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
     def _compute_face_color(self, image_bgr: np.ndarray, bbox) -> None:
         """Cache the source photo's face-oval LAB mean (its complexion)."""
