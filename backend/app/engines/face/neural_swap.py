@@ -101,14 +101,14 @@ class NeuralFaceSwapEngine:
         # Fixes the face coming out darker/off from the chosen photo.
         self.skin_match = 0.9
         self._source_color = None  # cached LAB mean of the source face
-        # Blend the swapped face using a BiSeNet face-shaped mask (reaches the
-        # hairline, feathered) instead of inswapper's rectangular paste — this is
-        # the Deep-Live-Cam/FaceFusion technique that removes the "boxed face"
-        # seam and makes the swap cover the whole face cleanly.
+        # Blend the swapped face using a BiSeNet mask built from the USER'S REAL
+        # face (hair EXCLUDED), instead of inswapper's rectangular paste. This
+        # gives the seamless Deep-Live-Cam/FaceFusion look AND — critically —
+        # protects the user's own hair: the swap never reaches into hair, so a
+        # bald source photo can't make the user bald. (roop keeps hair the same
+        # way, by never pasting over the hair region.) Falls back to inswapper's
+        # native paste when the parser model is absent.
         self.use_parse = True
-        # Reach up into the hairline so more of the head reads as swapped (face
-        # only — inswapper cannot generate real hair; full hair/head is the Avatar).
-        self.swap_hair = False
 
     @property
     def ready(self) -> bool:
@@ -227,7 +227,13 @@ class NeuralFaceSwapEngine:
                 from app.engines.face.face_parser import face_parser, parser_available
 
                 if parser_available():
-                    pm = face_parser.mask_512(fake, include_hair=self.swap_hair)
+                    # Parse the USER'S REAL aligned face (not the swap). BiSeNet's
+                    # FACE_CLASSES exclude hair, so wherever the user has hair the
+                    # mask is 0 → their hair is never overwritten (bald source can't
+                    # bald the user). include_hair stays False by design.
+                    real_aligned = cv2.warpAffine(
+                        frame, M, (fake.shape[1], fake.shape[0]))
+                    pm = face_parser.mask_512(real_aligned, include_hair=False)
                     if pm is not None:
                         pm = cv2.resize(pm, (fake.shape[1], fake.shape[0]))
                         mask = cv2.warpAffine(pm, IM, (w, h), borderValue=0.0)
