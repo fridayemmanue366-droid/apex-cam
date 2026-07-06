@@ -33,7 +33,9 @@ FAL_MODEL = os.environ.get("APEXCAM_LUCY_MODEL", "fal-ai/lucy-2.1")
 
 class LucyProEngine:
     def __init__(self) -> None:
-        self.api_key: str | None = None
+        # OUR fal.ai key — set by the operator (us) via env, NEVER by end users.
+        # This is the billing/earning mechanism; users pay us credits, not fal.
+        self.api_key: str | None = os.environ.get("APEXCAM_LUCY_KEY") or None
         self.prompt: str = ""
         self.enabled: bool = False
         self._reference: np.ndarray | None = None
@@ -41,6 +43,8 @@ class LucyProEngine:
 
     @property
     def configured(self) -> bool:
+        """True when OUR cloud key is set on the server — i.e. Pro is available.
+        (End users never see or set the key.)"""
         return bool(self.api_key)
 
     @property

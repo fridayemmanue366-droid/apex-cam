@@ -244,7 +244,7 @@ export const api = {
   },
 
   getPro: () => req<ProStatus>("/pro"),
-  setPro: (cfg: { enabled: boolean; api_key: string | null; prompt: string }) =>
+  setPro: (cfg: { enabled: boolean; prompt: string }) =>
     req<ProStatus>("/pro", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

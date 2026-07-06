@@ -24,7 +24,6 @@ class ProStatus(BaseModel):
 
 class ProConfig(BaseModel):
     enabled: bool = False
-    api_key: str | None = None
     prompt: str = ""
 
 
@@ -39,8 +38,7 @@ def get_pro() -> ProStatus:
 
 @router.put("")
 def set_pro(cfg: ProConfig) -> ProStatus:
-    if cfg.api_key is not None:
-        lucy_pro.set_api_key(cfg.api_key)
+    # The cloud key is server-side only (our billing) — users can't set it.
     lucy_pro.prompt = cfg.prompt
     lucy_pro.enabled = cfg.enabled and lucy_pro.configured
     return _status()
