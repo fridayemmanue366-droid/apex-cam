@@ -105,8 +105,7 @@ class LivePortraitEngine:
         return dict(zip(names, out))
 
     @staticmethod
-    def _transform(mp, pitch, yaw, roll, exp, scale, t) -> np.ndarray:
-        R = _rotation(float(pitch), float(yaw), float(roll))
+    def _apply_kp(mp, R, exp, scale, t) -> np.ndarray:
         kp = mp @ R + exp
         kp = kp * scale[..., None]
         kp[..., 0:2] += t[:, None, 0:2]
@@ -150,8 +149,11 @@ class LivePortraitEngine:
         self._src_kp = d["motion_points"]
         self._src_scale = d["scale"]
         self._src_t = d["translation"]
-        self._x_s = self._transform(d["motion_points"], d["pitch"], d["yaw"], d["roll"],
-                                    d["expression"], d["scale"], d["translation"])
+        self._src_exp = d["expression"]
+        self._R_s = _rotation(float(d["pitch"]), float(d["yaw"]), float(d["roll"]))
+        self._x_s = self._apply_kp(self._src_kp, self._R_s, self._src_exp,
+                                   self._src_scale, self._src_t)
+        self._d0 = None  # your neutral baseline — captured on the first live frame
         self.ready = True
         log.info("LivePortrait source set")
         return True
@@ -164,9 +166,20 @@ class LivePortraitEngine:
         try:
             crop, (x0, y0, size) = self._crop(frame_bgr, face.bbox)
             d = self._motion_info(crop)
-            # source identity (canonical kp/scale/translation) + your motion
-            x_d = self._transform(self._src_kp, d["pitch"], d["yaw"], d["roll"],
-                                  d["expression"], self._src_scale, self._src_t)
+            R_d = _rotation(float(d["pitch"]), float(d["yaw"]), float(d["roll"]))
+            # Capture your neutral pose/expression on the first frame.
+            if self._d0 is None:
+                self._d0 = {"R": R_d, "exp": d["expression"],
+                            "scale": d["scale"], "t": d["translation"]}
+            d0 = self._d0
+            # RELATIVE motion: apply the *change* in your pose/expression to the
+            # source identity — so the photo blinks, talks and turns as YOU do,
+            # instead of holding the photo's original expression.
+            R_new = R_d @ d0["R"].T @ self._R_s
+            exp_new = self._src_exp + (d["expression"] - d0["exp"])
+            scale_new = self._src_scale * (d["scale"] / np.maximum(d0["scale"], 1e-6))
+            t_new = self._src_t + (d["translation"] - d0["t"])
+            x_d = self._apply_kp(self._src_kp, R_new, exp_new, scale_new, t_new)
             out = self._gen.run(None, {"feature_volume": self._fv,
                                        "source": self._x_s, "target": x_d})[0][0]
             gen512 = np.clip(out.transpose(1, 2, 0)[:, :, ::-1] * 255, 0, 255).astype(np.uint8)
