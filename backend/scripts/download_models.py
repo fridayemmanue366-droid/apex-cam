@@ -31,6 +31,13 @@ CORE = {
     "GFPGANv1.4.pth": (MODELS,
         "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth",
         333, "Face restorer — sharpens/cleans the swapped face."),
+    # Defaults the swap now relies on for the Deep-Live-Cam look (ONNX, no torch):
+    "gfpgan_1.4.onnx": (MODELS,
+        "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/gfpgan_1.4.onnx",
+        340, "GFPGAN restorer (ONNX) — default sharpness pass after the swap."),
+    "bisenet_resnet_34.onnx": (MODELS,
+        "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/bisenet_resnet_34.onnx",
+        37, "Face parsing — face-shaped mask for a seamless (no-box) swap."),
     "parsing_parsenet.pth": (GFPGAN_WEIGHTS,
         "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth",
         85, "Face parsing — precise full-face mask (fixes edges/coverage)."),
@@ -42,14 +49,10 @@ CORE = {
 # ONNX enhancers/masks — run on onnxruntime (CPU or GPU), NO PyTorch needed.
 _FF = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0"
 EXTRA = {
-    "gfpgan_1.4.onnx": (MODELS, f"{_FF}/gfpgan_1.4.onnx",
-        340, "GFPGAN face restorer (ONNX) — sharp, clean. CPU or GPU, no torch."),
     "codeformer.onnx": (MODELS, f"{_FF}/codeformer.onnx",
         377, "CodeFormer face restorer (ONNX) — very natural."),
     "2dfan4.onnx": (MODELS, f"{_FF}/2dfan4.onnx",
         98, "68-point face landmarks — better alignment/masking."),
-    "bisenet_resnet_34.onnx": (MODELS, f"{_FF}/bisenet_resnet_34.onnx",
-        37, "Face parsing — precise full-face mask (ONNX)."),
     "rvm_mobilenetv3_fp32.onnx": (MODELS,
         "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
         15, "Background matting — blur/green-screen/replace, real-time on CPU."),

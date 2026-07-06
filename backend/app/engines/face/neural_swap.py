@@ -101,6 +101,14 @@ class NeuralFaceSwapEngine:
         # Fixes the face coming out darker/off from the chosen photo.
         self.skin_match = 0.9
         self._source_color = None  # cached LAB mean of the source face
+        # Blend the swapped face using a BiSeNet face-shaped mask (reaches the
+        # hairline, feathered) instead of inswapper's rectangular paste — this is
+        # the Deep-Live-Cam/FaceFusion technique that removes the "boxed face"
+        # seam and makes the swap cover the whole face cleanly.
+        self.use_parse = True
+        # Reach up into the hairline so more of the head reads as swapped (face
+        # only — inswapper cannot generate real hair; full hair/head is the Avatar).
+        self.swap_hair = False
 
     @property
     def ready(self) -> bool:
@@ -188,7 +196,11 @@ class NeuralFaceSwapEngine:
                      and getattr(f, "det_score", 1.0) > 0.5]
             for face in faces:
                 box = self._clamp_box(face.bbox, frame_bgr.shape)
-                frame_bgr = self._swapper.get(frame_bgr, face, self._source_face, paste_back=True)
+                # Swap into an aligned crop, then paste back with a face-shaped
+                # (BiSeNet) feathered mask for a seamless, no-box result.
+                fake, M = self._swapper.get(
+                    frame_bgr, face, self._source_face, paste_back=False)
+                frame_bgr = self._paste(frame_bgr, fake, M)
                 if self.skin_match > 0 and box and self._source_color is not None:
                     self._match_to_source(frame_bgr, box)
                     self._blend_neck(frame_bgr, box)
@@ -197,6 +209,49 @@ class NeuralFaceSwapEngine:
         except Exception as exc:
             log.debug("neural swap frame skipped: %s", exc)
         return frame_bgr
+
+    def _paste(self, frame: np.ndarray, fake: np.ndarray, M) -> np.ndarray:
+        """Paste the swapped aligned crop (``fake``, with affine ``M``) back onto
+        the frame. Prefers a BiSeNet face-shaped, hairline-reaching feathered mask
+        (the Deep-Live-Cam look — no visible box). Falls back to inswapper's own
+        eroded/blurred rectangular mask when the parser isn't available."""
+        import cv2
+
+        h, w = frame.shape[:2]
+        IM = cv2.invertAffineTransform(M)
+        fake_full = cv2.warpAffine(fake, IM, (w, h), borderValue=0.0)
+
+        mask = None
+        if self.use_parse:
+            try:
+                from app.engines.face.face_parser import face_parser, parser_available
+
+                if parser_available():
+                    pm = face_parser.mask_512(fake, include_hair=self.swap_hair)
+                    if pm is not None:
+                        pm = cv2.resize(pm, (fake.shape[1], fake.shape[0]))
+                        mask = cv2.warpAffine(pm, IM, (w, h), borderValue=0.0)
+            except Exception as exc:
+                log.debug("parse mask skipped: %s", exc)
+
+        if mask is None:
+            # Faithful fallback: inswapper's rectangular mask, eroded + feathered
+            # by a size proportional to the face (same recipe as InsightFace).
+            white = np.ones(fake.shape[:2], np.float32)
+            mask = cv2.warpAffine(white, IM, (w, h), borderValue=0.0)
+            ys, xs = np.where(mask > 0.5)
+            if len(ys) == 0:
+                return frame
+            mh, mw = int(ys.max() - ys.min()), int(xs.max() - xs.min())
+            ms = int(np.sqrt(max(mh * mw, 1)))
+            k = max(ms // 10, 10)
+            mask = cv2.erode(mask, np.ones((k, k), np.float32))
+            k = max(ms // 20, 5)
+            mask = cv2.GaussianBlur(mask, (k * 2 + 1, k * 2 + 1), 0)
+
+        mask = np.clip(mask, 0, 1)[:, :, None]
+        out = mask * fake_full.astype(np.float32) + (1 - mask) * frame.astype(np.float32)
+        return out.astype(np.uint8)
 
     @staticmethod
     def _clamp_box(bbox, shape) -> tuple[int, int, int, int] | None:
