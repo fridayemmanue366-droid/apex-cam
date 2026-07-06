@@ -174,6 +174,11 @@ class NeuralFaceSwapEngine:
             from app.engines.face.enhancer import face_enhancer
 
             faces = self._app.get(frame_bgr)
+            # Drop tiny/low-confidence detections (false positives that cause
+            # extra/ghost faces). Keep only faces at least ~6% of the frame width.
+            fw = frame_bgr.shape[1]
+            faces = [f for f in faces if (f.bbox[2] - f.bbox[0]) > fw * 0.06
+                     and getattr(f, "det_score", 1.0) > 0.5]
             for face in faces:
                 box = self._clamp_box(face.bbox, frame_bgr.shape)
                 frame_bgr = self._swapper.get(frame_bgr, face, self._source_face, paste_back=True)

@@ -360,10 +360,13 @@ class Pipeline:
                 self._shared.stats.faces_detected = len(faces)
             if self.swap_enabled and self.swap_mode == "avatar":
                 # Avatar path: animate the chosen photo with the user's motion.
+                # Only the primary (largest) face — avoids duplicate/false faces.
                 from app.engines.face.liveportrait import liveportrait
                 if liveportrait.ready:
-                    for af in self.neural_swapper._app.get(work):
-                        work = liveportrait.animate(work, af)
+                    afaces = self.neural_swapper._app.get(work)
+                    if afaces:
+                        primary = max(afaces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+                        work = liveportrait.animate(work, primary)
             elif self.swap_enabled and self.neural_active and self.neural_swapper.ready:
                 # Realistic path: inswapper keeps the user's pose/expression/
                 # blink and swaps identity — no separate lip-sync needed.

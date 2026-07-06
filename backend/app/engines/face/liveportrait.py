@@ -125,7 +125,9 @@ class LivePortraitEngine:
         pad_t, pad_l = max(0, -y0), max(0, -x0)
         pad_b = max(0, y0 + 2 * s - img.shape[0])
         pad_r = max(0, x0 + 2 * s - img.shape[1])
-        padded = cv2.copyMakeBorder(img, pad_t, pad_b, pad_l, pad_r, cv2.BORDER_REFLECT)
+        # REPLICATE (extend edge pixels), NOT REFLECT — reflect mirrors the face
+        # into the padding and produces a duplicate/upside-down head at edges.
+        padded = cv2.copyMakeBorder(img, pad_t, pad_b, pad_l, pad_r, cv2.BORDER_REPLICATE)
         x0 += pad_l
         y0 += pad_t
         crop = padded[y0:y0 + 2 * s, x0:x0 + 2 * s]
