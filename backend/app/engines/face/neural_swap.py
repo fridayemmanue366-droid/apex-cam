@@ -138,8 +138,14 @@ class NeuralFaceSwapEngine:
         # Optional: mouth mask (keep the user's real mouth/teeth for talking).
         self.mouth_mask = False
         self.mouth_expand = 0.5
+        # Keep the USER's real hair on top of the swap so the swapped forehead
+        # can't cut into the hairline / reveal the real head behind it. Uses the
+        # user's own hair pixels (never looks edited). ON by default — it's the
+        # clean fix for the "swap cuts my hair edge" problem.
+        self.protect_hair = True
         # Optional: head/hair transfer (source's hairstyle/baldness onto the user).
-        # Off — best-effort 2D only; imperfect on head turns.
+        # Off — best-effort 2D only; imperfect on head turns. Opposite of
+        # protect_hair, so it wins when enabled.
         self.swap_hair = False
         self._source_image = None   # cached source photo (to (re)build the head)
         self._head_canon = None     # source head aligned into the HEAD_SIZE canvas
@@ -236,8 +242,9 @@ class NeuralFaceSwapEngine:
             fw = frame_bgr.shape[1]
             faces = [f for f in faces if (f.bbox[2] - f.bbox[0]) > fw * 0.06
                      and getattr(f, "det_score", 1.0) > 0.5]
-            # Keep the genuine pre-swap frame for mouth-mask cutout / Poisson.
-            need_orig = self.poisson or self.mouth_mask
+            # Keep the genuine pre-swap frame for mouth-mask / Poisson / hair.
+            need_orig = self.poisson or self.mouth_mask or (
+                self.protect_hair and not self.swap_hair)
             original = frame_bgr.copy() if need_orig else frame_bgr
             for face in faces:
                 # Optional: carry the source photo's hair/scalp onto the user.
@@ -269,6 +276,10 @@ class NeuralFaceSwapEngine:
                 # Sharpen the swapped face (GFPGAN) — the DLC crispness, kept on.
                 if self.enhancer_kind != "none":
                     frame_bgr = face_enhancer.enhance(frame_bgr, face.kps)
+                # Put the user's real hair back on top so the swap can't cut into
+                # the hairline (skipped when we're deliberately swapping the hair).
+                if self.protect_hair and not self.swap_hair:
+                    frame_bgr = self._protect_hair(frame_bgr, original, face)
         except Exception as exc:
             log.debug("neural swap frame skipped: %s", exc)
         return frame_bgr
@@ -461,6 +472,36 @@ class NeuralFaceSwapEngine:
                      float(tmask.mean()))
         except Exception as exc:
             log.debug("prepare head skipped: %s", exc)
+
+    def _protect_hair(self, frame: np.ndarray, original: np.ndarray, face) -> np.ndarray:
+        """Composite the user's OWN hair (from the pre-swap frame) back over the
+        swapped result, so the swapped forehead can't cut into the hairline. Uses
+        the BiSeNet hair-only mask, aligned via the face keypoints and feathered."""
+        import cv2
+
+        try:
+            from app.engines.face.face_parser import face_parser, parser_available
+
+            if not parser_available():
+                return frame
+            M = self._head_M(face.kps)
+            if M is None:
+                return frame
+            canon = cv2.warpAffine(original, M, (HEAD_SIZE, HEAD_SIZE), borderValue=0)
+            hair = face_parser.hair_mask_512(canon)
+            if hair is None:
+                return frame
+            hair = cv2.resize(hair, (HEAD_SIZE, HEAD_SIZE))
+            inv = cv2.invertAffineTransform(M)
+            h, w = frame.shape[:2]
+            m = cv2.warpAffine(hair, inv, (w, h), borderValue=0)
+            m = cv2.GaussianBlur(m, (0, 0), sigmaX=max(w, h) * 0.005)
+            m = np.clip(m, 0, 1)[:, :, None]
+            out = m * original.astype(np.float32) + (1 - m) * frame.astype(np.float32)
+            return out.astype(np.uint8)
+        except Exception as exc:
+            log.debug("protect hair skipped: %s", exc)
+            return frame
 
     def _transfer_head(self, frame: np.ndarray, face) -> np.ndarray:
         """Composite the cached source hair/scalp onto the user's head, aligned to

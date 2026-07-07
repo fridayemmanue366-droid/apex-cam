@@ -151,18 +151,23 @@ def set_swap_strength(s: SwapStrength) -> SwapStrength:
 
 
 class SwapRealism(BaseModel):
-    # Deep-Live-Cam realism controls (neural swap only).
-    poisson: bool = True      # gradient-domain blend into the scene (no seam)
-    mouth_mask: bool = False  # keep the user's real mouth/teeth (natural talking)
-    swap_hair: bool = False   # carry the source photo's hair/baldness onto the user
+    # Neural-swap tuning. Defaults = clean DLC core; protect_hair keeps your hair.
+    protect_hair: bool = True   # keep your real hair on top (no hairline cut)
+    poisson: bool = False       # gradient-domain blend (can add a bright disc)
+    mouth_mask: bool = False     # keep your real mouth/teeth (natural talking)
+    swap_hair: bool = False      # carry the SOURCE photo's hair/baldness onto you
+
+
+def _realism(ns) -> "SwapRealism":
+    return SwapRealism(protect_hair=ns.protect_hair, poisson=ns.poisson,
+                       mouth_mask=ns.mouth_mask, swap_hair=ns.swap_hair)
 
 
 @router.get("/swap/realism")
 def get_swap_realism() -> SwapRealism:
     from app.core.pipeline import pipeline
 
-    ns = pipeline.neural_swapper
-    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask, swap_hair=ns.swap_hair)
+    return _realism(pipeline.neural_swapper)
 
 
 @router.put("/swap/realism")
@@ -170,6 +175,7 @@ def set_swap_realism(r: SwapRealism) -> SwapRealism:
     from app.core.pipeline import pipeline
 
     ns = pipeline.neural_swapper
+    ns.protect_hair = bool(r.protect_hair)
     ns.poisson = bool(r.poisson)
     ns.mouth_mask = bool(r.mouth_mask)
     was_hair = ns.swap_hair
@@ -180,7 +186,7 @@ def set_swap_realism(r: SwapRealism) -> SwapRealism:
             ns.refresh_head()
         except Exception:
             log.exception("Failed to prepare source head for hair transfer")
-    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask, swap_hair=ns.swap_hair)
+    return _realism(ns)
 
 
 def _meta_path(profile_id: str) -> Path:
