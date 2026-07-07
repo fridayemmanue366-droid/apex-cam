@@ -117,31 +117,29 @@ class NeuralFaceSwapEngine:
         self._loaded = False
         self.enhancer_kind = "none"  # "none" | "gfpgan" | "codeformer"
         self.strength = 1.0
-        # Lock the swapped face to the SOURCE PHOTO's exact complexion/brightness
-        # (0 = as-is, may darken to room light; 1 = fully the photo's skin tone).
-        # Fixes the face coming out darker/off from the chosen photo.
-        self.skin_match = 0.9
+        # --- Clean default = exactly what Deep-Live-Cam/roop do: inswapper's own
+        # feathered paste_back + a GFPGAN sharpen pass. Nothing else. Every extra
+        # below is OFF by default (kept only as optional toggles) because piling
+        # them on made the swap look edited: visible mask lines, a bright ellipse
+        # on the face, bright patches at the neck, and the real face showing when
+        # you turn. inswapper's native paste covers the face properly and blends
+        # naturally, which is the look we want. ---
+        #
+        # Optional: recolour the swapped face toward the SOURCE photo's complexion
+        # (caused bright neck/face patches when high — off by default).
+        self.skin_match = 0.0
+        self.blend_neck = False
         self._source_color = None  # cached LAB mean of the source face
-        # Blend the swapped face using a BiSeNet mask built from the USER'S REAL
-        # face (hair EXCLUDED), instead of inswapper's rectangular paste. This
-        # gives the seamless Deep-Live-Cam/FaceFusion look AND — critically —
-        # protects the user's own hair: the swap never reaches into hair, so a
-        # bald source photo can't make the user bald. (roop keeps hair the same
-        # way, by never pasting over the hair region.) Falls back to inswapper's
-        # native paste when the parser model is absent.
-        self.use_parse = True
-        # Poisson (gradient-domain) blend via cv2.seamlessClone — the Deep-Live-Cam
-        # realism secret: it matches the swapped face's lighting/tone into the
-        # surrounding skin so there's no seam when you turn or the light changes.
-        self.poisson = True
-        # Mouth mask: keep the user's REAL mouth/lips/teeth (cut from the pre-swap
-        # frame, feathered back over the swap) so talking looks natural. Opt-in —
-        # it trades the identity's mouth for the user's own. 0..1 expansion.
+        # Optional: BiSeNet face-shaped paste instead of inswapper's native paste.
+        # Off — its tight mask showed edge lines and revealed the real face on turns.
+        self.use_parse = False
+        # Optional: Poisson (seamlessClone) blend. Off — produced a bright disc.
+        self.poisson = False
+        # Optional: mouth mask (keep the user's real mouth/teeth for talking).
         self.mouth_mask = False
         self.mouth_expand = 0.5
-        # Head/hair transfer: composite the SOURCE photo's hair (or bald scalp)
-        # onto the user, so the source's hairstyle/baldness carries over — the one
-        # thing inswapper (roop/DLC) can't do on its own. Best-effort, opt-in.
+        # Optional: head/hair transfer (source's hairstyle/baldness onto the user).
+        # Off — best-effort 2D only; imperfect on head turns.
         self.swap_hair = False
         self._source_image = None   # cached source photo (to (re)build the head)
         self._head_canon = None     # source head aligned into the HEAD_SIZE canvas
@@ -242,25 +240,33 @@ class NeuralFaceSwapEngine:
             need_orig = self.poisson or self.mouth_mask
             original = frame_bgr.copy() if need_orig else frame_bgr
             for face in faces:
-                # Carry the source photo's hair/scalp onto the user first, so the
-                # swapped face sits cleanly on top at the hairline.
+                # Optional: carry the source photo's hair/scalp onto the user.
                 if self.swap_hair:
                     frame_bgr = self._transfer_head(frame_bgr, face)
-                box = self._clamp_box(face.bbox, frame_bgr.shape)
-                # Swap into an aligned crop, then paste back with a face-shaped
-                # (BiSeNet) feathered mask for a seamless, no-box result.
-                fake, M = self._swapper.get(
-                    frame_bgr, face, self._source_face, paste_back=False)
-                frame_bgr = self._paste(frame_bgr, fake, M)
-                if self.skin_match > 0 and box and self._source_color is not None:
-                    self._match_to_source(frame_bgr, box)
-                    self._blend_neck(frame_bgr, box)
-                # Keep the user's real mouth/teeth (natural talking), then
-                # gradient-blend the face into the scene (DLC realism).
+                M = fake = None
+                if self.use_parse:
+                    # Optional BiSeNet face-shaped paste.
+                    fake, M = self._swapper.get(
+                        frame_bgr, face, self._source_face, paste_back=False)
+                    frame_bgr = self._paste(frame_bgr, fake, M)
+                else:
+                    # DEFAULT — inswapper's own feathered paste (the roop/DLC path).
+                    # Covers the face cleanly, blends naturally, no visible mask
+                    # edges, and stays put when you turn.
+                    frame_bgr = self._swapper.get(
+                        frame_bgr, face, self._source_face, paste_back=True)
+                # Optional filters (all off by default).
+                if self.skin_match > 0 and self._source_color is not None:
+                    box = self._clamp_box(face.bbox, frame_bgr.shape)
+                    if box:
+                        self._match_to_source(frame_bgr, box)
+                        if self.blend_neck:
+                            self._blend_neck(frame_bgr, box)
                 if self.mouth_mask:
                     frame_bgr = self._apply_mouth(frame_bgr, original, face)
-                if self.poisson:
+                if self.poisson and M is not None:
                     frame_bgr = self._poisson_blend(frame_bgr, original, M, fake)
+                # Sharpen the swapped face (GFPGAN) — the DLC crispness, kept on.
                 if self.enhancer_kind != "none":
                     frame_bgr = face_enhancer.enhance(frame_bgr, face.kps)
         except Exception as exc:
