@@ -154,6 +154,7 @@ class SwapRealism(BaseModel):
     # Deep-Live-Cam realism controls (neural swap only).
     poisson: bool = True      # gradient-domain blend into the scene (no seam)
     mouth_mask: bool = False  # keep the user's real mouth/teeth (natural talking)
+    swap_hair: bool = False   # carry the source photo's hair/baldness onto the user
 
 
 @router.get("/swap/realism")
@@ -161,7 +162,7 @@ def get_swap_realism() -> SwapRealism:
     from app.core.pipeline import pipeline
 
     ns = pipeline.neural_swapper
-    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask)
+    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask, swap_hair=ns.swap_hair)
 
 
 @router.put("/swap/realism")
@@ -171,7 +172,15 @@ def set_swap_realism(r: SwapRealism) -> SwapRealism:
     ns = pipeline.neural_swapper
     ns.poisson = bool(r.poisson)
     ns.mouth_mask = bool(r.mouth_mask)
-    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask)
+    was_hair = ns.swap_hair
+    ns.swap_hair = bool(r.swap_hair)
+    # Building the source head is skipped while off — build it when turned on.
+    if ns.swap_hair and not was_hair:
+        try:
+            ns.refresh_head()
+        except Exception:
+            log.exception("Failed to prepare source head for hair transfer")
+    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask, swap_hair=ns.swap_hair)
 
 
 def _meta_path(profile_id: str) -> Path:

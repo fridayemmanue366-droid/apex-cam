@@ -85,6 +85,27 @@ def _providers() -> list[str]:
     return [p for p in order if p in avail] or ["CPUExecutionProvider"]
 
 
+# --- Head/hair transfer alignment ---------------------------------------------
+# ArcFace 5-point template (eyes, nose, mouth corners) in a 112px crop. We build
+# a bigger canonical "head" canvas from it so there's room ABOVE the face for the
+# source photo's hair, then map the source head onto the user via a similarity
+# transform from the 5 keypoints (same idea inswapper uses to align faces).
+HEAD_SIZE = 512
+_ARC5 = np.array(
+    [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+     [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)
+
+
+def _head_dst() -> np.ndarray:
+    """5-point destination template inside the HEAD_SIZE canvas: face centred
+    horizontally and pushed down so ~42% of the canvas above it is free for hair."""
+    s = 3.2
+    dst = _ARC5 * s
+    dst[:, 0] += (HEAD_SIZE - (dst[:, 0].min() + dst[:, 0].max())) / 2.0
+    dst[:, 1] += 0.42 * HEAD_SIZE - dst[:, 1].min()
+    return dst
+
+
 class NeuralFaceSwapEngine:
     """InsightFace inswapper wrapper. Self-contained: it runs its own detector,
     so it doesn't share the CPU tracker."""
@@ -118,6 +139,13 @@ class NeuralFaceSwapEngine:
         # it trades the identity's mouth for the user's own. 0..1 expansion.
         self.mouth_mask = False
         self.mouth_expand = 0.5
+        # Head/hair transfer: composite the SOURCE photo's hair (or bald scalp)
+        # onto the user, so the source's hairstyle/baldness carries over — the one
+        # thing inswapper (roop/DLC) can't do on its own. Best-effort, opt-in.
+        self.swap_hair = False
+        self._source_image = None   # cached source photo (to (re)build the head)
+        self._head_canon = None     # source head aligned into the HEAD_SIZE canvas
+        self._head_mask = None      # soft mask of hair+scalp+ears (NOT the face)
 
     @property
     def ready(self) -> bool:
@@ -186,7 +214,14 @@ class NeuralFaceSwapEngine:
         self._source_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
         # Remember the photo's exact complexion so the live swap keeps it.
         self._compute_face_color(image_bgr, self._source_face.bbox)
+        # Cache the photo + build the source head (hair/scalp) for hair transfer.
+        self._source_image = image_bgr
+        self._prepare_head()
         return True
+
+    def refresh_head(self) -> None:
+        """Rebuild the cached source head (call after toggling swap_hair on)."""
+        self._prepare_head()
 
     def swap_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
         """Detect every face in the live frame and swap identity in, preserving
@@ -207,6 +242,10 @@ class NeuralFaceSwapEngine:
             need_orig = self.poisson or self.mouth_mask
             original = frame_bgr.copy() if need_orig else frame_bgr
             for face in faces:
+                # Carry the source photo's hair/scalp onto the user first, so the
+                # swapped face sits cleanly on top at the hairline.
+                if self.swap_hair:
+                    frame_bgr = self._transfer_head(frame_bgr, face)
                 box = self._clamp_box(face.bbox, frame_bgr.shape)
                 # Swap into an aligned crop, then paste back with a face-shaped
                 # (BiSeNet) feathered mask for a seamless, no-box result.
@@ -362,6 +401,83 @@ class NeuralFaceSwapEngine:
             return frame
         except Exception as exc:
             log.debug("mouth mask skipped: %s", exc)
+            return frame
+
+    @staticmethod
+    def _head_M(kps):
+        """Similarity transform mapping a face's 5 keypoints onto the canonical
+        head template. Returns a 2x3 affine, or None."""
+        import cv2
+
+        try:
+            kps = np.asarray(kps, np.float32)
+            if kps.shape != (5, 2) or not np.all(np.isfinite(kps)):
+                return None
+            M, _ = cv2.estimateAffinePartial2D(kps, _head_dst(), method=cv2.LMEDS)
+            return M
+        except Exception:
+            return None
+
+    def _prepare_head(self) -> None:
+        """Align the source photo's head into the canonical canvas and cache the
+        hair+scalp+ears mask (everything that ISN'T the face — the part inswapper
+        can't transfer). Needs BiSeNet; no-op otherwise."""
+        self._head_canon = None
+        self._head_mask = None
+        if not self.swap_hair or self._source_image is None or self._source_face is None:
+            return
+        try:
+            import cv2
+
+            from app.engines.face.face_parser import face_parser, parser_available
+
+            if not parser_available():
+                log.info("Hair transfer needs the BiSeNet parser model; skipping.")
+                return
+            M = self._head_M(self._source_face.kps)
+            if M is None:
+                return
+            canon = cv2.warpAffine(self._source_image, M, (HEAD_SIZE, HEAD_SIZE),
+                                   borderValue=0)
+            head = face_parser.mask_512(canon, include_hair=True)   # face + hair + ears
+            face_m = face_parser.mask_512(canon, include_hair=False)  # face only
+            if head is None:
+                return
+            head = cv2.resize(head, (HEAD_SIZE, HEAD_SIZE))
+            if face_m is not None:
+                face_m = cv2.resize(face_m, (HEAD_SIZE, HEAD_SIZE))
+                tmask = np.clip(head - face_m, 0.0, 1.0)  # hair/scalp/ears, not face
+            else:
+                tmask = head
+            self._head_canon = canon
+            self._head_mask = tmask.astype(np.float32)
+            log.info("Hair transfer: source head prepared (coverage=%.2f)",
+                     float(tmask.mean()))
+        except Exception as exc:
+            log.debug("prepare head skipped: %s", exc)
+
+    def _transfer_head(self, frame: np.ndarray, face) -> np.ndarray:
+        """Composite the cached source hair/scalp onto the user's head, aligned to
+        this face via the keypoint similarity transform and feathered. Transfers
+        the photo's hairstyle when it has hair, or its bald scalp when it doesn't."""
+        import cv2
+
+        if self._head_canon is None or self._head_mask is None:
+            return frame
+        try:
+            M = self._head_M(face.kps)
+            if M is None:
+                return frame
+            inv = cv2.invertAffineTransform(M)
+            h, w = frame.shape[:2]
+            head = cv2.warpAffine(self._head_canon, inv, (w, h), borderValue=0)
+            m = cv2.warpAffine(self._head_mask, inv, (w, h), borderValue=0)
+            m = cv2.GaussianBlur(m, (0, 0), sigmaX=max(w, h) * 0.006)
+            m = np.clip(m, 0, 1)[:, :, None]
+            out = m * head.astype(np.float32) + (1 - m) * frame.astype(np.float32)
+            return out.astype(np.uint8)
+        except Exception as exc:
+            log.debug("head transfer skipped: %s", exc)
             return frame
 
     @staticmethod
