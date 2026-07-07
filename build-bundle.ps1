@@ -49,12 +49,31 @@ robocopy $edist $out /E /NFL /NDL /NJH /NJS /NP /MT:16 | Out-Null
 Rename-Item (Join-Path $out "electron.exe") "ApexCam.exe"
 Remove-Item (Join-Path $out "resources\default_app.asar") -Force -ErrorAction SilentlyContinue
 
+# --- Brand the exe with the Apex Cam icon (via rcedit) ---
+$ico = Join-Path $root "desktop\build\apexcam.ico"
+if (Test-Path $ico) {
+  $rcedit = Join-Path $cache "rcedit-x64.exe"
+  if (-not (Test-Path $rcedit)) {
+    try {
+      Invoke-WebRequest -Uri "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe" -OutFile $rcedit
+    } catch { Write-Host "  (rcedit download failed; exe keeps default icon, shortcuts still branded)" }
+  }
+  if (Test-Path $rcedit) {
+    & $rcedit (Join-Path $out "ApexCam.exe") --set-icon $ico
+    Write-Host "  branded ApexCam.exe with the Apex Cam icon"
+  }
+  Copy-Item $ico (Join-Path $out "apexcam.ico") -Force        # for the installer shortcuts
+}
+
 # --- 3) Our app -> resources\app\ (main uses only node builtins + electron) --
 Say "Stage the app"
 $appdir = Join-Path $out "resources\app"
 New-Item -ItemType Directory -Force $appdir | Out-Null
 Copy-Item (Join-Path $root "desktop\dist") (Join-Path $appdir "dist") -Recurse
 Copy-Item (Join-Path $root "desktop\dist-electron") (Join-Path $appdir "dist-electron") -Recurse
+if (Test-Path (Join-Path $root "desktop\build\apexcam.ico")) {
+  Copy-Item (Join-Path $root "desktop\build\apexcam.ico") (Join-Path $appdir "apexcam.ico")
+}
 @'
 { "name": "apexcam", "version": "1.0.0", "main": "dist-electron/main.js" }
 '@ | Set-Content -Encoding utf8 (Join-Path $appdir "package.json")

@@ -47,6 +47,17 @@ function startBackend() {
   }
 }
 
+function appIcon(): string | undefined {
+  // Bundle: resources/app/apexcam.ico; dev: desktop/build/apexcam.ico.
+  for (const p of [
+    path.join(__dirname, "..", "apexcam.ico"),
+    path.join(__dirname, "..", "build", "apexcam.ico"),
+  ]) {
+    if (existsSync(p)) return p;
+  }
+  return undefined;
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -54,6 +65,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     title: "Apex Cam",
+    icon: appIcon(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

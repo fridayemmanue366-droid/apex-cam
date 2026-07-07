@@ -24,6 +24,9 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 LicenseFile=terms.txt
+; Brand the installer itself + the Add/Remove Programs entry with the logo.
+SetupIconFile=apexcam.ico
+UninstallDisplayIcon={app}\apexcam.ico
 ; The bundle is ~1.2 GB; give the wizard room.
 DiskSpanning=no
 
@@ -39,9 +42,9 @@ Name: "getmodels"; Description: "Download the AI models now (~2 GB, needs intern
 Source: "..\dist-bundle\ApexCam\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\Apex Cam"; Filename: "{app}\{#AppExe}"
+Name: "{group}\Apex Cam"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\apexcam.ico"
 Name: "{group}\Uninstall Apex Cam"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Apex Cam"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{autodesktop}\Apex Cam"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\apexcam.ico"; Tasks: desktopicon
 
 [Run]
 ; Optional one-time model download (visible console so the user sees progress).
