@@ -1,5 +1,5 @@
 @echo off
-REM Apex Cam launcher — starts the desktop app (which spawns the AI backend).
+REM Apex Cam launcher - starts the desktop app (which spawns the AI backend).
 title Apex Cam
 cd /d "%~dp0desktop"
 
@@ -25,7 +25,7 @@ if errorlevel 1 (
 
 REM Build the UI once if it hasn't been built yet.
 if not exist "dist-electron\main.js" (
-  echo First run — building the app...
+  echo First run - building the app...
   call "%NODE_EXE%" node_modules\vite\bin\vite.js build
 )
 
