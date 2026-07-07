@@ -150,6 +150,30 @@ def set_swap_strength(s: SwapStrength) -> SwapStrength:
     return SwapStrength(strength=pipeline.swapper.strength)
 
 
+class SwapRealism(BaseModel):
+    # Deep-Live-Cam realism controls (neural swap only).
+    poisson: bool = True      # gradient-domain blend into the scene (no seam)
+    mouth_mask: bool = False  # keep the user's real mouth/teeth (natural talking)
+
+
+@router.get("/swap/realism")
+def get_swap_realism() -> SwapRealism:
+    from app.core.pipeline import pipeline
+
+    ns = pipeline.neural_swapper
+    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask)
+
+
+@router.put("/swap/realism")
+def set_swap_realism(r: SwapRealism) -> SwapRealism:
+    from app.core.pipeline import pipeline
+
+    ns = pipeline.neural_swapper
+    ns.poisson = bool(r.poisson)
+    ns.mouth_mask = bool(r.mouth_mask)
+    return SwapRealism(poisson=ns.poisson, mouth_mask=ns.mouth_mask)
+
+
 def _meta_path(profile_id: str) -> Path:
     return PROFILES_DIR / f"{profile_id}.json"
 
