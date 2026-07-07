@@ -18,7 +18,8 @@ if (-not (Test-Path (Join-Path $root "dist-bundle\ApexCam\ApexCam.exe"))) {
 Say "Locate Inno Setup"
 function Find-ISCC {
   foreach ($c in @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-                   "$env:ProgramFiles\Inno Setup 6\ISCC.exe")) {
+                   "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+                   "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")) {
     if (Test-Path $c) { return $c }
   }
   return $null
