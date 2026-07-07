@@ -7,7 +7,9 @@ raw mic is never exposed to call apps.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from app.core.audio_pipeline import audio_pipeline
@@ -118,6 +120,20 @@ def set_rvc(s: RVCSettings) -> RVCStatus:
         rvc.set_voice(s.voice)
     rvc.pitch_shift = max(-12, min(s.pitch_shift, 12))
     rvc.enabled = s.enabled and rvc.ready
+    return rvc_status()
+
+
+@router.post("/rvc/voice")
+async def import_voice(file: UploadFile) -> RVCStatus:
+    """Add a trained RVC voice model (.onnx). It's saved into models/rvc/voices/
+    and becomes selectable. (You train/source one .onnx per target voice.)"""
+    from app.engines.voice.rvc import VOICES_DIR
+
+    name = Path(file.filename or "voice.onnx").name
+    if not name.lower().endswith(".onnx"):
+        raise HTTPException(400, "Voice model must be an .onnx file")
+    VOICES_DIR.mkdir(parents=True, exist_ok=True)
+    (VOICES_DIR / name).write_bytes(await file.read())
     return rvc_status()
 
 

@@ -78,6 +78,18 @@ LIVEPORTRAIT = {
 }
 # buffalo_l (detector+recogniser) auto-downloads via insightface on first run.
 
+# RVC voice-cloning BASE models (shared across all voices). A trained voice model
+# (.onnx) still has to be added per voice into models/rvc/voices/.
+_RVC = MODELS / "rvc"
+RVC = {
+    "content_vec.onnx": (_RVC,
+        "https://huggingface.co/DogManTC/test-rvc-onnx/resolve/main/vec-768-layer-12.onnx",
+        378, "RVC content encoder (voice-cloning base, shared)."),
+    "rmvpe.onnx": (_RVC,
+        "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.onnx",
+        362, "RVC pitch (F0) extractor (voice-cloning base, shared)."),
+}
+
 
 def fetch(name: str, dest: Path, url: str, mb: int, why: str) -> None:
     dest.mkdir(parents=True, exist_ok=True)
@@ -110,6 +122,9 @@ def main() -> None:
             fetch(name, dest, url, mb, why)
         print("\nMediaPipe (full-body pose) :")
         for name, (dest, url, mb, why) in MEDIAPIPE.items():
+            fetch(name, dest, url, mb, why)
+        print("\nRVC voice-cloning base models :")
+        for name, (dest, url, mb, why) in RVC.items():
             fetch(name, dest, url, mb, why)
     print("\nDone. Missing files can be re-run anytime (existing ones are skipped).")
 
