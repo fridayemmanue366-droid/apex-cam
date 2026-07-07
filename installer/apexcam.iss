@@ -1,0 +1,57 @@
+; Apex Cam - one-click installer (Inno Setup).
+; Wraps the self-contained bundle (dist-bundle\ApexCam, produced by build-bundle.ps1)
+; into a double-click setup.exe. The customer never sees Python, Node, or a script.
+;
+; Build it: build-installer.ps1  (installs Inno Setup if needed, then compiles this)
+
+#define AppName "Apex Cam"
+#define AppVer  "1.0.0"
+#define AppExe  "ApexCam.exe"
+
+[Setup]
+AppId={{7E3A9C2D-APEX-CAM-0001-BUNDLEINSTALLER}}
+AppName={#AppName}
+AppVersion={#AppVer}
+AppPublisher=Apex Cam
+DefaultDirName={localappdata}\Apex Cam
+DefaultGroupName=Apex Cam
+DisableProgramGroupPage=yes
+; Per-user install to LocalAppData so no admin is needed and models/data stay writable.
+PrivilegesRequired=lowest
+OutputDir=..\dist-bundle
+OutputBaseFilename=ApexCam-Setup
+Compression=lzma2/max
+SolidCompression=yes
+WizardStyle=modern
+LicenseFile=terms.txt
+; The bundle is ~1.2 GB; give the wizard room.
+DiskSpanning=no
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
+Name: "getmodels"; Description: "Download the AI models now (~2 GB, needs internet - recommended)"; GroupDescription: "AI models:"
+
+[Files]
+; The entire self-contained bundle -> {app}
+Source: "..\dist-bundle\ApexCam\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+[Icons]
+Name: "{group}\Apex Cam"; Filename: "{app}\{#AppExe}"
+Name: "{group}\Uninstall Apex Cam"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Apex Cam"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+
+[Run]
+; Optional one-time model download (visible console so the user sees progress).
+Filename: "{app}\python\python.exe"; Parameters: "backend\scripts\download_models.py --all"; \
+  WorkingDir: "{app}"; StatusMsg: "Downloading AI models (~2 GB, one-time)..."; \
+  Tasks: getmodels
+; Offer to launch after install.
+Filename: "{app}\{#AppExe}"; Description: "Launch Apex Cam"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Remove models/data created after install so uninstall is clean.
+Type: filesandordirs; Name: "{app}\backend\models"
+Type: filesandordirs; Name: "{app}\backend\data"

@@ -1,0 +1,20 @@
+Apex Cam - Terms of Use
+
+By installing and using Apex Cam you agree to the following:
+
+1. Permitted use. Only transform faces and voices that you own or have explicit
+   permission to use. Do not use Apex Cam to impersonate, deceive, harass, or
+   defraud anyone, or for any unlawful purpose.
+
+2. AI-generated labelling. Apex Cam labels its output as AI-generated. You must
+   not remove, hide, or misrepresent that labelling.
+
+3. Local processing. The free local features run entirely on your PC; no video
+   or audio is sent anywhere. The optional Apex Pro cloud tier is separate and
+   opt-in, and sends frames to the cloud provider only when you enable it.
+
+4. No warranty. Apex Cam is provided "as is", without warranty of any kind. You
+   are responsible for how you use it and for complying with the laws that apply
+   to you.
+
+If you do not agree, do not install or use Apex Cam.
