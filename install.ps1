@@ -70,7 +70,10 @@ $node = (Get-Command node -ErrorAction SilentlyContinue)
 if (-not $node) { winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements }
 Set-Location "$root\desktop"
 npm install --no-fund --no-audit
-npm run build 2>$null; if ($LASTEXITCODE -ne 0) { npx vite build }
+# Build only the RUNNABLE app (renderer + electron main/preload). We deliberately
+# skip `electron-builder` packaging: it needs symlink privilege (Developer Mode)
+# and isn't required — the app runs from this folder via "Apex Cam.bat".
+npx vite build
 
 # --- virtual devices ---
 Say "Virtual camera + microphone drivers"
