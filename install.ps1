@@ -83,11 +83,13 @@ if (-not (Test-Path $venv)) { Die "Failed to create the Python virtual environme
 & $venv -m pip install --upgrade pip -q
 
 # Pinned, known-good all-ONNX stack (no PyTorch needed). numpy<2 keeps insightface
-# + onnxruntime happy.
+# + onnxruntime happy. huggingface_hub[hf_xet] so HuggingFace's Xet CDN downloads
+# don't truncate.
 & $venv -m pip install `
     "numpy==1.26.4" `
     fastapi "uvicorn[standard]" pydantic-settings python-multipart `
     sounddevice pyvirtualcam websockets `
+    "huggingface_hub[hf_xet]" `
     "opencv-python==4.10.0.84" mediapipe
 if ($LASTEXITCODE -ne 0) { Die "Core Python dependencies failed to install. Check your internet connection and re-run." }
 

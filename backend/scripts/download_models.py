@@ -91,6 +91,15 @@ RVC = {
 }
 
 
+def _hf_repo_file(url: str):
+    """Parse a HuggingFace resolve URL -> (repo_id, filename), else None.
+    e.g. https://huggingface.co/<repo>/resolve/main/<path> -> (<repo>, <path>)."""
+    import re
+
+    m = re.match(r"https?://huggingface\.co/(.+?)/resolve/[^/]+/(.+)$", url)
+    return (m.group(1), m.group(2)) if m else None
+
+
 def fetch(name: str, dest: Path, url: str, mb: int, why: str) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     out = dest / name
@@ -98,6 +107,22 @@ def fetch(name: str, dest: Path, url: str, mb: int, why: str) -> None:
         print(f"  ✓ {name} already present ({out.stat().st_size/1e6:.0f} MB)")
         return
     print(f"  ↓ {name}  (~{mb} MB) — {why}")
+    # HuggingFace repos use the Xet CDN, which TRUNCATES plain urllib/curl
+    # downloads. Use huggingface_hub (handles Xet) for hf.co URLs; fall back to
+    # urllib for everything else.
+    hf = _hf_repo_file(url)
+    if hf:
+        try:
+            import shutil
+
+            from huggingface_hub import hf_hub_download
+
+            cached = hf_hub_download(repo_id=hf[0], filename=hf[1])
+            shutil.copy(cached, out)
+            print(f"    done: {out.stat().st_size/1e6:.0f} MB")
+            return
+        except Exception as exc:
+            print(f"    huggingface_hub failed ({exc}); trying direct download...")
     try:
         urllib.request.urlretrieve(url, out)
         print(f"    done: {out.stat().st_size/1e6:.0f} MB")
