@@ -80,6 +80,13 @@ class RVCVoiceEngine:
         # 48000). Overridable via APEXCAM_RVC_SR. Verify per model on a GPU.
         import os
         self.model_sr = int(os.environ.get("APEXCAM_RVC_SR", "40000"))
+        # Some voice-model ONNX exports need a FIXED phone length; others are
+        # dynamic. We probe it at load and buffer live audio into windows of that
+        # length so conversion actually runs on the streaming pipeline. Buffers
+        # live at the device sample rate.
+        self._win_T: int | None = None
+        self._in_buf = np.zeros(0, np.float32)
+        self._out_buf = np.zeros(0, np.float32)
 
     @property
     def ready(self) -> bool:
@@ -115,25 +122,93 @@ class RVCVoiceEngine:
             return False
         try:
             import onnxruntime as ort
-            self._voice = ort.InferenceSession(str(path), providers=_providers())
+            # Quiet the session: probing tries several lengths and a fixed-length
+            # export logs (expected) reshape errors we catch — don't spam them.
+            so = ort.SessionOptions()
+            so.log_severity_level = 4   # fatal only
+            self._voice = ort.InferenceSession(
+                str(path), sess_options=so, providers=_providers())
             self.voice_name = name
-            log.info("RVC voice model loaded: %s", name)
+            self._in_buf = np.zeros(0, np.float32)
+            self._out_buf = np.zeros(0, np.float32)
+            self._probe_length()
+            log.info("RVC voice model loaded: %s (window T=%s)", name, self._win_T)
             return True
         except Exception as exc:
             log.warning("RVC voice model failed: %s", exc)
             self._voice = None
             return False
 
+    def _probe_length(self) -> None:
+        """Find the phone length the voice model accepts. Fixed-length exports
+        work at only one T; dynamic ones work at many (we then pick a ~1s window
+        for low latency). Falls back to a default if probing is inconclusive."""
+        self._win_T = None
+        if self._voice is None:
+            return
+        ins = self._voice.get_inputs()
+
+        def works(T: int) -> bool:
+            try:
+                self._voice.run(None, {
+                    ins[0].name: np.zeros((1, T, 768), np.float32),
+                    ins[1].name: np.array([T], np.int64),
+                    ins[2].name: np.ones((1, T), np.int64),
+                    ins[3].name: np.zeros((1, T), np.float32),
+                    ins[4].name: np.array([0], np.int64),
+                    ins[5].name: np.zeros((1, 192, T), np.float32),
+                })
+                return True
+            except Exception:
+                return False
+
+        candidates = [100, 128, 200, 256, 300, 320, 400, 512]
+        ok = [T for T in candidates if works(T)]
+        if len(ok) >= 2:
+            self._win_T = 100          # dynamic -> ~1s window (low latency)
+        elif len(ok) == 1:
+            self._win_T = ok[0]        # fixed-length export
+        else:
+            self._win_T = 200          # inconclusive -> common default
+
     def convert(self, samples: np.ndarray, sample_rate: int) -> np.ndarray:
-        """Convert a mono float32 chunk to the target voice. Returns the input
-        unchanged if not ready (safe no-op)."""
+        """Convert a mono float32 chunk to the target voice. Buffers live audio
+        into model-sized windows (voice models can't run on tiny 10 ms blocks),
+        emits the converted stream in sync, and passes the original voice through
+        while priming. Safe no-op if not ready; never raises into the audio loop."""
         if not self.enabled or not self.ready:
             return samples
         try:
-            return self._convert(samples, sample_rate)
+            win_T = self._win_T or 100
+            # Device-SR samples that yield ~win_T phone frames (content hop 320 @
+            # 16k, x2 upsample -> win_T*160 samples @16k).
+            win = max(1, int(win_T * 160 * sample_rate / self.SR))
+            self._in_buf = np.concatenate([self._in_buf, samples.astype(np.float32)])
+            while len(self._in_buf) >= win:
+                chunk = self._in_buf[:win]
+                self._in_buf = self._in_buf[win:]
+                conv = self._convert(chunk, sample_rate)
+                self._out_buf = np.concatenate([self._out_buf, conv])
+            if len(self._out_buf) >= len(samples):
+                out = self._out_buf[:len(samples)]
+                self._out_buf = self._out_buf[len(samples):]
+                return out.astype(np.float32)
+            return samples   # priming: pass the real voice through until ready
         except Exception as exc:
             log.debug("RVC convert skipped: %s", exc)
             return samples
+
+    @staticmethod
+    def _fit_seq(feats: np.ndarray, n: int) -> np.ndarray:
+        """Force [1, T, C] to exactly n frames (trim, or edge-pad the last frame).
+        Fixed-length exports need an exact phone length."""
+        t = feats.shape[1]
+        if t == n:
+            return feats
+        if t > n:
+            return feats[:, :n, :]
+        pad = np.repeat(feats[:, -1:, :], n - t, axis=1)
+        return np.concatenate([feats, pad], axis=1)
 
     def _convert(self, samples: np.ndarray, sample_rate: int) -> np.ndarray:
         # Matches the proven RVC ONNX inference contract (codename0og/RVC_Onnx_Infer):
@@ -151,7 +226,9 @@ class RVCVoiceEngine:
         logits = self._content.run(
             None, {ci: audio16[None, None, :].astype(np.float32)})[0]
         feats = np.repeat(logits, 2, axis=1).astype(np.float32)   # [1, 2T, 768]
-        n = feats.shape[1]
+        # Force the exact phone length the model expects (fixed-length exports).
+        n = self._win_T or feats.shape[1]
+        feats = self._fit_seq(feats, n)
         pitch, pitchf = self._extract_pitch(audio16, n)
 
         ins = self._voice.get_inputs()
