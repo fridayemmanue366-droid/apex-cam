@@ -1,7 +1,22 @@
 # Installing Apex Cam on a PC (e.g. your gaming laptop)
 
-Apex Cam is a desktop app (Electron) + an AI backend (Python) + AI models. The
-installer below provisions **everything** on the target machine — best on a PC
+Apex Cam is a desktop app (Electron) + an AI backend (Python) + AI models.
+
+## Two ways to install
+
+**A) For customers — the one-click installer (recommended).**
+Ship them **`ApexCam-Setup.exe`** (built by `build-bundle.ps1` then
+`build-installer.ps1`). They double-click it → agree to terms → Next → done.
+**No Python, no Node, no PowerShell, no build tools** — a private Python with all
+AI libraries is baked inside. See "Building the installer" at the bottom.
+
+**B) For developers / your own testing — the script below.**
+`install.ps1` provisions everything from source on the machine (installs Python
+3.11, Node, the AI libraries, models, drivers). Use this on your dev/GPU box.
+
+---
+
+The script (B) provisions **everything** on the target machine — best on a PC
 with an **NVIDIA GPU** for smooth real-time AI.
 
 ## Steps
@@ -56,3 +71,21 @@ with an **NVIDIA GPU** for smooth real-time AI.
 - Everything runs **locally** — no video/audio leaves the PC (the optional
   Apex Pro cloud tier is separate and opt-in).
 - All output is labelled **AI-GENERATED** (see `docs/LEGAL.md`).
+
+## Building the installer (for you, to ship to customers)
+
+Do this on a **build PC** that already has the dev backend set up
+(`backend\.venv311` from `install.ps1`) and `desktop\node_modules` (from
+`npm install`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build-bundle.ps1       # or -Gpu for GPU accel
+powershell -ExecutionPolicy Bypass -File build-installer.ps1
+```
+
+- `build-bundle.ps1` bakes a private Python 3.11 + all AI libraries + the built
+  app into `dist-bundle\ApexCam\` (~1.2 GB).
+- `build-installer.ps1` compiles that into **`dist-bundle\ApexCam-Setup.exe`**
+  (~415 MB) — the single file you send to customers.
+- Models are **not** in the installer; it offers to download them (~2 GB) at the
+  end of install, so the download is one-time and on the customer's machine.
