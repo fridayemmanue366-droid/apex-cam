@@ -7,21 +7,37 @@ import path from "node:path";
 // backend lifecycle.
 let backend: ChildProcess | null = null;
 
+// Locate the Python + backend to run. In a packaged install we ship a private
+// (bundled) Python next to the app, so the customer never installs Python. In
+// dev we fall back to the project venv, then a system uvicorn.
+function resolveBackend(): { py: string | null; dir: string } {
+  const exeDir = path.dirname(app.getPath("exe"));
+  // 1) Bundled runtime (consumer install): <appRoot>/python + <appRoot>/backend
+  const bundledPy = path.join(exeDir, "python", "python.exe");
+  const bundledDir = path.join(exeDir, "backend");
+  if (existsSync(bundledPy) && existsSync(bundledDir)) {
+    return { py: bundledPy, dir: bundledDir };
+  }
+  // 2) Dev venv
+  const devDir = path.resolve(__dirname, "../../backend");
+  const venvPy = path.join(devDir, ".venv311", "Scripts", "python.exe");
+  if (existsSync(venvPy)) return { py: venvPy, dir: devDir };
+  // 3) System uvicorn (last resort)
+  return { py: null, dir: devDir };
+}
+
 function startBackend() {
   if (process.env.APEXCAM_NO_BACKEND) return;
-  const backendDir = path.resolve(__dirname, "../../backend");
-  // Prefer the project venv that has the AI stack (insightface/onnxruntime);
-  // fall back to a system uvicorn for plain dev.
-  const venvPy = path.join(backendDir, ".venv311", "Scripts", "python.exe");
+  const { py, dir } = resolveBackend();
   try {
-    if (existsSync(venvPy)) {
-      backend = spawn(venvPy, ["-m", "uvicorn", "app.main:app", "--port", "8790"], {
-        cwd: backendDir,
+    if (py) {
+      backend = spawn(py, ["-m", "uvicorn", "app.main:app", "--port", "8790"], {
+        cwd: dir,
         stdio: "inherit",
       });
     } else {
       backend = spawn("uvicorn", ["app.main:app", "--port", "8790"], {
-        cwd: backendDir,
+        cwd: dir,
         stdio: "inherit",
         shell: true,
       });
