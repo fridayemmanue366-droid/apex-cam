@@ -27,8 +27,25 @@ from app.core.logging import get_logger
 log = get_logger(__name__)
 
 FLW_BASE = "https://api.flutterwave.com/v3"
-RATE_PER_SEC = 0.03           # what we charge the customer per second
-CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "USD")
+RATE_PER_SEC = 0.03           # our price per second in USD (cost $0.02, keep $0.01)
+CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
+# We collect Naira but pay fal in USD, so charge at a rate with a BUFFER over the
+# market (covers FX swings + the cost of buying USD + processor fees). Adjust as
+# the naira moves via APEXCAM_NGN_PER_USD.
+NGN_PER_USD = float(os.environ.get("APEXCAM_NGN_PER_USD", "1600"))
+
+
+def usd_price(minutes: float) -> float:
+    """Our USD price for a package (before currency conversion)."""
+    return round(minutes * 60 * RATE_PER_SEC, 2)
+
+
+def package_amount(minutes: float) -> float:
+    """The amount to CHARGE, in CURRENCY. NGN = USD price x buffered rate."""
+    usd = usd_price(minutes)
+    if CURRENCY == "NGN":
+        return float(round(usd * NGN_PER_USD))   # whole naira
+    return usd
 
 
 def _load_keys() -> dict:
@@ -52,10 +69,6 @@ def _load_keys() -> dict:
     except Exception as exc:
         log.debug("flutterwave key load skipped: %s", exc)
     return keys
-
-
-def package_amount(minutes: float) -> float:
-    return round(minutes * 60 * RATE_PER_SEC, 2)
 
 
 class FlutterwavePay:

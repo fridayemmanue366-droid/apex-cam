@@ -15,11 +15,10 @@ const LOOKS = [
   "Fashion model, editorial lighting",
 ];
 
-// Prepaid minute packages. Price = minutes x 60s x $0.03/sec (our per-second rate;
-// we pay the provider $0.02 and keep $0.01). Payment is wired later.
-const RATE = 0.03;   // what WE charge the customer per second (cost is $0.02; we keep $0.01)
+// Prepaid minute packages. The price shown comes from the backend (/pro/pricing),
+// which sets the currency (Naira for Nigeria) at a buffered FX rate over our
+// underlying $0.03/sec.
 const PACKAGES = [5, 12, 15, 25, 30, 50, 100, 160, 375, 1000];
-const price = (min: number) => (min * 60 * RATE).toFixed(2);
 
 // Cloud voices for the Pro tier (voice change/cloning via fal). Real list comes
 // from the backend once billing is live; these are the presets shown meanwhile.
@@ -48,6 +47,7 @@ export function ProTab() {
   const [page, setPage] = useState<Page>("dashboard");
   const [prompt, setPrompt] = useState("");
   const [voice, setVoice] = useState<string>("");
+  const [pricing, setPricing] = useState<{ symbol: string; per_minute: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -56,7 +56,11 @@ export function ProTab() {
       setPrompt(p.prompt);
       if (p.enabled) setEntered(true);
     }).catch(() => setPro(null));
+    api.getProPricing().then(setPricing).catch(() => undefined);
   }, []);
+
+  const priceLabel = (min: number) =>
+    pricing ? `${pricing.symbol}${Math.round(min * pricing.per_minute).toLocaleString()}` : "…";
 
   // Poll the balance so the countdown updates live and the UI reflects an
   // auto-stop (when minutes run out, the backend flips enabled -> false).
@@ -300,7 +304,7 @@ export function ProTab() {
                 {PACKAGES.map((m) => (
                   <div key={m} className="pro-pack">
                     <div className="pro-pack-min">{m}<span> min</span></div>
-                    <div className="pro-pack-price">${price(m)}</div>
+                    <div className="pro-pack-price">{priceLabel(m)}</div>
                     <button type="button" className="pro-chip" onClick={() => buy(m)}>Buy</button>
                   </div>
                 ))}

@@ -120,6 +120,21 @@ def add_credits(a: AddMinutes) -> Credits:
     return get_credits()
 
 
+class Pricing(BaseModel):
+    currency: str
+    symbol: str
+    per_minute: float   # price of one minute, in `currency`
+
+
+@router.get("/pricing")
+def get_pricing() -> Pricing:
+    from app.engines.flutterwave import CURRENCY, package_amount
+
+    return Pricing(currency=CURRENCY,
+                   symbol="₦" if CURRENCY == "NGN" else "$",
+                   per_minute=package_amount(1))
+
+
 # --- Payments (Flutterwave) ------------------------------------------------
 class PayStart(BaseModel):
     minutes: float
