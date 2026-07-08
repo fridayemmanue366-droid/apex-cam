@@ -150,7 +150,14 @@ export interface ProStatus {
   model: string;
   has_reference: boolean;
   prompt: string;
+  minutes_remaining: number;
+  has_credit: boolean;
   error: string | null;
+}
+
+export interface Credits {
+  minutes_remaining: number;
+  has_credit: boolean;
 }
 
 export interface ProVoice {
@@ -262,6 +269,13 @@ export const api = {
     form.append("file", file);
     return req<ProStatus>("/pro/reference", { method: "POST", body: form });
   },
+  getProCredits: () => req<Credits>("/pro/credits"),
+  addProCredits: (minutes: number) =>
+    req<Credits>("/pro/credits/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutes }),
+    }),
   getProVoice: () => req<ProVoice>("/pro/voice"),
   setProVoice: (cfg: { enabled: boolean; voice: string | null }) =>
     req<ProVoice>("/pro/voice", {

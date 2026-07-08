@@ -50,9 +50,6 @@ export function ProTab() {
   const [voice, setVoice] = useState<string>("");
   const refFile = useRef<HTMLInputElement>(null);
 
-  // Minutes balance is client-side placeholder until billing is wired.
-  const [minutes] = useState(0);
-
   useEffect(() => {
     api.getPro().then((p) => {
       setPro(p);
@@ -60,6 +57,18 @@ export function ProTab() {
       if (p.enabled) setEntered(true);
     }).catch(() => setPro(null));
   }, []);
+
+  // Poll the balance so the countdown updates live and the UI reflects an
+  // auto-stop (when minutes run out, the backend flips enabled -> false).
+  useEffect(() => {
+    if (!entered) return;
+    const t = setInterval(() => {
+      api.getPro().then(setPro).catch(() => undefined);
+    }, 1500);
+    return () => clearInterval(t);
+  }, [entered]);
+
+  const minutes = pro?.minutes_remaining ?? 0;
 
   const save = (enabled: boolean, p = prompt) =>
     api.setPro({ enabled, prompt: p }).then(setPro).catch(() => undefined);
@@ -70,6 +79,8 @@ export function ProTab() {
     setVoice(v);
     api.setProVoice({ enabled: v !== "", voice: v || null }).catch(() => undefined);
   };
+  const buy = (min: number) =>
+    api.addProCredits(min).then(() => api.getPro().then(setPro)).catch(() => undefined);
 
   if (!pro) return <section className="panel"><p className="muted">Backend offline.</p></section>;
 
@@ -146,7 +157,8 @@ export function ProTab() {
                 {pro.enabled ? (
                   <button type="button" className="btn danger" onClick={() => save(false)}>■ Stop</button>
                 ) : (
-                  <button type="button" className="pro-goldbtn" disabled={!pro.configured}
+                  <button type="button" className="pro-goldbtn"
+                          disabled={!pro.configured || !pro.has_credit}
                           onClick={() => save(true)}>✦ GO LIVE</button>
                 )}
               </div>
@@ -187,7 +199,8 @@ export function ProTab() {
                 {pro.enabled ? (
                   <button type="button" className="btn danger" onClick={() => save(false)}>■ Stop</button>
                 ) : (
-                  <button type="button" className="pro-goldbtn" disabled={!pro.configured}
+                  <button type="button" className="pro-goldbtn"
+                          disabled={!pro.configured || !pro.has_credit}
                           onClick={() => save(true)}>✦ GO LIVE</button>
                 )}
               </div>
@@ -284,7 +297,7 @@ export function ProTab() {
                   <div key={m} className="pro-pack">
                     <div className="pro-pack-min">{m}<span> min</span></div>
                     <div className="pro-pack-price">${price(m)}</div>
-                    <button type="button" className="pro-chip" disabled>Buy</button>
+                    <button type="button" className="pro-chip" onClick={() => buy(m)}>Buy</button>
                   </div>
                 ))}
               </div>
