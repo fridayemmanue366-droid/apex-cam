@@ -45,3 +45,7 @@ backend/data/
 
 # Consumer bundle build output (multi-GB)
 dist-bundle/
+
+# Local-only Lucy/fal key (never commit, never ship)
+.lucy_key.local
+backend/.lucy_key.local

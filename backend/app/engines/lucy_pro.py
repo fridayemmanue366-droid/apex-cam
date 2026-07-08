@@ -57,10 +57,28 @@ _INPUT_FIELD = os.environ.get("APEXCAM_LUCY_INPUT_FIELD", "image_url")
 _INTERVAL = float(os.environ.get("APEXCAM_LUCY_INTERVAL", "0.2"))
 
 
+def _load_local_key() -> str | None:
+    """For LOCAL dev/testing only: read the fal key from a gitignored file
+    (backend/.lucy_key.local, `APEXCAM_LUCY_KEY=...`) if the env var isn't set.
+    In production the key lives on OUR server env, never in the shipped app."""
+    env = os.environ.get("APEXCAM_LUCY_KEY")
+    if env:
+        return env
+    try:
+        f = Path(__file__).resolve().parents[2] / ".lucy_key.local"
+        if f.exists():
+            for line in f.read_text().splitlines():
+                if line.startswith("APEXCAM_LUCY_KEY="):
+                    return line.split("=", 1)[1].strip() or None
+    except Exception:
+        pass
+    return None
+
+
 class LucyProEngine:
     def __init__(self) -> None:
         # OUR provider key — set by the operator (us) via env, NEVER by end users.
-        self.api_key: str | None = os.environ.get("APEXCAM_LUCY_KEY") or None
+        self.api_key: str | None = _load_local_key()
         self._prompt: str = ""
         self.enabled: bool = False
         self._reference: np.ndarray | None = None

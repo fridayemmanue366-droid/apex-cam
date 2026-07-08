@@ -348,6 +348,44 @@ select {
 .pro-card.narrow { max-width: 640px; }
 .pro-note { margin-top: 10px; }
 
+/* --- Apex Pro universe: its own nav + pages --- */
+.pro-hero-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.pro-shell { display: grid; grid-template-columns: 190px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .pro-shell { grid-template-columns: 1fr; } }
+.pro-nav-rail {
+  display: flex; flex-direction: column; gap: 6px;
+  background: linear-gradient(160deg, rgba(212,160,40,0.10), rgba(0,0,0,0.25));
+  border: 1px solid rgba(212,160,40,0.28); border-radius: 16px; padding: 12px;
+  position: sticky; top: 12px;
+}
+.pro-nav-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; color: #cdc6b0; text-align: left;
+  padding: 10px 12px; border-radius: 10px; font-size: 13.5px; cursor: pointer;
+}
+.pro-nav-item:hover { background: rgba(212,160,40,0.12); color: #f0ead9; }
+.pro-nav-item.active {
+  background: linear-gradient(90deg, rgba(244,208,111,0.9), rgba(212,160,40,0.75));
+  color: #201800; font-weight: 700;
+}
+.pro-nav-ic { width: 18px; text-align: center; font-size: 14px; }
+.pro-page { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.pro-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 720px) { .pro-grid3 { grid-template-columns: 1fr; } }
+.pro-chip.on {
+  background: linear-gradient(90deg, rgba(244,208,111,0.95), rgba(212,160,40,0.8));
+  color: #201800; font-weight: 700; border-color: transparent;
+}
+.pro-packages { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.pro-pack {
+  background: linear-gradient(165deg, rgba(212,160,40,0.10), rgba(0,0,0,0.28));
+  border: 1px solid rgba(212,160,40,0.3); border-radius: 14px;
+  padding: 16px; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center;
+}
+.pro-pack-min { font-size: 28px; font-weight: 800; color: #f4d06f; line-height: 1; }
+.pro-pack-min span { font-size: 13px; font-weight: 500; color: #9c957f; }
+.pro-pack-price { font-size: 15px; color: #f0ead9; font-weight: 600; }
+
 .setup-log {
   background: #0a0c10;
   border: 1px solid var(--border);
