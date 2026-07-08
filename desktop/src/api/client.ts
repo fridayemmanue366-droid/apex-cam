@@ -153,6 +153,13 @@ export interface ProStatus {
   error: string | null;
 }
 
+export interface ProVoice {
+  enabled: boolean;
+  voice: string | null;
+  configured: boolean;
+  model: string;
+}
+
 export interface ModelInfo {
   id: string;
   name: string;
@@ -255,6 +262,13 @@ export const api = {
     form.append("file", file);
     return req<ProStatus>("/pro/reference", { method: "POST", body: form });
   },
+  getProVoice: () => req<ProVoice>("/pro/voice"),
+  setProVoice: (cfg: { enabled: boolean; voice: string | null }) =>
+    req<ProVoice>("/pro/voice", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    }),
 
   audioDevices: () => req<AudioDevices>("/audio/devices"),
   audioStatus: () => req<AudioStatus>("/audio"),

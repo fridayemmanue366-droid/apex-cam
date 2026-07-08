@@ -60,3 +60,28 @@ def get_reference() -> FileResponse:
     if not REFERENCE_IMG.exists():
         raise HTTPException(404, "No reference set")
     return FileResponse(REFERENCE_IMG)
+
+
+class ProVoice(BaseModel):
+    enabled: bool = False
+    voice: str | None = None
+    configured: bool = False
+    model: str = ""
+
+
+@router.get("/voice")
+def get_voice() -> ProVoice:
+    from app.engines.fal_voice import fal_voice
+
+    s = fal_voice.status()
+    return ProVoice(enabled=s["enabled"], voice=s["voice"],
+                    configured=s["configured"], model=s["model"])
+
+
+@router.put("/voice")
+def set_voice(v: ProVoice) -> ProVoice:
+    from app.engines.fal_voice import fal_voice
+
+    fal_voice.set_voice(v.voice)
+    fal_voice.enabled = v.enabled and fal_voice.configured
+    return get_voice()

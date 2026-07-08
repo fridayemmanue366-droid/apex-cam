@@ -66,6 +66,10 @@ export function ProTab() {
   const uploadRef = (f: File | undefined) => {
     if (f) api.uploadProReference(f).then(setPro).catch(() => undefined);
   };
+  const pickVoice = (v: string) => {
+    setVoice(v);
+    api.setProVoice({ enabled: v !== "", voice: v || null }).catch(() => undefined);
+  };
 
   if (!pro) return <section className="panel"><p className="muted">Backend offline.</p></section>;
 
@@ -235,11 +239,11 @@ export function ProTab() {
               </p>
               <div className="row preset-row" style={{ marginTop: 12 }}>
                 <button type="button" className={`pro-chip${voice === "" ? " on" : ""}`}
-                        onClick={() => setVoice("")}>Natural (off)</button>
+                        onClick={() => pickVoice("")}>Natural (off)</button>
                 {VOICES.map((v) => (
                   <button key={v.id} type="button"
                           className={`pro-chip${voice === v.name ? " on" : ""}`}
-                          onClick={() => setVoice(v.name)}>{v.name}</button>
+                          onClick={() => pickVoice(v.name)}>{v.name}</button>
                 ))}
               </div>
               <p className="pro-muted pro-note">
