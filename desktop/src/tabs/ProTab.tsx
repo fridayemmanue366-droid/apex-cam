@@ -79,8 +79,12 @@ export function ProTab() {
     setVoice(v);
     api.setProVoice({ enabled: v !== "", voice: v || null }).catch(() => undefined);
   };
+  // Real purchase: open the Flutterwave checkout in the browser. After paying,
+  // the backend callback adds the minutes and our poll picks up the new balance.
   const buy = (min: number) =>
-    api.addProCredits(min).then(() => api.getPro().then(setPro)).catch(() => undefined);
+    api.startPayment(min)
+      .then((r) => { window.open(r.link, "_blank"); })
+      .catch(() => undefined);
 
   if (!pro) return <section className="panel"><p className="muted">Backend offline.</p></section>;
 

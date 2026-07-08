@@ -49,3 +49,6 @@ dist-bundle/
 # Local-only Lucy/fal key (never commit, never ship)
 .lucy_key.local
 backend/.lucy_key.local
+
+# Local-only Flutterwave keys (never commit, never ship)
+backend/.flutterwave.local

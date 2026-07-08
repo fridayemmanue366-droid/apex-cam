@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from "electron";
+import { app, BrowserWindow, session, shell } from "electron";
 import { spawn, ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -71,6 +71,19 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Open external links (e.g. the Flutterwave checkout) in the system browser,
+  // not inside the app window.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
+      return { action: "allow" };
+    }
+    if (url.startsWith("https://") || url.startsWith("http://")) {
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "deny" };
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;

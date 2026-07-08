@@ -8,10 +8,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from app.core.logging import get_logger
 from app.engines.lucy_pro import lucy_pro
+
+log = get_logger(__name__)
+
+# Callback Flutterwave redirects to after payment (local backend catches it).
+PAY_CALLBACK = "http://127.0.0.1:8790/pro/pay/callback"
 
 REFERENCE_IMG = Path("data") / "pro_reference.jpg"
 
@@ -107,12 +113,69 @@ def get_credits() -> Credits:
 
 @router.post("/credits/add")
 def add_credits(a: AddMinutes) -> Credits:
-    """Add minutes to the balance. This is where a completed purchase tops up the
-    user (payment integration comes later; for now it also serves testing)."""
+    """Add minutes directly (testing/admin). Real purchases go through /pro/pay."""
     from app.engines.pro_credits import pro_credits
 
     pro_credits.add_minutes(a.minutes)
     return get_credits()
+
+
+# --- Payments (Flutterwave) ------------------------------------------------
+class PayStart(BaseModel):
+    minutes: float
+
+
+class PayLink(BaseModel):
+    link: str
+    tx_ref: str
+    amount: float
+
+
+@router.post("/pay/start")
+def pay_start(p: PayStart) -> PayLink:
+    """Create a Flutterwave checkout for a minutes package. The app opens the
+    returned link; after payment Flutterwave redirects to our callback."""
+    from app.engines.flutterwave import flutterwave
+
+    if not flutterwave.configured:
+        raise HTTPException(503, "Payments not configured")
+    try:
+        r = flutterwave.create_payment(p.minutes, PAY_CALLBACK)
+    except Exception as exc:
+        raise HTTPException(502, f"Could not start payment: {exc}")
+    return PayLink(**r)
+
+
+@router.get("/pay/callback")
+def pay_callback(status: str = "", tx_ref: str = "",
+                 transaction_id: str = "") -> HTMLResponse:
+    """Flutterwave redirects here after payment. Verify server-side, credit the
+    minutes on success, and show a simple page the user can close."""
+    from app.engines.flutterwave import flutterwave
+    from app.engines.pro_credits import pro_credits
+
+    ok = False
+    minutes = 0.0
+    if status in ("successful", "completed") and transaction_id:
+        try:
+            v = flutterwave.verify(transaction_id, tx_ref)
+            if v["ok"]:
+                minutes = v["minutes"]
+                pro_credits.add_minutes(minutes)
+                ok = True
+        except Exception as exc:
+            log.exception("payment verify failed: %s", exc)
+
+    if ok:
+        body = (f"<h1 style='color:#f4d06f'>Payment successful ✓</h1>"
+                f"<p>{minutes:g} minutes added to Apex Pro.</p>"
+                f"<p>You can close this tab and return to Apex Cam.</p>")
+    else:
+        body = ("<h1 style='color:#e66'>Payment not completed</h1>"
+                "<p>No minutes were added. You can close this tab and try again.</p>")
+    return HTMLResponse(
+        f"<html><body style='font-family:sans-serif;background:#14152b;color:#f0ead9;"
+        f"text-align:center;padding:60px'>{body}</body></html>")
 
 
 class ProVoice(BaseModel):

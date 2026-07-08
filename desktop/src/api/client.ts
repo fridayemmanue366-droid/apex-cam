@@ -276,6 +276,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ minutes }),
     }),
+  startPayment: (minutes: number) =>
+    req<{ link: string; tx_ref: string; amount: number }>("/pro/pay/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutes }),
+    }),
   getProVoice: () => req<ProVoice>("/pro/voice"),
   setProVoice: (cfg: { enabled: boolean; voice: string | null }) =>
     req<ProVoice>("/pro/voice", {
