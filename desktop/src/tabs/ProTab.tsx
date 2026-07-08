@@ -17,8 +17,8 @@ const LOOKS = [
 
 // Prepaid minute packages. Price = minutes x 60s x $0.03/sec (our per-second rate;
 // we pay the provider $0.02 and keep $0.01). Payment is wired later.
-const RATE = 0.03;
-const PACKAGES = [12, 15, 25, 30, 50, 100, 160, 375, 1000];
+const RATE = 0.03;   // what WE charge the customer per second (cost is $0.02; we keep $0.01)
+const PACKAGES = [5, 12, 15, 25, 30, 50, 100, 160, 375, 1000];
 const price = (min: number) => (min * 60 * RATE).toFixed(2);
 
 // Cloud voices for the Pro tier (voice change/cloning via fal). Real list comes
