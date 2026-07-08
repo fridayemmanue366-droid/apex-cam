@@ -269,7 +269,7 @@ export const api = {
     form.append("file", file);
     return req<ProStatus>("/pro/reference", { method: "POST", body: form });
   },
-  getProPricing: () => req<{ currency: string; symbol: string; per_minute: number }>("/pro/pricing"),
+  getProPricing: () => req<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number }>("/pro/pricing"),
   getProCredits: () => req<Credits>("/pro/credits"),
   addProCredits: (minutes: number) =>
     req<Credits>("/pro/credits/add", {

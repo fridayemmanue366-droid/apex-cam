@@ -385,6 +385,7 @@ select {
 .pro-pack-min { font-size: 28px; font-weight: 800; color: #f4d06f; line-height: 1; }
 .pro-pack-min span { font-size: 13px; font-weight: 500; color: #9c957f; }
 .pro-pack-price { font-size: 15px; color: #f0ead9; font-weight: 600; }
+.pro-pack-alt { font-size: 11px; color: #9c957f; margin-top: -4px; }
 
 .setup-log {
   background: #0a0c10;

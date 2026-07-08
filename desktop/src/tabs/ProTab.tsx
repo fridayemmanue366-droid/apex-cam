@@ -47,7 +47,7 @@ export function ProTab() {
   const [page, setPage] = useState<Page>("dashboard");
   const [prompt, setPrompt] = useState("");
   const [voice, setVoice] = useState<string>("");
-  const [pricing, setPricing] = useState<{ symbol: string; per_minute: number } | null>(null);
+  const [pricing, setPricing] = useState<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -59,8 +59,14 @@ export function ProTab() {
     api.getProPricing().then(setPricing).catch(() => undefined);
   }, []);
 
-  const priceLabel = (min: number) =>
-    pricing ? `${pricing.symbol}${Math.round(min * pricing.per_minute).toLocaleString()}` : "…";
+  // Show USD prominently (premium feel); the charge happens in charge_currency.
+  const usdLabel = (min: number) =>
+    pricing ? `$${(min * pricing.usd_per_minute).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "…";
+  const chargeLabel = (min: number) => {
+    if (!pricing || pricing.charge_currency === "USD") return "";
+    const sym = pricing.charge_currency === "NGN" ? "₦" : "";
+    return `${sym}${Math.round(min * pricing.charge_per_minute).toLocaleString()}`;
+  };
 
   // Poll the balance so the countdown updates live and the UI reflects an
   // auto-stop (when minutes run out, the backend flips enabled -> false).
@@ -304,7 +310,8 @@ export function ProTab() {
                 {PACKAGES.map((m) => (
                   <div key={m} className="pro-pack">
                     <div className="pro-pack-min">{m}<span> min</span></div>
-                    <div className="pro-pack-price">{priceLabel(m)}</div>
+                    <div className="pro-pack-price">{usdLabel(m)}</div>
+                    {chargeLabel(m) && <div className="pro-pack-alt">≈ {chargeLabel(m)}</div>}
                     <button type="button" className="pro-chip" onClick={() => buy(m)}>Buy</button>
                   </div>
                 ))}
