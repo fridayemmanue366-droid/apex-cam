@@ -30,6 +30,7 @@ class ProStatus(BaseModel):
     model: str
     has_reference: bool
     prompt: str
+    live: bool = False
     minutes_remaining: float = 0.0
     has_credit: bool = False
     error: str | None = None
@@ -69,9 +70,10 @@ def set_pro(cfg: ProConfig) -> ProStatus:
     lucy_pro.prompt = cfg.prompt
     want_live = cfg.enabled and lucy_pro.configured
     if want_live:
-        # Only go live if there are minutes, and start burning them. start()
-        # returns False on an empty balance -> GO LIVE is blocked at zero.
-        if pro_credits.start(_stop_pro_call):
+        # Only go live if there are minutes, and start burning them — but only
+        # while Lucy is actually transforming (lucy_pro.live). start() returns
+        # False on an empty balance -> GO LIVE is blocked at zero.
+        if pro_credits.start(_stop_pro_call, is_active=lambda: lucy_pro.live):
             lucy_pro.enabled = True
         else:
             lucy_pro.enabled = False

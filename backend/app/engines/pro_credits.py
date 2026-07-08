@@ -31,6 +31,7 @@ class ProCredits:
         self._meter: threading.Thread | None = None
         self._stop = threading.Event()
         self._on_empty: Callable[[], None] | None = None
+        self._is_active: Callable[[], bool] | None = None
         self._load()
 
     # --- persistence ---------------------------------------------------------
@@ -75,12 +76,16 @@ class ProCredits:
             self._save()
 
     # --- metering ------------------------------------------------------------
-    def start(self, on_empty: Callable[[], None]) -> bool:
-        """Begin burning one second per second. Returns False (and does NOT start)
-        if there's no credit — that's how GO LIVE is blocked at zero minutes."""
+    def start(self, on_empty: Callable[[], None],
+              is_active: Callable[[], bool] | None = None) -> bool:
+        """Begin burning one second per second WHILE ``is_active`` is true (so the
+        customer is only charged while the cloud is actually transforming, not
+        while it's connecting). Returns False (and does NOT start) if there's no
+        credit — that's how GO LIVE is blocked at zero minutes."""
         if not self.has_credit():
             return False
         self._on_empty = on_empty
+        self._is_active = is_active
         if self._meter and self._meter.is_alive():
             return True
         self._stop.clear()
@@ -102,6 +107,10 @@ class ProCredits:
             now = time.monotonic()
             dt = now - last
             last = now
+            # Only charge while the cloud is actually transforming (fairness):
+            # connecting/idle time doesn't burn the customer's minutes.
+            if self._is_active is not None and not self._is_active():
+                continue
             empty = False
             with self._lock:
                 self._seconds -= dt

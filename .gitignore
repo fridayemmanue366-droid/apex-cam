@@ -52,3 +52,7 @@ backend/.lucy_key.local
 
 # Local-only Flutterwave keys (never commit, never ship)
 backend/.flutterwave.local
+
+# Lucy WebRTC probe output frames
+lucy_out*.png
+_lucy_probe*.py
