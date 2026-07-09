@@ -63,6 +63,13 @@ const RESTYLE_PRESETS = [
   "3D Pixar animation", "Black & white noir", "Watercolor", "Comic book",
 ];
 
+// Video editor quick edits (free-text; keep the person's own face).
+const VIDEO_PRESETS = [
+  "Turn the video into anime style", "Change the background to a sunny beach",
+  "Dress the person in a formal suit", "Cinematic film color grade, dramatic lighting",
+  "Cyberpunk neon city style", "Black-and-white film look",
+];
+
 export function ProTab() {
   const [pro, setPro] = useState<ProStatus | null>(null);
   const [entered, setEntered] = useState(false);
@@ -155,10 +162,10 @@ export function ProTab() {
   const vFileRef = useRef<HTMLInputElement>(null);
   const vRefRef = useRef<HTMLInputElement>(null);
   const vBusy = vStatus === "submitting" || vStatus === "processing";
-  const runVideo = (mode: "video" | "restyle", promptText: string) => {
+  const runVideo = (mode: "video" | "restyle", promptText: string, faceSwap = false) => {
     if (!vFile) { setVErr("Upload a video first"); return; }
     setVStatus("submitting"); setVErr(null); setVResult(null);
-    api.startProVideo(vFile, promptText, mode, mode === "video" ? vRef : null)
+    api.startProVideo(vFile, promptText, mode, mode === "video" ? vRef : null, faceSwap)
       .then((r) => {
         setVStatus("processing");
         const poll = () => api.getProJob(r.job_id).then((s) => {
@@ -391,10 +398,11 @@ export function ProTab() {
 
           {page === "video" && (
             <div className="pro-card">
-              <h3>Video — face-swap a clip into your persona</h3>
+              <h3>Video Studio — AI video editor</h3>
               <p className="pro-muted">
-                Upload a short video, add a reference face (or your persona), and it comes back
-                as that person, in 720p. Runs in the background. ~$3.60/min of video.
+                Upload a clip and do <strong>anything</strong>: face-swap into a reference person,
+                or type any edit (restyle, background, outfit, add/remove…). 720p, runs in the
+                background. ~$3.60/min of video.
               </p>
               <div className="pro-editor">
                 <div className="pro-editor-inputs">
@@ -416,13 +424,23 @@ export function ProTab() {
                              onChange={(e) => { const f = e.target.files?.[0]; if (f) { setVRef(f); setVRefUrl(URL.createObjectURL(f)); } }} />
                     </div>
                   </div>
-                  <div className="pro-uplabel">Instruction <span className="pro-muted">(optional)</span></div>
+                  <div className="pro-uplabel">What do you want?</div>
                   <input className="pro-input" type="text" value={vPrompt}
-                         placeholder="Defaults to: become the reference person"
+                         placeholder="e.g. change the face to the reference, or make it anime"
                          onChange={(e) => setVPrompt(e.target.value)} />
+                  <div className="row preset-row pro-photo-presets">
+                    <button type="button" className="pro-chip on" disabled={vBusy || !vFile}
+                            onClick={() => runVideo("video", vRef ? "Change the face in the video to the reference person" : "", true)}>
+                      Face swap</button>
+                    {VIDEO_PRESETS.map((p) => (
+                      <button key={p} type="button" className="pro-chip" disabled={vBusy || !vFile}
+                              onClick={() => { setVPrompt(p); runVideo("video", p, false); }}>
+                        {p.split(",")[0].replace(/^(Turn the video into |Change the background to |Dress the person in )/, "")}</button>
+                    ))}
+                  </div>
                   <div className="row preset-row">
-                    <button type="button" className="pro-goldbtn" disabled={vBusy || !vFile}
-                            onClick={() => runVideo("video", vPrompt)}>✦ Transform video</button>
+                    <button type="button" className="pro-goldbtn" disabled={vBusy || !vFile || (!vPrompt && !vRef)}
+                            onClick={() => runVideo("video", vPrompt, false)}>✦ Transform video</button>
                   </div>
                   {vErr && <p className="error">{vErr}</p>}
                 </div>

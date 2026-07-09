@@ -139,9 +139,13 @@ class JobStarted(BaseModel):
 
 @router.post("/video/start")
 async def video_start(file: UploadFile, reference: UploadFile | None = File(None),
-                      prompt: str = Form(""), mode: str = Form("video")) -> JobStarted:
-    """Start a video job. mode='video' = face swap (uses reference/persona);
-    mode='restyle' = artistic restyle from `prompt` (no reference). Charges the
+                      prompt: str = Form(""), mode: str = Form("video"),
+                      face_swap: bool = Form(False)) -> JobStarted:
+    """Start a video job — a full video editor on lucy-2.5 (mode='video'):
+      - a `reference` (or face_swap=true -> persona) becomes that face,
+      - otherwise `prompt` drives any edit (restyle, background, outfit, add/remove)
+        while keeping the person's own face.
+    mode='restyle' uses the cheaper style-only model (no reference). Charges the
     clip length x the mode's rate up-front (refunded if the submit fails)."""
     from app.engines.pro_credits import MODE_RATE, pro_credits
     from app.engines.pro_studio import (RESTYLE_MODEL, VIDEO_MODEL, configured,
@@ -157,8 +161,10 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
         raise HTTPException(402, "Not enough credit for this video — top up first")
     ref = None
     if not is_restyle:
-        ref = await reference.read() if reference else (
-            REFERENCE_IMG.read_bytes() if REFERENCE_IMG.exists() else None)
+        if reference:
+            ref = await reference.read()
+        elif face_swap and REFERENCE_IMG.exists():
+            ref = REFERENCE_IMG.read_bytes()
     try:
         jid = submit_job(RESTYLE_MODEL if is_restyle else VIDEO_MODEL,
                          video_bytes, prompt or None, ref)

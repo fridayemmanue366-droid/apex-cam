@@ -297,11 +297,13 @@ export const api = {
     }
     return URL.createObjectURL(await res.blob());
   },
-  startProVideo: (file: File, prompt: string, mode: "video" | "restyle", reference?: File | null) => {
+  startProVideo: (file: File, prompt: string, mode: "video" | "restyle",
+                  reference?: File | null, faceSwap?: boolean) => {
     const form = new FormData();
     form.append("file", file);
     form.append("prompt", prompt);
     form.append("mode", mode);
+    form.append("face_swap", String(faceSwap ?? false));
     if (reference) form.append("reference", reference);
     return req<{ job_id: string; cost_minutes: number }>("/pro/video/start", { method: "POST", body: form });
   },
