@@ -78,8 +78,9 @@ def me(uid: int = Depends(current_user)) -> Me:
               minutes=_minutes(u["credit_seconds"]))
 
 
-# Payments + Decart studio routes are registered here.
-from app.routes import pay, studio  # noqa: E402
+# Payments, Decart studio, and the auto-update manifest.
+from app.routes import pay, studio, update  # noqa: E402
 
 app.include_router(pay.router)
 app.include_router(studio.router)
+app.include_router(update.router)

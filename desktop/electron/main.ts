@@ -1,4 +1,5 @@
 import { app, BrowserWindow, session, shell } from "electron";
+import { startUpdateChecks } from "./updater";
 import { spawn, ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -92,6 +93,9 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
+  // Keep the app fresh, Chrome-style: check shortly after launch, then on a timer.
+  if (!devUrl) startUpdateChecks(win);
 }
 
 app.whenReady().then(() => {
