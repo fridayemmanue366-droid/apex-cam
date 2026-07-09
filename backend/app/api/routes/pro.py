@@ -167,11 +167,14 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
             ref = REFERENCE_IMG.read_bytes()
     try:
         jid = submit_job(RESTYLE_MODEL if is_restyle else VIDEO_MODEL,
-                         video_bytes, prompt or None, ref)
+                         video_bytes, prompt or None, ref,
+                         filename=file.filename or "in.mp4",
+                         content_type=file.content_type or "video/mp4")
     except Exception as exc:
-        pro_credits.add_minutes(cost / 60.0)   # refund
+        pro_credits.add_minutes(cost / 60.0)   # refund — nothing was charged
         log.warning("video job submit failed: %s", exc)
-        raise HTTPException(502, "Could not start the video — please try again")
+        # Surface the real reason (format, size, busy) instead of a blank failure.
+        raise HTTPException(502, str(exc) or "Could not start the video — please try again")
     return JobStarted(job_id=jid, cost_minutes=round(cost / 60.0, 2))
 
 

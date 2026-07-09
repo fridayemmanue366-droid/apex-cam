@@ -430,7 +430,7 @@ export function ProTab() {
               <p className="pro-muted">
                 Upload a clip and do <strong>anything</strong>: face-swap into a reference person,
                 or type any edit (restyle, background, outfit, add/remove…). 720p, runs in the
-                background. ~$3.60/min of video.
+                background. ~$3.60/min of video. <strong>MP4 only, up to 200 MB.</strong>
               </p>
               <div className="pro-editor">
                 <div className="pro-editor-inputs">
@@ -440,7 +440,7 @@ export function ProTab() {
                       <div className="pro-photo-slot" onClick={() => vFileRef.current?.click()}>
                         <span className="pro-muted">{vFileName || "＋ Upload video"}</span>
                       </div>
-                      <input ref={vFileRef} type="file" accept="video/*" hidden
+                      <input ref={vFileRef} type="file" accept="video/mp4,.mp4" hidden
                              onChange={(e) => pickVideo(e.target.files?.[0])} />
                     </div>
                     <div>
@@ -499,7 +499,7 @@ export function ProTab() {
                   <div className="pro-photo-slot" onClick={() => vFileRef.current?.click()}>
                     <span className="pro-muted">{vFileName || "＋ Upload video"}</span>
                   </div>
-                  <input ref={vFileRef} type="file" accept="video/*" hidden
+                  <input ref={vFileRef} type="file" accept="video/mp4,.mp4" hidden
                          onChange={(e) => pickVideo(e.target.files?.[0])} />
                   <div className="pro-uplabel">Style</div>
                   <input className="pro-input" type="text" value={vPrompt}

@@ -64,10 +64,12 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
         ref = await reference.read() if reference else None
     try:
         jid = decart.submit_job(decart.RESTYLE_MODEL if is_restyle else decart.VIDEO_MODEL,
-                                video_bytes, prompt or None, ref)
-    except Exception:
+                                video_bytes, prompt or None, ref,
+                                filename=file.filename or "in.mp4",
+                                content_type=file.content_type or "video/mp4")
+    except Exception as exc:
         db.refund(uid, cost, f"{mode} submit failed")
-        raise HTTPException(502, "Could not start the video")
+        raise HTTPException(502, str(exc) or "Could not start the video")
     _jobs[jid] = uid
     return {"job_id": jid, "cost_minutes": round(cost / 60.0, 2)}
 

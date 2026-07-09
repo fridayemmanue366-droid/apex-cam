@@ -43,16 +43,29 @@ def generate_photo(input_bytes: bytes, prompt: str | None, reference_bytes: byte
     return r.content
 
 
-def submit_job(model: str, video_bytes: bytes, prompt: str | None, reference_bytes: bytes | None) -> str:
+MAX_VIDEO_BYTES = 200 * 1024 * 1024   # Decart's documented limit
+
+
+def submit_job(model: str, video_bytes: bytes, prompt: str | None,
+               reference_bytes: bytes | None, filename: str = "in.mp4",
+               content_type: str = "video/mp4") -> str:
     import requests
 
-    files = {"data": ("in.mp4", video_bytes, "video/mp4")}
+    if len(video_bytes) > MAX_VIDEO_BYTES:
+        raise RuntimeError("That video is over the 200 MB limit — trim it or lower the quality.")
+    files = {"data": (filename or "in.mp4", video_bytes, content_type or "video/mp4")}
     if reference_bytes:
         files["reference_image"] = ("ref.jpg", reference_bytes, "image/jpeg")
-    r = requests.post(f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": _key()},
-                      files=files, data={"prompt": prompt or FACE_PROMPT}, timeout=(10, 120))
+    try:
+        r = requests.post(f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": _key()},
+                          files=files, data={"prompt": prompt or FACE_PROMPT},
+                          timeout=(10, 300))
+    except requests.Timeout:
+        raise RuntimeError("The upload timed out — try a shorter or smaller video.")
+    if r.status_code in (502, 503, 504):
+        raise RuntimeError("The video service is busy right now — please try again in a moment.")
     if r.status_code != 200:
-        raise RuntimeError(f"job submit failed: {r.status_code} {r.text[:200]}")
+        raise RuntimeError(f"Video rejected ({r.status_code}): {r.text[:160]}")
     jid = r.json().get("job_id")
     if not jid:
         raise RuntimeError("no job_id")
