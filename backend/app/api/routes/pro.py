@@ -108,22 +108,28 @@ def get_reference() -> FileResponse:
 # --- Studio: Photo mode (image-to-image face swap) -------------------------
 @router.post("/photo")
 async def make_photo(file: UploadFile, reference: UploadFile | None = File(None),
-                     prompt: str = Form(""), face_swap: bool = Form(False)) -> Response:
-    """AI photo edit (full editor). A `reference` image (any face/style you upload)
-    is used when given; else face_swap=true uses the saved persona; else `prompt`
-    drives a text-only edit. Charges one photo's worth of credit up-front (refunded
-    on failure)."""
+                     prompt: str = Form(""), ref_mode: str = Form("none"),
+                     face_swap: bool = Form(False)) -> Response:
+    """AI photo edit (full editor).
+
+    ref_mode: 'face'  -> become the reference person (uploaded, or the persona)
+              'style' -> keep your face, copy the reference's look/outfit
+              'none'  -> ignore the reference; `prompt` alone drives the edit
+    (face_swap=true is accepted as a legacy alias for ref_mode='face'.)
+    Charges one photo's worth of credit up-front (refunded on failure)."""
     from app.engines.pro_credits import IMAGE_COST_SECONDS, pro_credits
     from app.engines.pro_studio import configured, generate_photo
 
     if not configured():
         raise HTTPException(503, "Apex Pro not configured")
+    if face_swap and ref_mode == "none":
+        ref_mode = "face"
     if not pro_credits.deduct(IMAGE_COST_SECONDS):
         raise HTTPException(402, "Not enough credit for a photo — top up first")
     ref_bytes = await reference.read() if reference else None
     try:
         out = generate_photo(await file.read(), prompt or None,
-                             face_swap=face_swap, reference_bytes=ref_bytes)
+                             ref_mode=ref_mode, reference_bytes=ref_bytes)
     except Exception as exc:
         pro_credits.add_minutes(IMAGE_COST_SECONDS / 60.0)  # refund on failure
         log.warning("photo generation failed: %s", exc)
@@ -140,16 +146,18 @@ class JobStarted(BaseModel):
 @router.post("/video/start")
 async def video_start(file: UploadFile, reference: UploadFile | None = File(None),
                       prompt: str = Form(""), mode: str = Form("video"),
+                      ref_mode: str = Form("none"),
                       face_swap: bool = Form(False)) -> JobStarted:
     """Start a video job — a full video editor on lucy-2.5 (mode='video'):
-      - a `reference` (or face_swap=true -> persona) becomes that face,
-      - otherwise `prompt` drives any edit (restyle, background, outfit, add/remove)
-        while keeping the person's own face.
+      ref_mode 'face'  -> become the reference person (uploaded, or the persona)
+      ref_mode 'style' -> keep your face, copy the reference's look/outfit
+      ref_mode 'none'  -> `prompt` alone drives the edit (your own face kept)
     mode='restyle' uses the cheaper style-only model (no reference). Charges the
     clip length x the mode's rate up-front (refunded if the submit fails)."""
     from app.engines.pro_credits import MODE_RATE, pro_credits
     from app.engines.pro_studio import (RESTYLE_MODEL, VIDEO_MODEL, configured,
-                                         submit_job, video_duration)
+                                         resolve_reference, submit_job,
+                                         video_duration)
 
     if not configured():
         raise HTTPException(503, "Apex Pro not configured")
@@ -159,15 +167,16 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
     cost = dur * MODE_RATE["restyle" if is_restyle else "video"]
     if not pro_credits.deduct(cost):
         raise HTTPException(402, "Not enough credit for this video — top up first")
-    ref = None
+    # Restyle never takes a reference (style-only model).
+    ref, default_prompt = (None, "")
     if not is_restyle:
-        if reference:
-            ref = await reference.read()
-        elif face_swap and REFERENCE_IMG.exists():
-            ref = REFERENCE_IMG.read_bytes()
+        if face_swap and ref_mode == "none":
+            ref_mode = "face"
+        ref_bytes = await reference.read() if reference else None
+        ref, default_prompt = resolve_reference(ref_mode, ref_bytes)
     try:
         jid = submit_job(RESTYLE_MODEL if is_restyle else VIDEO_MODEL,
-                         video_bytes, prompt or None, ref,
+                         video_bytes, (prompt or default_prompt) or None, ref,
                          filename=file.filename or "in.mp4",
                          content_type=file.content_type or "video/mp4")
     except Exception as exc:

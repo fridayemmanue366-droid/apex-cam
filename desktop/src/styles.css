@@ -393,6 +393,19 @@ select {
   display: grid; place-items: center; flex: none;
 }
 .pro-photo-slot img { width: 100%; height: 100%; object-fit: cover; }
+.pro-guide { display: flex; flex-direction: column; gap: 14px; margin: 12px 0 4px; }
+.pro-guide-row { display: flex; gap: 12px; align-items: flex-start; }
+.pro-guide-ic { font-size: 20px; width: 26px; text-align: center; flex: none; }
+.pro-guide-head { display: flex; align-items: center; gap: 10px; color: #f0ead9; margin-bottom: 2px; }
+.pro-guide-ref { color: #8d876f; font-style: italic; }
+.pro-slot-wrap { position: relative; display: inline-block; }
+.pro-slot-x {
+  position: absolute; top: -8px; right: -8px; width: 24px; height: 24px;
+  border-radius: 50%; border: 1px solid rgba(212,160,40,0.5);
+  background: #14152b; color: #f4d06f; cursor: pointer; line-height: 1;
+  font-size: 12px; display: grid; place-items: center; padding: 0;
+}
+.pro-slot-x:hover { background: #2a2a44; }
 .pro-auth-field { display: block; margin: 10px 0; }
 .pro-linkbtn { background: none; border: 0; color: #f4d06f; cursor: pointer; text-decoration: underline; font-size: inherit; padding: 0; }
 .pro-account { display: flex; align-items: center; gap: 10px; }

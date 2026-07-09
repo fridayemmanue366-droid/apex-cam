@@ -23,6 +23,8 @@ API_BASE = os.environ.get("APEXCAM_DECART_API", "https://api.decart.ai")
 IMAGE_MODEL = os.environ.get("APEXCAM_DECART_IMAGE_MODEL", "lucy-image-2")
 FACE_PROMPT = ("Replace the person with the person in the reference image — exact "
                "same face, hair and identity, photorealistic.")
+STYLE_PROMPT = ("Apply the look, outfit and style from the reference image to the "
+                "person, keeping their own face and identity.")
 REFERENCE_IMG = Path("data") / "pro_reference.jpg"
 
 
@@ -30,29 +32,39 @@ def configured() -> bool:
     return bool(_load_key())
 
 
+def resolve_reference(ref_mode: str, reference_bytes: bytes | None) -> tuple[bytes | None, str]:
+    """Decide what (if anything) the reference image is for, and the default prompt.
+
+    ref_mode:
+      "face"  -> become the reference person (identity/face swap). Falls back to
+                 the saved persona when no image is uploaded.
+      "style" -> keep your own face; copy the reference's look/outfit/style.
+      "none"  -> ignore any reference; the prompt alone drives the edit.
+    """
+    if ref_mode == "face":
+        ref = reference_bytes or (REFERENCE_IMG.read_bytes() if REFERENCE_IMG.exists() else None)
+        return ref, FACE_PROMPT
+    if ref_mode == "style":
+        return reference_bytes, STYLE_PROMPT
+    return None, ""
+
+
 def generate_photo(input_bytes: bytes, prompt: str | None = None,
-                   face_swap: bool = False, reference_bytes: bytes | None = None) -> bytes:
+                   ref_mode: str = "none", reference_bytes: bytes | None = None) -> bytes:
     """AI photo editing on an uploaded picture. Returns image bytes.
 
-    Reference rules:
-      - reference_bytes given   -> use that image as the reference (e.g. "change
-        the face in the photo to this person", or a style reference).
-      - else face_swap=True     -> use the saved persona as the reference.
-      - else                    -> no reference; a pure text edit that keeps the
-        person's own face (restyle, background, outfit, add/remove…).
-    Synchronous; raises on failure."""
+    The reference image only matters when `ref_mode` says so — see
+    resolve_reference(). Synchronous; raises on failure."""
     import requests
 
     key = _load_key()
     if not key:
         raise RuntimeError("Decart key not configured")
     files = {"data": ("in.jpg", input_bytes, "image/jpeg")}
-    ref = reference_bytes
-    if ref is None and face_swap and REFERENCE_IMG.exists():
-        ref = REFERENCE_IMG.read_bytes()
+    ref, default_prompt = resolve_reference(ref_mode, reference_bytes)
     if ref:
         files["reference_image"] = ("ref.jpg", ref, "image/jpeg")
-        text = prompt or FACE_PROMPT
+        text = prompt or default_prompt
     else:
         text = prompt or "Enhance this photo, sharp and clean."
     r = requests.post(

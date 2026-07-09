@@ -160,6 +160,12 @@ export interface Credits {
   has_credit: boolean;
 }
 
+/** What the reference image is used for.
+ *  face  = become that person (identity / face swap)
+ *  style = keep your face, copy the look/outfit/style
+ *  none  = ignore any reference; the prompt alone drives the edit */
+export type RefMode = "face" | "style" | "none";
+
 export interface ProVoice {
   enabled: boolean;
   voice: string | null;
@@ -283,12 +289,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ minutes }),
     }),
-  makeProPhoto: async (file: File, prompt: string, faceSwap: boolean,
+  makeProPhoto: async (file: File, prompt: string, refMode: RefMode,
                        reference?: File | null): Promise<string> => {
     const form = new FormData();
     form.append("file", file);
     form.append("prompt", prompt);
-    form.append("face_swap", String(faceSwap));
+    form.append("ref_mode", refMode);
     if (reference) form.append("reference", reference);
     const res = await fetch(`${BASE}/pro/photo`, { method: "POST", body: form });
     if (!res.ok) {
@@ -298,12 +304,12 @@ export const api = {
     return URL.createObjectURL(await res.blob());
   },
   startProVideo: (file: File, prompt: string, mode: "video" | "restyle",
-                  reference?: File | null, faceSwap?: boolean) => {
+                  reference?: File | null, refMode: RefMode = "none") => {
     const form = new FormData();
     form.append("file", file);
     form.append("prompt", prompt);
     form.append("mode", mode);
-    form.append("face_swap", String(faceSwap ?? false));
+    form.append("ref_mode", refMode);
     if (reference) form.append("reference", reference);
     return req<{ job_id: string; cost_minutes: number }>("/pro/video/start", { method: "POST", body: form });
   },

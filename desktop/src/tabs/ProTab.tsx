@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ProStatus } from "../api/client";
+import { api, type ProStatus, type RefMode } from "../api/client";
 import { cloud, signedIn, type Account } from "../api/cloud";
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
@@ -26,15 +26,40 @@ const PACKAGES = [5, 12, 15, 25, 30, 50, 100, 160, 375, 1000];
 // from the backend once billing is live; these are the presets shown meanwhile.
 // Photo Studio quick edits. "Face swap" uses the persona reference; the rest are
 // free-text edits the AI editor applies to the uploaded photo.
-const PHOTO_PRESETS: { label: string; prompt: string; face: boolean }[] = [
-  { label: "Face swap", prompt: "", face: true },
-  { label: "Anime", prompt: "Turn this into a vibrant anime illustration", face: false },
-  { label: "3D Pixar", prompt: "3D Pixar-style animated character, cute", face: false },
-  { label: "Beach", prompt: "Place the person on a sunny tropical beach", face: false },
-  { label: "Studio suit", prompt: "Dress the person in a sharp formal suit, studio portrait", face: false },
-  { label: "Remove BG", prompt: "Remove the background, clean plain white studio backdrop", face: false },
-  { label: "B&W film", prompt: "Black-and-white film photograph, grainy and cinematic", face: false },
-  { label: "Cyberpunk", prompt: "Cyberpunk neon city style, moody lighting", face: false },
+const PHOTO_PRESETS: { label: string; prompt: string; ref: RefMode }[] = [
+  { label: "Anime", prompt: "Turn this into a vibrant anime illustration", ref: "none" },
+  { label: "3D Pixar", prompt: "3D Pixar-style animated character, cute", ref: "none" },
+  { label: "Beach", prompt: "Place the person on a sunny tropical beach", ref: "none" },
+  { label: "Studio suit", prompt: "Dress the person in a sharp formal suit, studio portrait", ref: "none" },
+  { label: "Remove BG", prompt: "Remove the background, clean plain white studio backdrop", ref: "none" },
+  { label: "B&W film", prompt: "Black-and-white film photograph, grainy and cinematic", ref: "none" },
+  { label: "Cyberpunk", prompt: "Cyberpunk neon city style, moody lighting", ref: "none" },
+];
+
+// Plain-English guide to what each Apex Pro mode actually does.
+const MODE_GUIDE: { icon: string; name: string; what: string; ref: string; price: string }[] = [
+  { icon: "🎥", name: "Live cam", price: "$1.80/min",
+    what: "Transforms your camera in real time while you're on a call or streaming.",
+    ref: "Reference = the person you become. Or no reference: just describe a look." },
+  { icon: "🖼", name: "Photo", price: "$0.40/photo",
+    what: "Edits one picture: swap the face, change the background, outfit, or art style.",
+    ref: "Reference = a face to become, or a style/outfit to copy. Optional." },
+  { icon: "🎬", name: "Video", price: "$3.60/min",
+    what: "Same power as Photo, but on a clip (MP4, up to 200 MB). Runs in the background.",
+    ref: "Reference = a face to become, or a style/outfit to copy. Optional." },
+  { icon: "🎨", name: "Restyle", price: "$1.20/min",
+    what: "Repaints a whole video in an art style (anime, cinematic, cyberpunk…). Cheapest, best for long videos.",
+    ref: "No reference and no face swap — style only. Your face stays yours." },
+];
+
+// What the reference image is used for — the user picks this explicitly.
+const REF_MODES: { id: RefMode; label: string; help: string }[] = [
+  { id: "face", label: "Face swap",
+    help: "Become the person in the reference photo — their face and identity." },
+  { id: "style", label: "Style & outfit",
+    help: "Keep your own face; copy the reference's look, clothes and style." },
+  { id: "none", label: "No reference",
+    help: "Ignore the reference — your typed instruction alone drives the edit." },
 ];
 
 const VOICES = [
@@ -153,14 +178,19 @@ export function ProTab() {
     setPhotoInput(f); setPhotoInputUrl(URL.createObjectURL(f));
     setPhotoResult(null); setPhotoErr(null);
   };
+  const [photoRefMode, setPhotoRefMode] = useState<RefMode>("face");
   const onRefPick = (f: File | undefined) => {
     if (!f) return;
     setPhotoRef(f); setPhotoRefUrl(URL.createObjectURL(f)); setPhotoErr(null);
   };
-  const runPhoto = (promptText: string, faceSwap: boolean) => {
+  const clearPhotoRef = () => { setPhotoRef(null); setPhotoRefUrl(null); };
+  const runPhoto = (promptText: string, refMode: RefMode) => {
     if (!photoInput) { setPhotoErr("Upload a photo to edit first"); return; }
+    if (refMode === "style" && !photoRef) {
+      setPhotoErr("Upload a reference image to copy its look"); return;
+    }
     setPhotoBusy(true); setPhotoErr(null); setPhotoResult(null);
-    api.makeProPhoto(photoInput, promptText, faceSwap, photoRef)
+    api.makeProPhoto(photoInput, promptText, refMode, photoRef)
       .then((u) => { setPhotoResult(u); api.getPro().then(setPro).catch(() => undefined); })
       .catch((e) => setPhotoErr(String(e.message || e)))
       .finally(() => setPhotoBusy(false));
@@ -172,6 +202,8 @@ export function ProTab() {
   const [vFileName, setVFileName] = useState("");
   const [vRef, setVRef] = useState<File | null>(null);
   const [vRefUrl, setVRefUrl] = useState<string | null>(null);
+  const [vRefMode, setVRefMode] = useState<RefMode>("face");
+  const clearVRef = () => { setVRef(null); setVRefUrl(null); };
   const [vPrompt, setVPrompt] = useState("");
   const [vStatus, setVStatus] = useState<"" | "submitting" | "processing" | "done" | "error">("");
   const [vResult, setVResult] = useState<string | null>(null);
@@ -179,10 +211,13 @@ export function ProTab() {
   const vFileRef = useRef<HTMLInputElement>(null);
   const vRefRef = useRef<HTMLInputElement>(null);
   const vBusy = vStatus === "submitting" || vStatus === "processing";
-  const runVideo = (mode: "video" | "restyle", promptText: string, faceSwap = false) => {
+  const runVideo = (mode: "video" | "restyle", promptText: string, refMode: RefMode = "none") => {
+    if (mode === "video" && refMode === "style" && !vRef) {
+      setVErr("Upload a reference image to copy its look"); return;
+    }
     if (!vFile) { setVErr("Upload a video first"); return; }
     setVStatus("submitting"); setVErr(null); setVResult(null);
-    api.startProVideo(vFile, promptText, mode, mode === "video" ? vRef : null, faceSwap)
+    api.startProVideo(vFile, promptText, mode, mode === "video" ? vRef : null, refMode)
       .then((r) => {
         setVStatus("processing");
         const poll = () => api.getProJob(r.job_id).then((s) => {
@@ -317,11 +352,32 @@ export function ProTab() {
                 </div>
               </div>
               <div className="pro-card">
-                <h3>What Apex Pro does</h3>
+                <h3>What each mode does</h3>
                 <p className="pro-muted">
-                  Your whole camera — face, body, hair, background, any angle — becomes a lifelike
-                  persona in real time, with a matching cloud voice. Set your persona, pick a look
-                  and voice, buy minutes, and GO LIVE. Pick “OBS Virtual Camera” in your call app.
+                  Everything runs from the same credit. Pick the mode that matches what you have —
+                  a live camera, a photo, or a video.
+                </p>
+                <div className="pro-guide">
+                  {MODE_GUIDE.map((m) => (
+                    <div key={m.name} className="pro-guide-row">
+                      <span className="pro-guide-ic">{m.icon}</span>
+                      <div>
+                        <div className="pro-guide-head">
+                          <strong>{m.name}</strong>
+                          <span className="pro-pill">{m.price}</span>
+                        </div>
+                        <p className="pro-muted">{m.what}</p>
+                        <p className="pro-muted pro-guide-ref">{m.ref}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="pro-muted pro-note">
+                  <strong>The reference photo</strong> is optional. Use it as a{" "}
+                  <strong>Face swap</strong> (become that person), as{" "}
+                  <strong>Style &amp; outfit</strong> (keep your face, copy their look), or pick{" "}
+                  <strong>No reference</strong> and just type what you want. You can remove a
+                  reference any time with the ✕ on its thumbnail.
                 </p>
               </div>
             </>
@@ -374,35 +430,50 @@ export function ProTab() {
                     </div>
                     <div>
                       <div className="pro-uplabel">Reference <span className="pro-muted">(optional)</span></div>
-                      <div className="pro-photo-slot small" onClick={() => photoRefFile.current?.click()}>
-                        {photoRefUrl ? <img src={photoRefUrl} alt="" />
-                          : <span className="pro-muted">＋ Face / style</span>}
+                      <div className="pro-slot-wrap">
+                        <div className="pro-photo-slot small" onClick={() => photoRefFile.current?.click()}>
+                          {photoRefUrl ? <img src={photoRefUrl} alt="" />
+                            : <span className="pro-muted">＋ Face / style</span>}
+                        </div>
+                        {photoRefUrl && (
+                          <button type="button" className="pro-slot-x" title="Remove reference"
+                                  onClick={clearPhotoRef}>✕</button>
+                        )}
                       </div>
                       <input ref={photoRefFile} type="file" accept="image/*" hidden
                              onChange={(e) => onRefPick(e.target.files?.[0])} />
                     </div>
                   </div>
 
+                  {/* How the reference is used */}
+                  <div className="pro-uplabel">Use the reference as</div>
+                  <div className="row preset-row">
+                    {REF_MODES.map((m) => (
+                      <button key={m.id} type="button" title={m.help}
+                              className={`pro-chip${photoRefMode === m.id ? " on" : ""}`}
+                              onClick={() => setPhotoRefMode(m.id)}>{m.label}</button>
+                    ))}
+                  </div>
+                  <p className="pro-muted pro-note">
+                    {REF_MODES.find((m) => m.id === photoRefMode)?.help}
+                  </p>
+
                   <div className="pro-uplabel">What do you want?</div>
                   <input className="pro-input" type="text" value={photoPrompt}
-                         placeholder="e.g. change the face in the photo to the reference person"
+                         placeholder="Leave blank to just apply the mode above, or describe any edit…"
                          onChange={(e) => setPhotoPrompt(e.target.value)} />
                   <div className="row preset-row pro-photo-presets">
-                    {photoRef && (
-                      <button type="button" className="pro-chip on" disabled={photoBusy || !photoInput}
-                              onClick={() => runPhoto("Change the face in the photo to the reference person, keep everything else", false)}>
-                        Face → reference</button>
-                    )}
                     {PHOTO_PRESETS.map((p) => (
                       <button key={p.label} type="button" className="pro-chip"
                               disabled={photoBusy || !photoInput}
-                              onClick={() => runPhoto(p.prompt, p.face)}>{p.label}</button>
+                              onClick={() => runPhoto(p.prompt, p.ref)}>{p.label}</button>
                     ))}
                   </div>
                   <div className="row preset-row">
                     <button type="button" className="pro-goldbtn"
-                            disabled={photoBusy || !photoInput || (!photoPrompt && !photoRef)}
-                            onClick={() => runPhoto(photoPrompt, false)}>✦ Transform</button>
+                            disabled={photoBusy || !photoInput ||
+                                      (photoRefMode === "none" && !photoPrompt)}
+                            onClick={() => runPhoto(photoPrompt, photoRefMode)}>✦ Transform</button>
                   </div>
                   {photoErr && <p className="error">{photoErr}</p>}
                 </div>
@@ -444,31 +515,48 @@ export function ProTab() {
                              onChange={(e) => pickVideo(e.target.files?.[0])} />
                     </div>
                     <div>
-                      <div className="pro-uplabel">Reference face <span className="pro-muted">(optional)</span></div>
-                      <div className="pro-photo-slot small" onClick={() => vRefRef.current?.click()}>
-                        {vRefUrl ? <img src={vRefUrl} alt="" /> : <span className="pro-muted">＋ Face</span>}
+                      <div className="pro-uplabel">Reference <span className="pro-muted">(optional)</span></div>
+                      <div className="pro-slot-wrap">
+                        <div className="pro-photo-slot small" onClick={() => vRefRef.current?.click()}>
+                          {vRefUrl ? <img src={vRefUrl} alt="" /> : <span className="pro-muted">＋ Face / style</span>}
+                        </div>
+                        {vRefUrl && (
+                          <button type="button" className="pro-slot-x" title="Remove reference"
+                                  onClick={clearVRef}>✕</button>
+                        )}
                       </div>
                       <input ref={vRefRef} type="file" accept="image/*" hidden
                              onChange={(e) => { const f = e.target.files?.[0]; if (f) { setVRef(f); setVRefUrl(URL.createObjectURL(f)); } }} />
                     </div>
                   </div>
+
+                  <div className="pro-uplabel">Use the reference as</div>
+                  <div className="row preset-row">
+                    {REF_MODES.map((m) => (
+                      <button key={m.id} type="button" title={m.help}
+                              className={`pro-chip${vRefMode === m.id ? " on" : ""}`}
+                              onClick={() => setVRefMode(m.id)}>{m.label}</button>
+                    ))}
+                  </div>
+                  <p className="pro-muted pro-note">
+                    {REF_MODES.find((m) => m.id === vRefMode)?.help}
+                  </p>
+
                   <div className="pro-uplabel">What do you want?</div>
                   <input className="pro-input" type="text" value={vPrompt}
-                         placeholder="e.g. change the face to the reference, or make it anime"
+                         placeholder="Leave blank to just apply the mode above, or describe any edit…"
                          onChange={(e) => setVPrompt(e.target.value)} />
                   <div className="row preset-row pro-photo-presets">
-                    <button type="button" className="pro-chip on" disabled={vBusy || !vFile}
-                            onClick={() => runVideo("video", vRef ? "Change the face in the video to the reference person" : "", true)}>
-                      Face swap</button>
                     {VIDEO_PRESETS.map((p) => (
                       <button key={p} type="button" className="pro-chip" disabled={vBusy || !vFile}
-                              onClick={() => { setVPrompt(p); runVideo("video", p, false); }}>
+                              onClick={() => { setVPrompt(p); runVideo("video", p, "none"); }}>
                         {p.split(",")[0].replace(/^(Turn the video into |Change the background to |Dress the person in )/, "")}</button>
                     ))}
                   </div>
                   <div className="row preset-row">
-                    <button type="button" className="pro-goldbtn" disabled={vBusy || !vFile || (!vPrompt && !vRef)}
-                            onClick={() => runVideo("video", vPrompt, false)}>✦ Transform video</button>
+                    <button type="button" className="pro-goldbtn"
+                            disabled={vBusy || !vFile || (vRefMode === "none" && !vPrompt)}
+                            onClick={() => runVideo("video", vPrompt, vRefMode)}>✦ Transform video</button>
                   </div>
                   {vErr && <p className="error">{vErr}</p>}
                 </div>
