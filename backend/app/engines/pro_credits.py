@@ -75,6 +75,22 @@ class ProCredits:
             self._seconds = max(0.0, float(seconds))
             self._save()
 
+    def deduct(self, seconds: float) -> bool:
+        """Take a fixed amount off the balance up-front (photo = one shot; video/
+        restyle jobs = the clip length x their rate). Returns False WITHOUT
+        deducting if the balance can't cover it, so a job never runs unpaid.
+
+        The wallet is in 'live seconds' (sold at the live rate). Other modes cost
+        more/less per real second, so callers pass the wallet-seconds already
+        scaled by the mode's rate (see MODE_RATE)."""
+        seconds = max(0.0, float(seconds))
+        with self._lock:
+            if self._seconds < seconds:
+                return False
+            self._seconds -= seconds
+            self._save()
+        return True
+
     # --- metering ------------------------------------------------------------
     def start(self, on_empty: Callable[[], None],
               is_active: Callable[[], bool] | None = None) -> bool:
@@ -135,6 +151,15 @@ class ProCredits:
         with self._lock:
             self._save()
         log.info("Pro meter stopped (%.1f min left)", self.remaining_minutes)
+
+
+# How many WALLET seconds each mode costs, per real second (or per image). The
+# wallet is priced at the LIVE rate ($0.03/s); a mode that sells for more burns
+# proportionally more wallet-seconds. Image is a flat per-photo charge.
+#   live   $0.03/s -> 1.0x     video   $0.06/s -> 2.0x
+#   restyle $0.02/s -> 0.667x  image   $0.40   -> 0.40/0.03 = 13.33s
+MODE_RATE = {"live": 1.0, "video": 2.0, "restyle": 2.0 / 3.0}
+IMAGE_COST_SECONDS = round(0.40 / 0.03, 2)   # ~13.33 wallet-seconds per photo
 
 
 # Singleton

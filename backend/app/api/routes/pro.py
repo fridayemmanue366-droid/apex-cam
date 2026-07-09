@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import APIRouter, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from app.core.logging import get_logger
@@ -103,6 +103,27 @@ def get_reference() -> FileResponse:
     if not REFERENCE_IMG.exists():
         raise HTTPException(404, "No reference set")
     return FileResponse(REFERENCE_IMG)
+
+
+# --- Studio: Photo mode (image-to-image face swap) -------------------------
+@router.post("/photo")
+async def make_photo(file: UploadFile, prompt: str = Form("")) -> Response:
+    """Face-swap an uploaded photo into the persona. Charges one photo's worth of
+    credit up-front (refunded if the cloud call fails), returns the PNG."""
+    from app.engines.pro_credits import IMAGE_COST_SECONDS, pro_credits
+    from app.engines.pro_studio import configured, generate_photo
+
+    if not configured():
+        raise HTTPException(503, "Apex Pro not configured")
+    if not pro_credits.deduct(IMAGE_COST_SECONDS):
+        raise HTTPException(402, "Not enough credit for a photo — top up first")
+    try:
+        out = generate_photo(await file.read(), prompt or None)
+    except Exception as exc:
+        pro_credits.add_minutes(IMAGE_COST_SECONDS / 60.0)  # refund on failure
+        log.warning("photo generation failed: %s", exc)
+        raise HTTPException(502, "Could not generate the photo — please try again")
+    return Response(content=out, media_type="image/png")
 
 
 class Credits(BaseModel):

@@ -283,6 +283,17 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ minutes }),
     }),
+  makeProPhoto: async (file: File, prompt: string): Promise<string> => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("prompt", prompt);
+    const res = await fetch(`${BASE}/pro/photo`, { method: "POST", body: form });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(j.detail || "Photo failed");
+    }
+    return URL.createObjectURL(await res.blob());
+  },
   getProVoice: () => req<ProVoice>("/pro/voice"),
   setProVoice: (cfg: { enabled: boolean; voice: string | null }) =>
     req<ProVoice>("/pro/voice", {

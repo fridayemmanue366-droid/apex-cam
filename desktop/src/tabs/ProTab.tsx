@@ -30,11 +30,12 @@ const VOICES = [
   { id: "robotic", name: "Robotic", tag: "fx" },
 ];
 
-type Page = "dashboard" | "studio" | "personas" | "voice" | "look" | "credits";
+type Page = "dashboard" | "studio" | "photo" | "personas" | "voice" | "look" | "credits";
 
 const NAV: { id: Page; icon: string; label: string }[] = [
   { id: "dashboard", icon: "◆", label: "Dashboard" },
-  { id: "studio", icon: "🎥", label: "Studio" },
+  { id: "studio", icon: "🎥", label: "Live cam" },
+  { id: "photo", icon: "🖼", label: "Photo" },
   { id: "personas", icon: "🪪", label: "Personas" },
   { id: "voice", icon: "🎙", label: "Voice" },
   { id: "look", icon: "✨", label: "Look" },
@@ -88,6 +89,21 @@ export function ProTab() {
   const pickVoice = (v: string) => {
     setVoice(v);
     api.setProVoice({ enabled: v !== "", voice: v || null }).catch(() => undefined);
+  };
+
+  // Photo mode: upload a picture -> get it face-swapped into the persona.
+  const [photoResult, setPhotoResult] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState<string | null>(null);
+  const photoFile = useRef<HTMLInputElement>(null);
+  const makePhoto = (f: File | undefined) => {
+    if (!f) return;
+    setPhotoBusy(true); setPhotoErr(null); setPhotoResult(null);
+    // Empty prompt -> backend uses the face-swap-into-persona prompt.
+    api.makeProPhoto(f, "")
+      .then((urlStr) => { setPhotoResult(urlStr); api.getPro().then(setPro).catch(() => undefined); })
+      .catch((e) => setPhotoErr(String(e.message || e)))
+      .finally(() => setPhotoBusy(false));
   };
   // Real purchase: open the Flutterwave checkout in the browser. After paying,
   // the backend callback adds the minutes and our poll picks up the new balance.
@@ -228,6 +244,38 @@ export function ProTab() {
                 </p>
               </div>
             </>
+          )}
+
+          {page === "photo" && (
+            <div className="pro-card">
+              <h3>Photo — turn any picture into your persona</h3>
+              <p className="pro-muted">
+                Upload a photo and it comes back as your persona (from the Personas tab),
+                photorealistic. Costs one photo's worth of credit (~$0.40).
+              </p>
+              <div className="pro-photo">
+                <div className="pro-photo-slot" onClick={() => photoFile.current?.click()}>
+                  {photoBusy ? <span className="pro-muted">Transforming…</span>
+                    : photoResult ? <img src={photoResult} alt="" />
+                    : <span className="pro-muted">＋ Upload a photo</span>}
+                </div>
+                <input ref={photoFile} type="file" accept="image/*" hidden
+                       onChange={(e) => makePhoto(e.target.files?.[0])} />
+                <div>
+                  <button type="button" className="pro-chip" disabled={photoBusy}
+                          onClick={() => photoFile.current?.click()}>
+                    {photoResult ? "Try another" : "Choose photo"}
+                  </button>
+                  {photoResult && (
+                    <a className="pro-chip" href={photoResult} download="apexpro-photo.png"
+                       style={{ marginLeft: 8, textDecoration: "none" }}>Download</a>
+                  )}
+                  {photoErr && <p className="error">{photoErr}</p>}
+                  {!pro.has_reference && <p className="pro-muted pro-note">
+                    Set a persona face first (Personas tab).</p>}
+                </div>
+              </div>
+            </div>
           )}
 
           {page === "personas" && (
