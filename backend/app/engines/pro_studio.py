@@ -31,12 +31,15 @@ def configured() -> bool:
 
 
 def generate_photo(input_bytes: bytes, prompt: str | None = None,
-                   face_swap: bool = False) -> bytes:
-    """AI photo editing on a single uploaded picture. Returns image bytes.
+                   face_swap: bool = False, reference_bytes: bytes | None = None) -> bytes:
+    """AI photo editing on an uploaded picture. Returns image bytes.
 
-    - face_swap=True: attach the persona reference + become that person.
-    - face_swap=False: a free-text edit (restyle, background, outfit, add/remove,
-      etc.) driven by `prompt` — no reference so the person's own face is kept.
+    Reference rules:
+      - reference_bytes given   -> use that image as the reference (e.g. "change
+        the face in the photo to this person", or a style reference).
+      - else face_swap=True     -> use the saved persona as the reference.
+      - else                    -> no reference; a pure text edit that keeps the
+        person's own face (restyle, background, outfit, add/remove…).
     Synchronous; raises on failure."""
     import requests
 
@@ -44,8 +47,11 @@ def generate_photo(input_bytes: bytes, prompt: str | None = None,
     if not key:
         raise RuntimeError("Decart key not configured")
     files = {"data": ("in.jpg", input_bytes, "image/jpeg")}
-    if face_swap and REFERENCE_IMG.exists():
-        files["reference_image"] = ("ref.jpg", REFERENCE_IMG.read_bytes(), "image/jpeg")
+    ref = reference_bytes
+    if ref is None and face_swap and REFERENCE_IMG.exists():
+        ref = REFERENCE_IMG.read_bytes()
+    if ref:
+        files["reference_image"] = ("ref.jpg", ref, "image/jpeg")
         text = prompt or FACE_PROMPT
     else:
         text = prompt or "Enhance this photo, sharp and clean."

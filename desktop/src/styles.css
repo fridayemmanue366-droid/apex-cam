@@ -396,6 +396,20 @@ select {
 .pro-photo-controls { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 10px; }
 .pro-photo-presets { gap: 8px; }
 .pro-photo-prompt { margin-top: 2px; }
+/* Photo Studio: two-panel editor */
+.pro-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 14px; align-items: start; }
+@media (max-width: 900px) { .pro-editor { grid-template-columns: 1fr; } }
+.pro-editor-inputs { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pro-uploads { display: flex; gap: 14px; flex-wrap: wrap; }
+.pro-uplabel { font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #b7a86a; margin-bottom: 6px; }
+.pro-photo-slot.small { width: 120px; height: 120px; }
+.pro-result-slot {
+  width: 100%; aspect-ratio: 1 / 1; border-radius: 14px; overflow: hidden;
+  background: rgba(0,0,0,0.35); border: 1px solid rgba(212,160,40,0.28);
+  display: grid; place-items: center; text-align: center; padding: 10px;
+}
+.pro-result-slot img { width: 100%; height: 100%; object-fit: contain; }
+.pro-dl { display: inline-block; margin-top: 12px; text-decoration: none; text-align: center; }
 
 .setup-log {
   background: #0a0c10;

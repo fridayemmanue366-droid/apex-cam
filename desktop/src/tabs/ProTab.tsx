@@ -108,20 +108,27 @@ export function ProTab() {
   // the persona OR type any edit (restyle, background, outfit, add/remove…).
   const [photoInput, setPhotoInput] = useState<File | null>(null);
   const [photoInputUrl, setPhotoInputUrl] = useState<string | null>(null);
+  const [photoRef, setPhotoRef] = useState<File | null>(null);
+  const [photoRefUrl, setPhotoRefUrl] = useState<string | null>(null);
   const [photoPrompt, setPhotoPrompt] = useState("");
   const [photoResult, setPhotoResult] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState<string | null>(null);
   const photoFile = useRef<HTMLInputElement>(null);
+  const photoRefFile = useRef<HTMLInputElement>(null);
   const onPhotoPick = (f: File | undefined) => {
     if (!f) return;
     setPhotoInput(f); setPhotoInputUrl(URL.createObjectURL(f));
     setPhotoResult(null); setPhotoErr(null);
   };
+  const onRefPick = (f: File | undefined) => {
+    if (!f) return;
+    setPhotoRef(f); setPhotoRefUrl(URL.createObjectURL(f)); setPhotoErr(null);
+  };
   const runPhoto = (promptText: string, faceSwap: boolean) => {
-    if (!photoInput) { setPhotoErr("Upload a photo first"); return; }
+    if (!photoInput) { setPhotoErr("Upload a photo to edit first"); return; }
     setPhotoBusy(true); setPhotoErr(null); setPhotoResult(null);
-    api.makeProPhoto(photoInput, promptText, faceSwap)
+    api.makeProPhoto(photoInput, promptText, faceSwap, photoRef)
       .then((u) => { setPhotoResult(u); api.getPro().then(setPro).catch(() => undefined); })
       .catch((e) => setPhotoErr(String(e.message || e)))
       .finally(() => setPhotoBusy(false));
@@ -271,44 +278,70 @@ export function ProTab() {
             <div className="pro-card">
               <h3>Photo Studio — AI photo editor</h3>
               <p className="pro-muted">
-                Upload a picture, then <strong>Face swap</strong> into your persona, tap a
-                quick edit, or type any change (restyle, background, outfit, add/remove…).
-                ~$0.40 per edit.
+                Upload a photo, add a <strong>reference</strong> face/style if you want, then
+                tell it what to do — “change the face to the reference”, “put me on a beach”,
+                “make it anime”. ~$0.40 per edit, from your credit.
               </p>
-              <div className="pro-photo">
-                <div className="pro-photo-slot" onClick={() => photoFile.current?.click()}>
-                  {photoBusy ? <span className="pro-muted">Editing…</span>
-                    : photoResult ? <img src={photoResult} alt="" />
-                    : photoInputUrl ? <img src={photoInputUrl} alt="" />
-                    : <span className="pro-muted">＋ Upload a photo</span>}
-                </div>
-                <input ref={photoFile} type="file" accept="image/*" hidden
-                       onChange={(e) => onPhotoPick(e.target.files?.[0])} />
-                <div className="pro-photo-controls">
-                  <button type="button" className="pro-chip" disabled={photoBusy}
-                          onClick={() => photoFile.current?.click()}>
-                    {photoInput ? "Change photo" : "Upload photo"}
-                  </button>
+              <div className="pro-editor">
+                {/* Left: inputs */}
+                <div className="pro-editor-inputs">
+                  <div className="pro-uploads">
+                    <div>
+                      <div className="pro-uplabel">Photo to edit</div>
+                      <div className="pro-photo-slot" onClick={() => photoFile.current?.click()}>
+                        {photoInputUrl ? <img src={photoInputUrl} alt="" />
+                          : <span className="pro-muted">＋ Photo</span>}
+                      </div>
+                      <input ref={photoFile} type="file" accept="image/*" hidden
+                             onChange={(e) => onPhotoPick(e.target.files?.[0])} />
+                    </div>
+                    <div>
+                      <div className="pro-uplabel">Reference <span className="pro-muted">(optional)</span></div>
+                      <div className="pro-photo-slot small" onClick={() => photoRefFile.current?.click()}>
+                        {photoRefUrl ? <img src={photoRefUrl} alt="" />
+                          : <span className="pro-muted">＋ Face / style</span>}
+                      </div>
+                      <input ref={photoRefFile} type="file" accept="image/*" hidden
+                             onChange={(e) => onRefPick(e.target.files?.[0])} />
+                    </div>
+                  </div>
+
+                  <div className="pro-uplabel">What do you want?</div>
+                  <input className="pro-input" type="text" value={photoPrompt}
+                         placeholder="e.g. change the face in the photo to the reference person"
+                         onChange={(e) => setPhotoPrompt(e.target.value)} />
                   <div className="row preset-row pro-photo-presets">
+                    {photoRef && (
+                      <button type="button" className="pro-chip on" disabled={photoBusy || !photoInput}
+                              onClick={() => runPhoto("Change the face in the photo to the reference person, keep everything else", false)}>
+                        Face → reference</button>
+                    )}
                     {PHOTO_PRESETS.map((p) => (
                       <button key={p.label} type="button" className="pro-chip"
                               disabled={photoBusy || !photoInput}
                               onClick={() => runPhoto(p.prompt, p.face)}>{p.label}</button>
                     ))}
                   </div>
-                  <input className="pro-input pro-photo-prompt" type="text" value={photoPrompt}
-                         placeholder="Or describe any edit…"
-                         onChange={(e) => setPhotoPrompt(e.target.value)} />
                   <div className="row preset-row">
                     <button type="button" className="pro-goldbtn"
-                            disabled={photoBusy || !photoInput || !photoPrompt}
+                            disabled={photoBusy || !photoInput || (!photoPrompt && !photoRef)}
                             onClick={() => runPhoto(photoPrompt, false)}>✦ Transform</button>
-                    {photoResult && (
-                      <a className="pro-chip" href={photoResult} download="apexpro-photo.png">
-                        Download</a>
-                    )}
                   </div>
                   {photoErr && <p className="error">{photoErr}</p>}
+                </div>
+
+                {/* Right: result */}
+                <div className="pro-editor-result">
+                  <div className="pro-uplabel">Result</div>
+                  <div className="pro-result-slot">
+                    {photoBusy ? <span className="pro-muted">Editing… (a few seconds)</span>
+                      : photoResult ? <img src={photoResult} alt="" />
+                      : <span className="pro-muted">Your edited photo appears here</span>}
+                  </div>
+                  {photoResult && (
+                    <a className="pro-goldbtn pro-dl" href={photoResult} download="apexpro-photo.png">
+                      ⤓ Download</a>
+                  )}
                 </div>
               </div>
             </div>
