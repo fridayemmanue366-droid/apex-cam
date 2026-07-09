@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type ProStatus } from "../api/client";
+import { cloud, signedIn, type Account } from "../api/cloud";
 import { DualPreview } from "../components/DualPreview";
+import { ProAuth } from "../components/ProAuth";
 
 // Apex Pro — its OWN universe, separate from local Apex Cam: its own dashboard,
 // its own cam (studio) page, its own face (persona) page, its own voice and
@@ -78,6 +80,21 @@ export function ProTab() {
   const [voice, setVoice] = useState<string>("");
   const [pricing, setPricing] = useState<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
+
+  // Cloud account — credits live on our server, tied to this login (so they
+  // follow the user to any PC and can't be edited locally).
+  const [account, setAccount] = useState<Account | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    if (signedIn()) {
+      cloud.me().then(setAccount)
+        .catch(() => { cloud.logout(); setAccount(null); })
+        .finally(() => setAuthChecked(true));
+    } else {
+      setAuthChecked(true);
+    }
+  }, []);
 
   useEffect(() => {
     api.getPro().then((p) => {
@@ -189,6 +206,12 @@ export function ProTab() {
       .then((r) => { window.open(r.link, "_blank"); })
       .catch(() => undefined);
 
+  // Apex Pro requires a cloud account (that's where the credits live).
+  if (!authChecked) return <section className="panel"><p className="muted">Loading…</p></section>;
+  if (!account) {
+    return <ProAuth onSignedIn={() => { cloud.me().then(setAccount).catch(() => undefined); }} />;
+  }
+
   if (!pro) return <section className="panel"><p className="muted">Backend offline.</p></section>;
 
   // --- Entry gate: the "door" into the Pro universe ---
@@ -236,6 +259,11 @@ export function ProTab() {
         <div className="pro-hero-right">
           <span className="pro-pill">◈ {minutes} min</span>
           {liveBadge}
+          <span className="pro-account">
+            <span className="pro-muted">{account.email}</span>
+            <button type="button" className="pro-linkbtn"
+                    onClick={() => { cloud.logout(); setAccount(null); }}>Sign out</button>
+          </span>
           <span className="pro-vip">VIP</span>
         </div>
       </div>
