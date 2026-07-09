@@ -39,7 +39,12 @@ CONFIG_FILE = CONFIG_DIR / "pro_config.json"
 
 MODEL = os.environ.get("APEXCAM_DECART_MODEL", "lucy-2.5")
 WS_BASE = os.environ.get("APEXCAM_DECART_WS", "wss://api3.decart.ai/v1/stream")
-SIZE = 512  # model input square
+# Model input square. 512 is the proven value the model accepts; the model
+# outputs 720p regardless, so this only conveys pose/motion. Configurable.
+SIZE = int(os.environ.get("APEXCAM_DECART_SIZE", "512"))
+# Input frame rate to the model — higher = smoother motion. Cost is per SECOND of
+# streaming (not per frame), so more fps is free. Model runs up to 30fps.
+FPS = int(os.environ.get("APEXCAM_DECART_FPS", "24"))
 DEFAULT_PROMPT = ("Replace the person with the reference person — exact same face, "
                   "hair and identity, photorealistic, following their movements.")
 
@@ -150,18 +155,17 @@ class LucyProEngine:
     # --- live processing (non-blocking) -------------------------------------
     def process(self, frame_bgr: np.ndarray) -> np.ndarray:
         """Hand the latest frame to the live session; return the latest transformed
-        frame (or the input until the first result). Never blocks the pipeline."""
+        frame (or the input until the first result). Never blocks the pipeline.
+
+        Returns Lucy's output at its NATIVE resolution (720p) — the pipeline scales
+        it to the camera size once. Avoids a lossy shrink-then-grow, so the persona
+        stays as sharp as the model allows."""
         if not self.ready:
             return frame_bgr
         with self._lock:
             self._in = frame_bgr
             out = self._out
-        if out is None:
-            return frame_bgr
-        if out.shape[:2] != frame_bgr.shape[:2]:
-            import cv2
-            out = cv2.resize(out, (frame_bgr.shape[1], frame_bgr.shape[0]))
-        return out
+        return out if out is not None else frame_bgr
 
     # --- session (background asyncio thread) --------------------------------
     def _start_session(self) -> None:
@@ -238,7 +242,7 @@ class LucyProEngine:
                         rgba = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
                         src.capture_frame(
                             rtc.VideoFrame(SIZE, SIZE, rtc.VideoBufferType.RGBA, rgba.tobytes()))
-                    await asyncio.sleep(1 / 16)
+                    await asyncio.sleep(1 / FPS)
             finally:
                 await room.disconnect()
 
