@@ -393,6 +393,9 @@ select {
   display: grid; place-items: center; flex: none;
 }
 .pro-photo-slot img { width: 100%; height: 100%; object-fit: cover; }
+.pro-photo-controls { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 10px; }
+.pro-photo-presets { gap: 8px; }
+.pro-photo-prompt { margin-top: 2px; }
 
 .setup-log {
   background: #0a0c10;

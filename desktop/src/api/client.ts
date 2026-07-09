@@ -283,10 +283,11 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ minutes }),
     }),
-  makeProPhoto: async (file: File, prompt: string): Promise<string> => {
+  makeProPhoto: async (file: File, prompt: string, faceSwap: boolean): Promise<string> => {
     const form = new FormData();
     form.append("file", file);
     form.append("prompt", prompt);
+    form.append("face_swap", String(faceSwap));
     const res = await fetch(`${BASE}/pro/photo`, { method: "POST", body: form });
     if (!res.ok) {
       const j = await res.json().catch(() => ({ detail: res.statusText }));

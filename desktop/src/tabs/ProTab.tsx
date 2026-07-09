@@ -22,6 +22,19 @@ const PACKAGES = [5, 12, 15, 25, 30, 50, 100, 160, 375, 1000];
 
 // Cloud voices for the Pro tier (voice change/cloning via fal). Real list comes
 // from the backend once billing is live; these are the presets shown meanwhile.
+// Photo Studio quick edits. "Face swap" uses the persona reference; the rest are
+// free-text edits the AI editor applies to the uploaded photo.
+const PHOTO_PRESETS: { label: string; prompt: string; face: boolean }[] = [
+  { label: "Face swap", prompt: "", face: true },
+  { label: "Anime", prompt: "Turn this into a vibrant anime illustration", face: false },
+  { label: "3D Pixar", prompt: "3D Pixar-style animated character, cute", face: false },
+  { label: "Beach", prompt: "Place the person on a sunny tropical beach", face: false },
+  { label: "Studio suit", prompt: "Dress the person in a sharp formal suit, studio portrait", face: false },
+  { label: "Remove BG", prompt: "Remove the background, clean plain white studio backdrop", face: false },
+  { label: "B&W film", prompt: "Black-and-white film photograph, grainy and cinematic", face: false },
+  { label: "Cyberpunk", prompt: "Cyberpunk neon city style, moody lighting", face: false },
+];
+
 const VOICES = [
   { id: "deep-male", name: "Deep Male", tag: "narrator" },
   { id: "warm-female", name: "Warm Female", tag: "soft" },
@@ -91,17 +104,25 @@ export function ProTab() {
     api.setProVoice({ enabled: v !== "", voice: v || null }).catch(() => undefined);
   };
 
-  // Photo mode: upload a picture -> get it face-swapped into the persona.
+  // Photo Studio — full AI photo editor: upload a picture, then face-swap into
+  // the persona OR type any edit (restyle, background, outfit, add/remove…).
+  const [photoInput, setPhotoInput] = useState<File | null>(null);
+  const [photoInputUrl, setPhotoInputUrl] = useState<string | null>(null);
+  const [photoPrompt, setPhotoPrompt] = useState("");
   const [photoResult, setPhotoResult] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState<string | null>(null);
   const photoFile = useRef<HTMLInputElement>(null);
-  const makePhoto = (f: File | undefined) => {
+  const onPhotoPick = (f: File | undefined) => {
     if (!f) return;
+    setPhotoInput(f); setPhotoInputUrl(URL.createObjectURL(f));
+    setPhotoResult(null); setPhotoErr(null);
+  };
+  const runPhoto = (promptText: string, faceSwap: boolean) => {
+    if (!photoInput) { setPhotoErr("Upload a photo first"); return; }
     setPhotoBusy(true); setPhotoErr(null); setPhotoResult(null);
-    // Empty prompt -> backend uses the face-swap-into-persona prompt.
-    api.makeProPhoto(f, "")
-      .then((urlStr) => { setPhotoResult(urlStr); api.getPro().then(setPro).catch(() => undefined); })
+    api.makeProPhoto(photoInput, promptText, faceSwap)
+      .then((u) => { setPhotoResult(u); api.getPro().then(setPro).catch(() => undefined); })
       .catch((e) => setPhotoErr(String(e.message || e)))
       .finally(() => setPhotoBusy(false));
   };
@@ -248,31 +269,46 @@ export function ProTab() {
 
           {page === "photo" && (
             <div className="pro-card">
-              <h3>Photo — turn any picture into your persona</h3>
+              <h3>Photo Studio — AI photo editor</h3>
               <p className="pro-muted">
-                Upload a photo and it comes back as your persona (from the Personas tab),
-                photorealistic. Costs one photo's worth of credit (~$0.40).
+                Upload a picture, then <strong>Face swap</strong> into your persona, tap a
+                quick edit, or type any change (restyle, background, outfit, add/remove…).
+                ~$0.40 per edit.
               </p>
               <div className="pro-photo">
                 <div className="pro-photo-slot" onClick={() => photoFile.current?.click()}>
-                  {photoBusy ? <span className="pro-muted">Transforming…</span>
+                  {photoBusy ? <span className="pro-muted">Editing…</span>
                     : photoResult ? <img src={photoResult} alt="" />
+                    : photoInputUrl ? <img src={photoInputUrl} alt="" />
                     : <span className="pro-muted">＋ Upload a photo</span>}
                 </div>
                 <input ref={photoFile} type="file" accept="image/*" hidden
-                       onChange={(e) => makePhoto(e.target.files?.[0])} />
-                <div>
+                       onChange={(e) => onPhotoPick(e.target.files?.[0])} />
+                <div className="pro-photo-controls">
                   <button type="button" className="pro-chip" disabled={photoBusy}
                           onClick={() => photoFile.current?.click()}>
-                    {photoResult ? "Try another" : "Choose photo"}
+                    {photoInput ? "Change photo" : "Upload photo"}
                   </button>
-                  {photoResult && (
-                    <a className="pro-chip" href={photoResult} download="apexpro-photo.png"
-                       style={{ marginLeft: 8, textDecoration: "none" }}>Download</a>
-                  )}
+                  <div className="row preset-row pro-photo-presets">
+                    {PHOTO_PRESETS.map((p) => (
+                      <button key={p.label} type="button" className="pro-chip"
+                              disabled={photoBusy || !photoInput}
+                              onClick={() => runPhoto(p.prompt, p.face)}>{p.label}</button>
+                    ))}
+                  </div>
+                  <input className="pro-input pro-photo-prompt" type="text" value={photoPrompt}
+                         placeholder="Or describe any edit…"
+                         onChange={(e) => setPhotoPrompt(e.target.value)} />
+                  <div className="row preset-row">
+                    <button type="button" className="pro-goldbtn"
+                            disabled={photoBusy || !photoInput || !photoPrompt}
+                            onClick={() => runPhoto(photoPrompt, false)}>✦ Transform</button>
+                    {photoResult && (
+                      <a className="pro-chip" href={photoResult} download="apexpro-photo.png">
+                        Download</a>
+                    )}
+                  </div>
                   {photoErr && <p className="error">{photoErr}</p>}
-                  {!pro.has_reference && <p className="pro-muted pro-note">
-                    Set a persona face first (Personas tab).</p>}
                 </div>
               </div>
             </div>

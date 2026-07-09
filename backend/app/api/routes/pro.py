@@ -107,9 +107,11 @@ def get_reference() -> FileResponse:
 
 # --- Studio: Photo mode (image-to-image face swap) -------------------------
 @router.post("/photo")
-async def make_photo(file: UploadFile, prompt: str = Form("")) -> Response:
-    """Face-swap an uploaded photo into the persona. Charges one photo's worth of
-    credit up-front (refunded if the cloud call fails), returns the PNG."""
+async def make_photo(file: UploadFile, prompt: str = Form(""),
+                     face_swap: bool = Form(False)) -> Response:
+    """AI photo edit (full editor). face_swap=true becomes the persona; otherwise
+    `prompt` drives any edit (restyle, background, outfit, add/remove…). Charges
+    one photo's worth of credit up-front (refunded if the cloud call fails)."""
     from app.engines.pro_credits import IMAGE_COST_SECONDS, pro_credits
     from app.engines.pro_studio import configured, generate_photo
 
@@ -118,7 +120,7 @@ async def make_photo(file: UploadFile, prompt: str = Form("")) -> Response:
     if not pro_credits.deduct(IMAGE_COST_SECONDS):
         raise HTTPException(402, "Not enough credit for a photo — top up first")
     try:
-        out = generate_photo(await file.read(), prompt or None)
+        out = generate_photo(await file.read(), prompt or None, face_swap=face_swap)
     except Exception as exc:
         pro_credits.add_minutes(IMAGE_COST_SECONDS / 60.0)  # refund on failure
         log.warning("photo generation failed: %s", exc)
