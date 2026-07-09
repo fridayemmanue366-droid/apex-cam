@@ -297,6 +297,16 @@ export const api = {
     }
     return URL.createObjectURL(await res.blob());
   },
+  startProVideo: (file: File, prompt: string, mode: "video" | "restyle", reference?: File | null) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("prompt", prompt);
+    form.append("mode", mode);
+    if (reference) form.append("reference", reference);
+    return req<{ job_id: string; cost_minutes: number }>("/pro/video/start", { method: "POST", body: form });
+  },
+  getProJob: (jobId: string) => req<{ status: string }>(`/pro/job/${jobId}`),
+  proJobContentUrl: (jobId: string) => `${BASE}/pro/job/${jobId}/content`,
   getProVoice: () => req<ProVoice>("/pro/voice"),
   setProVoice: (cfg: { enabled: boolean; voice: string | null }) =>
     req<ProVoice>("/pro/voice", {

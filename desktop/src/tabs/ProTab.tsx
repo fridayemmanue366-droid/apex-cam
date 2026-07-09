@@ -43,16 +43,24 @@ const VOICES = [
   { id: "robotic", name: "Robotic", tag: "fx" },
 ];
 
-type Page = "dashboard" | "studio" | "photo" | "personas" | "voice" | "look" | "credits";
+type Page = "dashboard" | "studio" | "photo" | "video" | "restyle" | "personas" | "voice" | "look" | "credits";
 
 const NAV: { id: Page; icon: string; label: string }[] = [
   { id: "dashboard", icon: "◆", label: "Dashboard" },
   { id: "studio", icon: "🎥", label: "Live cam" },
   { id: "photo", icon: "🖼", label: "Photo" },
+  { id: "video", icon: "🎬", label: "Video" },
+  { id: "restyle", icon: "🎨", label: "Restyle" },
   { id: "personas", icon: "🪪", label: "Personas" },
   { id: "voice", icon: "🎙", label: "Voice" },
   { id: "look", icon: "✨", label: "Look" },
   { id: "credits", icon: "◈", label: "Credits" },
+];
+
+// Restyle quick styles (artistic — no face swap).
+const RESTYLE_PRESETS = [
+  "Anime style", "Cinematic film look", "Cyberpunk neon", "Oil painting",
+  "3D Pixar animation", "Black & white noir", "Watercolor", "Comic book",
 ];
 
 export function ProTab() {
@@ -132,6 +140,40 @@ export function ProTab() {
       .then((u) => { setPhotoResult(u); api.getPro().then(setPro).catch(() => undefined); })
       .catch((e) => setPhotoErr(String(e.message || e)))
       .finally(() => setPhotoBusy(false));
+  };
+
+  // Video + Restyle jobs (upload clip -> background job -> poll -> result video).
+  // Shared state; one job at a time.
+  const [vFile, setVFile] = useState<File | null>(null);
+  const [vFileName, setVFileName] = useState("");
+  const [vRef, setVRef] = useState<File | null>(null);
+  const [vRefUrl, setVRefUrl] = useState<string | null>(null);
+  const [vPrompt, setVPrompt] = useState("");
+  const [vStatus, setVStatus] = useState<"" | "submitting" | "processing" | "done" | "error">("");
+  const [vResult, setVResult] = useState<string | null>(null);
+  const [vErr, setVErr] = useState<string | null>(null);
+  const vFileRef = useRef<HTMLInputElement>(null);
+  const vRefRef = useRef<HTMLInputElement>(null);
+  const vBusy = vStatus === "submitting" || vStatus === "processing";
+  const runVideo = (mode: "video" | "restyle", promptText: string) => {
+    if (!vFile) { setVErr("Upload a video first"); return; }
+    setVStatus("submitting"); setVErr(null); setVResult(null);
+    api.startProVideo(vFile, promptText, mode, mode === "video" ? vRef : null)
+      .then((r) => {
+        setVStatus("processing");
+        const poll = () => api.getProJob(r.job_id).then((s) => {
+          if (s.status === "completed") {
+            setVResult(api.proJobContentUrl(r.job_id)); setVStatus("done");
+            api.getPro().then(setPro).catch(() => undefined);
+          } else if (s.status === "failed") { setVStatus("error"); setVErr("The job failed — try again"); }
+          else setTimeout(poll, 3000);
+        }).catch(() => setTimeout(poll, 4000));
+        poll();
+      })
+      .catch((e) => { setVStatus("error"); setVErr(String(e.message || e)); });
+  };
+  const pickVideo = (f: File | undefined) => {
+    if (!f) return; setVFile(f); setVFileName(f.name); setVResult(null); setVStatus(""); setVErr(null);
   };
   // Real purchase: open the Flutterwave checkout in the browser. After paying,
   // the backend callback adds the minutes and our poll picks up the new balance.
@@ -342,6 +384,101 @@ export function ProTab() {
                     <a className="pro-goldbtn pro-dl" href={photoResult} download="apexpro-photo.png">
                       ⤓ Download</a>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {page === "video" && (
+            <div className="pro-card">
+              <h3>Video — face-swap a clip into your persona</h3>
+              <p className="pro-muted">
+                Upload a short video, add a reference face (or your persona), and it comes back
+                as that person, in 720p. Runs in the background. ~$3.60/min of video.
+              </p>
+              <div className="pro-editor">
+                <div className="pro-editor-inputs">
+                  <div className="pro-uploads">
+                    <div>
+                      <div className="pro-uplabel">Video clip</div>
+                      <div className="pro-photo-slot" onClick={() => vFileRef.current?.click()}>
+                        <span className="pro-muted">{vFileName || "＋ Upload video"}</span>
+                      </div>
+                      <input ref={vFileRef} type="file" accept="video/*" hidden
+                             onChange={(e) => pickVideo(e.target.files?.[0])} />
+                    </div>
+                    <div>
+                      <div className="pro-uplabel">Reference face <span className="pro-muted">(optional)</span></div>
+                      <div className="pro-photo-slot small" onClick={() => vRefRef.current?.click()}>
+                        {vRefUrl ? <img src={vRefUrl} alt="" /> : <span className="pro-muted">＋ Face</span>}
+                      </div>
+                      <input ref={vRefRef} type="file" accept="image/*" hidden
+                             onChange={(e) => { const f = e.target.files?.[0]; if (f) { setVRef(f); setVRefUrl(URL.createObjectURL(f)); } }} />
+                    </div>
+                  </div>
+                  <div className="pro-uplabel">Instruction <span className="pro-muted">(optional)</span></div>
+                  <input className="pro-input" type="text" value={vPrompt}
+                         placeholder="Defaults to: become the reference person"
+                         onChange={(e) => setVPrompt(e.target.value)} />
+                  <div className="row preset-row">
+                    <button type="button" className="pro-goldbtn" disabled={vBusy || !vFile}
+                            onClick={() => runVideo("video", vPrompt)}>✦ Transform video</button>
+                  </div>
+                  {vErr && <p className="error">{vErr}</p>}
+                </div>
+                <div className="pro-editor-result">
+                  <div className="pro-uplabel">Result</div>
+                  <div className="pro-result-slot">
+                    {vBusy ? <span className="pro-muted">{vStatus === "submitting" ? "Uploading…" : "Processing your video… (this can take a while)"}</span>
+                      : vResult ? <video src={vResult} controls />
+                      : <span className="pro-muted">Your video appears here</span>}
+                  </div>
+                  {vResult && <a className="pro-goldbtn pro-dl" href={vResult} download="apexpro-video.mp4">⤓ Download</a>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {page === "restyle" && (
+            <div className="pro-card">
+              <h3>Restyle — give a long video a new look</h3>
+              <p className="pro-muted">
+                Upload a video and choose a style (anime, cinematic, cyberpunk…). This restyles
+                the whole scene — it does <strong>not</strong> swap the face. Great for long clips,
+                cheaper: ~$1.20/min.
+              </p>
+              <div className="pro-editor">
+                <div className="pro-editor-inputs">
+                  <div className="pro-uplabel">Video</div>
+                  <div className="pro-photo-slot" onClick={() => vFileRef.current?.click()}>
+                    <span className="pro-muted">{vFileName || "＋ Upload video"}</span>
+                  </div>
+                  <input ref={vFileRef} type="file" accept="video/*" hidden
+                         onChange={(e) => pickVideo(e.target.files?.[0])} />
+                  <div className="pro-uplabel">Style</div>
+                  <input className="pro-input" type="text" value={vPrompt}
+                         placeholder="Describe the style…"
+                         onChange={(e) => setVPrompt(e.target.value)} />
+                  <div className="row preset-row pro-photo-presets">
+                    {RESTYLE_PRESETS.map((s) => (
+                      <button key={s} type="button" className="pro-chip" disabled={vBusy || !vFile}
+                              onClick={() => { setVPrompt(s); runVideo("restyle", s); }}>{s}</button>
+                    ))}
+                  </div>
+                  <div className="row preset-row">
+                    <button type="button" className="pro-goldbtn" disabled={vBusy || !vFile || !vPrompt}
+                            onClick={() => runVideo("restyle", vPrompt)}>✦ Restyle video</button>
+                  </div>
+                  {vErr && <p className="error">{vErr}</p>}
+                </div>
+                <div className="pro-editor-result">
+                  <div className="pro-uplabel">Result</div>
+                  <div className="pro-result-slot">
+                    {vBusy ? <span className="pro-muted">{vStatus === "submitting" ? "Uploading…" : "Restyling your video…"}</span>
+                      : vResult ? <video src={vResult} controls />
+                      : <span className="pro-muted">Your restyled video appears here</span>}
+                  </div>
+                  {vResult && <a className="pro-goldbtn pro-dl" href={vResult} download="apexpro-restyle.mp4">⤓ Download</a>}
                 </div>
               </div>
             </div>

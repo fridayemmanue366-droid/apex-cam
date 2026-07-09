@@ -65,3 +65,77 @@ def generate_photo(input_bytes: bytes, prompt: str | None = None,
     if r.status_code != 200 or "image" not in (r.headers.get("content-type") or ""):
         raise RuntimeError(f"Decart photo failed: {r.status_code} {r.text[:200]}")
     return r.content
+
+
+# --- Video / Restyle background jobs ---------------------------------------
+VIDEO_MODEL = os.environ.get("APEXCAM_DECART_VIDEO_MODEL", "lucy-2.5")
+RESTYLE_MODEL = os.environ.get("APEXCAM_DECART_RESTYLE_MODEL", "lucy-restyle-2")
+
+
+def video_duration(video_bytes: bytes) -> float:
+    """Seconds of a video (for billing). Falls back to a small default."""
+    import tempfile
+
+    import cv2
+
+    p = Path(tempfile.gettempdir()) / f"apexdur_{os.getpid()}.mp4"
+    try:
+        p.write_bytes(video_bytes)
+        cap = cv2.VideoCapture(str(p))
+        frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+        cap.release()
+        return max(0.5, float(frames) / float(fps)) if fps else 1.0
+    except Exception:
+        return 1.0
+    finally:
+        try:
+            p.unlink()
+        except Exception:
+            pass
+
+
+def submit_job(model: str, video_bytes: bytes, prompt: str | None,
+               reference_bytes: bytes | None = None) -> str:
+    """Submit a video job. Returns the job_id. `reference_bytes` = face to become
+    (face-swap models); omit for restyle."""
+    import requests
+
+    key = _load_key()
+    if not key:
+        raise RuntimeError("Decart key not configured")
+    files = {"data": ("in.mp4", video_bytes, "video/mp4")}
+    if reference_bytes:
+        files["reference_image"] = ("ref.jpg", reference_bytes, "image/jpeg")
+    r = requests.post(
+        f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": key},
+        files=files, data={"prompt": prompt or FACE_PROMPT}, timeout=(10, 120))
+    if r.status_code != 200:
+        raise RuntimeError(f"Decart job submit failed: {r.status_code} {r.text[:200]}")
+    jid = r.json().get("job_id")
+    if not jid:
+        raise RuntimeError(f"No job_id in response: {r.text[:200]}")
+    return jid
+
+
+def job_status(job_id: str) -> str:
+    """pending | processing | completed | failed (best-effort)."""
+    import requests
+
+    key = _load_key()
+    r = requests.get(f"{API_BASE}/v1/jobs/{job_id}", headers={"X-API-KEY": key}, timeout=30)
+    if r.status_code != 200:
+        return "failed"
+    return str(r.json().get("status", "processing"))
+
+
+def job_content(job_id: str) -> bytes:
+    """Download the finished job's result video (call when status == completed)."""
+    import requests
+
+    key = _load_key()
+    r = requests.get(f"{API_BASE}/v1/jobs/{job_id}/content",
+                     headers={"X-API-KEY": key}, timeout=120)
+    if r.status_code != 200:
+        raise RuntimeError(f"Job content failed: {r.status_code}")
+    return r.content

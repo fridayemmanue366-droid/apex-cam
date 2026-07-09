@@ -131,6 +131,62 @@ async def make_photo(file: UploadFile, reference: UploadFile | None = File(None)
     return Response(content=out, media_type="image/png")
 
 
+# --- Studio: Video (face swap) + Restyle (artistic) background jobs ---------
+class JobStarted(BaseModel):
+    job_id: str
+    cost_minutes: float
+
+
+@router.post("/video/start")
+async def video_start(file: UploadFile, reference: UploadFile | None = File(None),
+                      prompt: str = Form(""), mode: str = Form("video")) -> JobStarted:
+    """Start a video job. mode='video' = face swap (uses reference/persona);
+    mode='restyle' = artistic restyle from `prompt` (no reference). Charges the
+    clip length x the mode's rate up-front (refunded if the submit fails)."""
+    from app.engines.pro_credits import MODE_RATE, pro_credits
+    from app.engines.pro_studio import (RESTYLE_MODEL, VIDEO_MODEL, configured,
+                                         submit_job, video_duration)
+
+    if not configured():
+        raise HTTPException(503, "Apex Pro not configured")
+    video_bytes = await file.read()
+    dur = video_duration(video_bytes)
+    is_restyle = mode == "restyle"
+    cost = dur * MODE_RATE["restyle" if is_restyle else "video"]
+    if not pro_credits.deduct(cost):
+        raise HTTPException(402, "Not enough credit for this video — top up first")
+    ref = None
+    if not is_restyle:
+        ref = await reference.read() if reference else (
+            REFERENCE_IMG.read_bytes() if REFERENCE_IMG.exists() else None)
+    try:
+        jid = submit_job(RESTYLE_MODEL if is_restyle else VIDEO_MODEL,
+                         video_bytes, prompt or None, ref)
+    except Exception as exc:
+        pro_credits.add_minutes(cost / 60.0)   # refund
+        log.warning("video job submit failed: %s", exc)
+        raise HTTPException(502, "Could not start the video — please try again")
+    return JobStarted(job_id=jid, cost_minutes=round(cost / 60.0, 2))
+
+
+@router.get("/job/{job_id}")
+def job_stat(job_id: str) -> dict:
+    from app.engines.pro_studio import job_status
+
+    return {"status": job_status(job_id)}
+
+
+@router.get("/job/{job_id}/content")
+def job_result(job_id: str) -> Response:
+    from app.engines.pro_studio import job_content
+
+    try:
+        data = job_content(job_id)
+    except Exception:
+        raise HTTPException(404, "Result not ready")
+    return Response(content=data, media_type="video/mp4")
+
+
 class Credits(BaseModel):
     minutes_remaining: float
     has_credit: bool
