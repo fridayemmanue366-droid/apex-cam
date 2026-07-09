@@ -75,6 +75,15 @@ def set_pro(cfg: ProConfig) -> ProStatus:
         # False on an empty balance -> GO LIVE is blocked at zero.
         if pro_credits.start(_stop_pro_call, is_active=lambda: lucy_pro.live):
             lucy_pro.enabled = True
+            # One click: also turn ON the camera pipeline + publish to the virtual
+            # camera, so the user doesn't have to start the engine separately.
+            try:
+                from app.core.pipeline import pipeline
+                if not pipeline.stats().running:
+                    pipeline.start()
+                pipeline.enable_vcam()
+            except Exception:
+                log.exception("Pro GO LIVE: pipeline/vcam start failed")
         else:
             lucy_pro.enabled = False
     else:

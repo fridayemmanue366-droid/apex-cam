@@ -56,3 +56,6 @@ backend/.flutterwave.local
 # Lucy WebRTC probe output frames
 lucy_out*.png
 _lucy_probe*.py
+
+# Local-only Decart key (never commit, never ship)
+backend/.decart.local
