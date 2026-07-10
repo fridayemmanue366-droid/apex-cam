@@ -41,10 +41,14 @@ MODEL = os.environ.get("APEXCAM_DECART_MODEL", "lucy-2.5")
 WS_BASE = os.environ.get("APEXCAM_DECART_WS", "wss://api3.decart.ai/v1/stream")
 # Model input square. 512 is the proven value the model accepts; the model
 # outputs 720p regardless, so this only conveys pose/motion. Configurable.
-SIZE = int(os.environ.get("APEXCAM_DECART_SIZE", "512"))
+# Decart declares lucy-2.5 realtime as 1280x720 @ 30fps — feed it its NATIVE size
+# and aspect. (A 512x512 square both under-fed it and squashed a 16:9 camera.)
+WIDTH = int(os.environ.get("APEXCAM_DECART_WIDTH", "1280"))
+HEIGHT = int(os.environ.get("APEXCAM_DECART_HEIGHT", "720"))
+SIZE = int(os.environ.get("APEXCAM_DECART_SIZE", "512"))   # legacy/fallback
 # Input frame rate to the model — higher = smoother motion. Cost is per SECOND of
 # streaming (not per frame), so more fps is free. Model runs up to 30fps.
-FPS = int(os.environ.get("APEXCAM_DECART_FPS", "24"))
+FPS = int(os.environ.get("APEXCAM_DECART_FPS", "30"))   # model's native rate
 DEFAULT_PROMPT = ("Replace the person with the reference person — exact same face, "
                   "hair and identity, photorealistic, following their movements.")
 
@@ -229,7 +233,7 @@ class LucyProEngine:
                     asyncio.create_task(self._read_output(track))
 
             await room.connect(info["livekit_url"], info["token"])
-            src = rtc.VideoSource(SIZE, SIZE)
+            src = rtc.VideoSource(WIDTH, HEIGHT)
             local = rtc.LocalVideoTrack.create_video_track("cam", src)
             await room.local_participant.publish_track(
                 local, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_CAMERA))
@@ -238,10 +242,10 @@ class LucyProEngine:
                     with self._lock:
                         f = self._in
                     if f is not None:
-                        img = cv2.resize(f, (SIZE, SIZE))
+                        img = cv2.resize(f, (WIDTH, HEIGHT))
                         rgba = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
                         src.capture_frame(
-                            rtc.VideoFrame(SIZE, SIZE, rtc.VideoBufferType.RGBA, rgba.tobytes()))
+                            rtc.VideoFrame(WIDTH, HEIGHT, rtc.VideoBufferType.RGBA, rgba.tobytes()))
                     await asyncio.sleep(1 / FPS)
             finally:
                 await room.disconnect()

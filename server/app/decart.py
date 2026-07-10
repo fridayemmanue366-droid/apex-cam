@@ -15,6 +15,11 @@ IMAGE_MODEL = os.environ.get("APEXCAM_DECART_IMAGE_MODEL", "lucy-image-2")
 VIDEO_MODEL = os.environ.get("APEXCAM_DECART_VIDEO_MODEL", "lucy-2.5")
 RESTYLE_MODEL = os.environ.get("APEXCAM_DECART_RESTYLE_MODEL", "lucy-restyle-2")
 LIVE_MODEL = os.environ.get("APEXCAM_DECART_MODEL", "lucy-2.5")
+# Always ask for the sharp tier — without `resolution` Decart falls back to 480p
+# (832x480). With "720p" we get 1280x720. enhance_prompt = Decart's own prompt
+# enhancement (better results). Both verified against the live API.
+RESOLUTION = os.environ.get("APEXCAM_DECART_RESOLUTION", "720p")
+ENHANCE_PROMPT = os.environ.get("APEXCAM_DECART_ENHANCE", "1") not in ("0", "false", "")
 FACE_PROMPT = ("Replace the person with the person in the reference image — exact "
                "same face, hair and identity, photorealistic.")
 
@@ -37,7 +42,9 @@ def generate_photo(input_bytes: bytes, prompt: str | None, reference_bytes: byte
         text = prompt or "Enhance this photo, sharp and clean."
     r = requests.post(f"{API_BASE}/v1/generate/{IMAGE_MODEL}",
                       headers={"X-API-KEY": _key()}, files=files,
-                      data={"prompt": text}, timeout=(10, 90))
+                      data={"prompt": text, "resolution": RESOLUTION,
+                            "enhance_prompt": "true" if ENHANCE_PROMPT else "false"},
+                      timeout=(15, 300))
     if r.status_code != 200 or "image" not in (r.headers.get("content-type") or ""):
         raise RuntimeError(f"photo failed: {r.status_code} {r.text[:200]}")
     return r.content
@@ -53,13 +60,25 @@ def submit_job(model: str, video_bytes: bytes, prompt: str | None,
 
     if len(video_bytes) > MAX_VIDEO_BYTES:
         raise RuntimeError("That video is over the 200 MB limit — trim it or lower the quality.")
+    is_restyle = model == RESTYLE_MODEL
+    if is_restyle and prompt and reference_bytes:
+        prompt = None   # restyle takes prompt XOR reference_image, never both
+    if is_restyle and not prompt and not reference_bytes:
+        raise RuntimeError("Choose a style, or upload a reference image to restyle from.")
     files = {"data": (filename or "in.mp4", video_bytes, content_type or "video/mp4")}
     if reference_bytes:
         files["reference_image"] = ("ref.jpg", reference_bytes, "image/jpeg")
+    form: dict[str, str] = {"resolution": RESOLUTION}
+    if is_restyle:
+        if prompt:   # enhance_prompt is only valid alongside a text prompt
+            form["prompt"] = prompt
+            form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
+    else:
+        form["prompt"] = prompt if prompt is not None else (FACE_PROMPT if reference_bytes else "")
+        form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
     try:
         r = requests.post(f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": _key()},
-                          files=files, data={"prompt": prompt or FACE_PROMPT},
-                          timeout=(10, 300))
+                          files=files, data=form, timeout=(10, 300))
     except requests.Timeout:
         raise RuntimeError("The upload timed out — try a shorter or smaller video.")
     if r.status_code in (502, 503, 504):

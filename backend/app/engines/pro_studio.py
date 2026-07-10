@@ -21,6 +21,11 @@ log = get_logger(__name__)
 
 API_BASE = os.environ.get("APEXCAM_DECART_API", "https://api.decart.ai")
 IMAGE_MODEL = os.environ.get("APEXCAM_DECART_IMAGE_MODEL", "lucy-image-2")
+# Decart's schema defaults resolution to 720p CLIENT-side — if we don't send it the
+# server may fall back to 480p (that's the $0.01 vs $0.02 tier). Always ask for the
+# sharp one. enhance_prompt turns on Decart's own prompt enhancement (better results).
+RESOLUTION = os.environ.get("APEXCAM_DECART_RESOLUTION", "720p")
+ENHANCE_PROMPT = os.environ.get("APEXCAM_DECART_ENHANCE", "1") not in ("0", "false", "")
 FACE_PROMPT = ("Replace the person with the person in the reference image — exact "
                "same face, hair and identity, photorealistic.")
 STYLE_PROMPT = ("Apply the look, outfit and style from the reference image to the "
@@ -67,12 +72,17 @@ def generate_photo(input_bytes: bytes, prompt: str | None = None,
         text = prompt or default_prompt
     else:
         text = prompt or "Enhance this photo, sharp and clean."
+    # Full Decart image-edit params: ask for 720p (not the cheap 480p default) and
+    # let Decart enhance the prompt — both make the result noticeably sharper/better.
+    form = {"prompt": text, "resolution": RESOLUTION,
+            "enhance_prompt": "true" if ENHANCE_PROMPT else "false"}
+    # 720p + prompt-enhancement takes longer than the old 480p default — give it room.
     r = requests.post(
         f"{API_BASE}/v1/generate/{IMAGE_MODEL}",
         headers={"X-API-KEY": key},
         files=files,
-        data={"prompt": text},
-        timeout=(10, 90),
+        data=form,
+        timeout=(15, 300),
     )
     if r.status_code != 200 or "image" not in (r.headers.get("content-type") or ""):
         raise RuntimeError(f"Decart photo failed: {r.status_code} {r.text[:200]}")
@@ -113,9 +123,16 @@ MAX_VIDEO_BYTES = 200 * 1024 * 1024   # Decart's documented limit
 def submit_job(model: str, video_bytes: bytes, prompt: str | None,
                reference_bytes: bytes | None = None, filename: str = "in.mp4",
                content_type: str = "video/mp4") -> str:
-    """Submit a video job. Returns the job_id. `reference_bytes` = face to become
-    (face-swap models); omit for restyle. Raises with the REAL reason so the user
-    sees what's wrong (format, size, busy) instead of a blank failure."""
+    """Submit a video job. Returns the job_id. `reference_bytes` = the reference
+    image (a face to become, or — for restyle — a style source). Raises with the
+    REAL reason so the user sees what's wrong (format, size, busy).
+
+    Decart's schema differs per model:
+      lucy-2.5      prompt (may be "") + optional reference_image
+      lucy-restyle-2 EXACTLY ONE of prompt / reference_image (never both), and
+                     enhance_prompt is only allowed with a text prompt.
+    Both take resolution ("720p") — we always ask for the sharp tier.
+    """
     import requests
 
     key = _load_key()
@@ -123,13 +140,29 @@ def submit_job(model: str, video_bytes: bytes, prompt: str | None,
         raise RuntimeError("Decart key not configured")
     if len(video_bytes) > MAX_VIDEO_BYTES:
         raise RuntimeError("That video is over the 200 MB limit — trim it or lower the quality.")
+    is_restyle = model == RESTYLE_MODEL
+    if is_restyle and prompt and reference_bytes:
+        # Restyle accepts a prompt OR a reference — not both. Prefer the reference.
+        prompt = None
+    if is_restyle and not prompt and not reference_bytes:
+        raise RuntimeError("Choose a style, or upload a reference image to restyle from.")
     files = {"data": (filename or "in.mp4", video_bytes, content_type or "video/mp4")}
     if reference_bytes:
         files["reference_image"] = ("ref.jpg", reference_bytes, "image/jpeg")
+    form: dict[str, str] = {"resolution": RESOLUTION}
+    if is_restyle:
+        # exactly one of prompt / reference_image; enhance only valid with prompt
+        if prompt:
+            form["prompt"] = prompt
+            form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
+    else:
+        # lucy-2.5 requires `prompt` (may be an empty string when a reference drives it)
+        form["prompt"] = prompt if prompt is not None else (FACE_PROMPT if reference_bytes else "")
+        form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
     try:
         r = requests.post(
             f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": key},
-            files=files, data={"prompt": prompt or FACE_PROMPT}, timeout=(10, 300))
+            files=files, data=form, timeout=(10, 300))
     except requests.Timeout:
         raise RuntimeError("The upload timed out — try a shorter or smaller video.")
     if r.status_code in (502, 503, 504):
