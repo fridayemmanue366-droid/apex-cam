@@ -339,7 +339,7 @@ class Pipeline:
             work = lucy_pro.process(work)
             if work.shape[1] != w:
                 work = cv2.resize(work, (w, h), interpolation=cv2.INTER_LINEAR)
-            self._draw_badge(work)
+            self._draw_badge(work)   # no-op unless label_output is enabled
             return work
 
         # Background matting (blur / green-screen / replace) — real-time on CPU.
@@ -435,7 +435,11 @@ class Pipeline:
 
     @staticmethod
     def _draw_badge(img: np.ndarray) -> None:
-        """Non-optional responsible-use label, burned into every output frame."""
+        """Optional responsible-use label. Off by default (settings.label_output);
+        when on, burns a small "AI-GENERATED" disclosure into the output frame."""
+        from app.config import settings
+        if not settings.label_output:
+            return
         text = "AI-GENERATED"
         scale = max(img.shape[1] / 1280, 0.5)
         (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * scale, 2)

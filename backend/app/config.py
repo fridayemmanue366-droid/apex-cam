@@ -30,8 +30,12 @@ class Settings(BaseSettings):
     target_fps: int = 30
     use_gpu: bool = True
 
-    # Responsible-use features (see docs/LEGAL.md). On by default, not a gate.
-    label_output: bool = True
+    # Responsible-use features (see docs/LEGAL.md).
+    # label_output burns a small "AI-GENERATED" disclosure onto every output frame.
+    # Default OFF (product decision). NOTE: turning it on is the responsible choice
+    # for live video calls — it discloses to the other party that the face is AI, and
+    # AI-content disclosure is legally required in some regions (e.g. EU AI Act).
+    label_output: bool = False
     audit_log: bool = True
 
 
