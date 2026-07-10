@@ -76,14 +76,21 @@ def generate_photo(input_bytes: bytes, prompt: str | None = None,
     # let Decart enhance the prompt — both make the result noticeably sharper/better.
     form = {"prompt": text, "resolution": RESOLUTION,
             "enhance_prompt": "true" if ENHANCE_PROMPT else "false"}
-    # 720p + prompt-enhancement takes longer than the old 480p default — give it room.
-    r = requests.post(
-        f"{API_BASE}/v1/generate/{IMAGE_MODEL}",
-        headers={"X-API-KEY": key},
-        files=files,
-        data=form,
-        timeout=(15, 300),
-    )
+    # 720p + prompt-enhancement takes longer than the old 480p default — give it room,
+    # and survive a brief connection drop.
+    import time as _time
+    r = None
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                f"{API_BASE}/v1/generate/{IMAGE_MODEL}",
+                headers={"X-API-KEY": key}, files=files, data=form, timeout=(15, 300))
+            break
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == 2:
+                raise RuntimeError("Lost the internet connection. Check your connection "
+                                   "and try again.")
+            _time.sleep(2 * (attempt + 1))
     if r.status_code != 200 or "image" not in (r.headers.get("content-type") or ""):
         raise RuntimeError(f"Decart photo failed: {r.status_code} {r.text[:200]}")
     return r.content
@@ -159,12 +166,28 @@ def submit_job(model: str, video_bytes: bytes, prompt: str | None,
         # lucy-2.5 requires `prompt` (may be an empty string when a reference drives it)
         form["prompt"] = prompt if prompt is not None else (FACE_PROMPT if reference_bytes else "")
         form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
-    try:
-        r = requests.post(
-            f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": key},
-            files=files, data=form, timeout=(10, 300))
-    except requests.Timeout:
-        raise RuntimeError("The upload timed out — try a shorter or smaller video.")
+    # Video uploads are big, so a flaky connection drops them mid-transfer. Retry a
+    # couple of times before giving up, and report network failures in plain English.
+    import time as _time
+    r = None
+    last_net: Exception | None = None
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": key},
+                files=files, data=form, timeout=(15, 300))
+            break
+        except requests.Timeout as exc:
+            last_net = exc
+        except requests.ConnectionError as exc:
+            last_net = exc
+        if attempt < 2:
+            _time.sleep(2 * (attempt + 1))     # 2s, 4s backoff
+    if r is None:
+        if isinstance(last_net, requests.Timeout):
+            raise RuntimeError("The upload timed out — try a shorter or smaller video.")
+        raise RuntimeError("Lost the internet connection while uploading. Check your "
+                           "connection and try again — shorter clips upload more reliably.")
     if r.status_code in (502, 503, 504):
         raise RuntimeError("The video service is busy right now — please try again in a moment.")
     if r.status_code != 200:

@@ -76,11 +76,23 @@ def submit_job(model: str, video_bytes: bytes, prompt: str | None,
     else:
         form["prompt"] = prompt if prompt is not None else (FACE_PROMPT if reference_bytes else "")
         form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
-    try:
-        r = requests.post(f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": _key()},
-                          files=files, data=form, timeout=(10, 300))
-    except requests.Timeout:
-        raise RuntimeError("The upload timed out — try a shorter or smaller video.")
+    import time as _time
+    r = None
+    last_net: Exception | None = None
+    for attempt in range(3):        # big uploads die on flaky links — retry
+        try:
+            r = requests.post(f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": _key()},
+                              files=files, data=form, timeout=(15, 300))
+            break
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_net = exc
+        if attempt < 2:
+            _time.sleep(2 * (attempt + 1))
+    if r is None:
+        if isinstance(last_net, requests.Timeout):
+            raise RuntimeError("The upload timed out — try a shorter or smaller video.")
+        raise RuntimeError("Lost the internet connection while uploading. Check your "
+                           "connection and try again — shorter clips upload more reliably.")
     if r.status_code in (502, 503, 504):
         raise RuntimeError("The video service is busy right now — please try again in a moment.")
     if r.status_code != 200:
