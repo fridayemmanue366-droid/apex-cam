@@ -126,6 +126,77 @@ def video_duration(video_bytes: bytes) -> float:
 
 MAX_VIDEO_BYTES = 200 * 1024 * 1024   # Decart's documented limit
 
+# Above this we downscale before uploading — a phone clip is often 1080p/4K and
+# tens of MB, which chokes a weak connection. Decart re-renders at 720p anyway, so
+# shrinking the SOURCE costs no output quality but makes the upload far more reliable.
+SHRINK_OVER_BYTES = int(os.environ.get("APEXCAM_SHRINK_OVER_MB", "8")) * 1024 * 1024
+SHRINK_MAX_DIM = int(os.environ.get("APEXCAM_SHRINK_MAX_DIM", "1280"))   # cap long edge
+
+
+def shrink_video(video_bytes: bytes, filename: str = "in.mp4",
+                 content_type: str = "video/mp4") -> tuple[bytes, str, str]:
+    """Downscale/re-encode a big clip so it uploads reliably on a weak connection.
+
+    Returns (bytes, filename, content_type). Only touches clips that are large AND
+    higher-res than we need; small/already-small ones pass straight through
+    UNCHANGED (original name/type kept). If anything goes wrong we return the
+    original untouched — shrinking is a best-effort speed-up, never a gate. (Note:
+    re-encoding drops the audio track, which these video-to-video models don't use.)
+    """
+    passthrough = (video_bytes, filename or "in.mp4", content_type or "video/mp4")
+    if len(video_bytes) <= SHRINK_OVER_BYTES:
+        return passthrough
+    import tempfile
+
+    import cv2
+
+    src = Path(tempfile.gettempdir()) / f"apexshrink_in_{os.getpid()}.mp4"
+    dst = Path(tempfile.gettempdir()) / f"apexshrink_out_{os.getpid()}.mp4"
+    try:
+        src.write_bytes(video_bytes)
+        cap = cv2.VideoCapture(str(src))
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+        if not w or not h:
+            cap.release()
+            return passthrough
+        scale = SHRINK_MAX_DIM / float(max(w, h))
+        if scale >= 1.0:
+            # Already small-dimensioned (just a long clip) — re-encoding wouldn't
+            # meaningfully shrink it; send as-is rather than risk quality loss.
+            cap.release()
+            return passthrough
+        nw, nh = (int(w * scale) // 2) * 2, (int(h * scale) // 2) * 2   # even dims
+        writer = cv2.VideoWriter(str(dst), cv2.VideoWriter_fourcc(*"mp4v"),
+                                 float(fps), (nw, nh))
+        if not writer.isOpened():
+            cap.release()
+            return passthrough
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            writer.write(cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA))
+        cap.release()
+        writer.release()
+        out = dst.read_bytes()
+        # Only keep the shrunk copy if it actually saved bytes and looks valid.
+        if 1000 < len(out) < len(video_bytes):
+            log.info("shrank video %dx%d %.1fMB -> %dx%d %.1fMB",
+                     w, h, len(video_bytes) / 1e6, nw, nh, len(out) / 1e6)
+            return out, "in.mp4", "video/mp4"
+        return passthrough
+    except Exception as exc:
+        log.warning("video shrink skipped: %s", exc)
+        return passthrough
+    finally:
+        for p in (src, dst):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
 
 def submit_job(model: str, video_bytes: bytes, prompt: str | None,
                reference_bytes: bytes | None = None, filename: str = "in.mp4",

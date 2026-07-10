@@ -156,13 +156,17 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
     clip length x the mode's rate up-front (refunded if the submit fails)."""
     from app.engines.pro_credits import MODE_RATE, pro_credits
     from app.engines.pro_studio import (RESTYLE_MODEL, VIDEO_MODEL, configured,
-                                         resolve_reference, submit_job,
-                                         video_duration)
+                                         resolve_reference, shrink_video,
+                                         submit_job, video_duration)
 
     if not configured():
         raise HTTPException(503, "Apex Pro not configured")
-    video_bytes = await file.read()
-    dur = video_duration(video_bytes)
+    raw = await file.read()
+    dur = video_duration(raw)   # bill on the real clip length (shrink keeps duration)
+    # Downscale a big/high-res clip before the internet hop so it uploads reliably
+    # on a weak connection — Decart re-renders at 720p, so no output quality is lost.
+    video_bytes, up_name, up_type = shrink_video(
+        raw, file.filename or "in.mp4", file.content_type or "video/mp4")
     is_restyle = mode == "restyle"
     cost = dur * MODE_RATE["restyle" if is_restyle else "video"]
     if not pro_credits.deduct(cost):
@@ -177,8 +181,7 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
     try:
         jid = submit_job(RESTYLE_MODEL if is_restyle else VIDEO_MODEL,
                          video_bytes, (prompt or default_prompt) or None, ref,
-                         filename=file.filename or "in.mp4",
-                         content_type=file.content_type or "video/mp4")
+                         filename=up_name, content_type=up_type)
     except Exception as exc:
         pro_credits.add_minutes(cost / 60.0)   # refund — nothing was charged
         log.warning("video job submit failed: %s", exc)
