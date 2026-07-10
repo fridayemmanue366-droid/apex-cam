@@ -176,6 +176,12 @@ def submit_job(model: str, video_bytes: bytes, prompt: str | None,
             r = requests.post(
                 f"{API_BASE}/v1/jobs/{model}", headers={"X-API-KEY": key},
                 files=files, data=form, timeout=(15, 300))
+            # Decart's gateway intermittently 504s on submit (restyle especially).
+            # Those are transient — retry rather than failing the user's upload.
+            if r.status_code in (502, 503, 504) and attempt < 2:
+                _time.sleep(3 * (attempt + 1))
+                r = None
+                continue
             break
         except requests.Timeout as exc:
             last_net = exc
@@ -184,6 +190,9 @@ def submit_job(model: str, video_bytes: bytes, prompt: str | None,
         if attempt < 2:
             _time.sleep(2 * (attempt + 1))     # 2s, 4s backoff
     if r is None:
+        if last_net is None:
+            raise RuntimeError("The video service is busy right now — please try again "
+                               "in a moment.")
         if isinstance(last_net, requests.Timeout):
             raise RuntimeError("The upload timed out — try a shorter or smaller video.")
         raise RuntimeError("Lost the internet connection while uploading. Check your "

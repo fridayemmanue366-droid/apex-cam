@@ -97,6 +97,44 @@ const VIDEO_PRESETS = [
   "Cyberpunk neon city style", "Black-and-white film look",
 ];
 
+/** One independent video job (upload -> submit -> poll -> result).
+ *  Video and Restyle each get their OWN instance, so a clip or a result in one
+ *  never leaks into the other. */
+function useVideoJob(onCredit: () => void) {
+  const [file, setFile] = useState<File | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [status, setStatus] = useState<"" | "submitting" | "processing" | "done" | "error">("");
+  const [result, setResult] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const busy = status === "submitting" || status === "processing";
+
+  const pick = (f: File | undefined) => {
+    if (!f) return;
+    setFile(f); setFileName(f.name); setResult(null); setStatus(""); setErr(null);
+  };
+  const run = (mode: "video" | "restyle", promptText: string,
+               refMode: RefMode = "none", reference: File | null = null) => {
+    if (!file) { setErr("Upload a video first"); return; }
+    setStatus("submitting"); setErr(null); setResult(null);
+    api.startProVideo(file, promptText, mode, mode === "video" ? reference : null, refMode)
+      .then((r) => {
+        setStatus("processing");
+        const poll = () => api.getProJob(r.job_id).then((s) => {
+          if (s.status === "completed") {
+            setResult(api.proJobContentUrl(r.job_id)); setStatus("done"); onCredit();
+          } else if (s.status === "failed") {
+            setStatus("error"); setErr("The job failed — try again");
+          } else setTimeout(poll, 3000);
+        }).catch(() => setTimeout(poll, 4000));
+        poll();
+      })
+      .catch((e) => { setStatus("error"); setErr(String(e.message || e)); });
+  };
+  return { file, fileName, prompt, setPrompt, status, result, err, setErr, fileRef, busy, pick, run };
+}
+
 export function ProTab() {
   const [pro, setPro] = useState<ProStatus | null>(null);
   const [entered, setEntered] = useState(false);
@@ -197,42 +235,22 @@ export function ProTab() {
   };
 
   // Video + Restyle jobs (upload clip -> background job -> poll -> result video).
-  // Shared state; one job at a time.
-  const [vFile, setVFile] = useState<File | null>(null);
-  const [vFileName, setVFileName] = useState("");
+  // Video and Restyle are INDEPENDENT — separate uploads, prompts, jobs, results.
+  const refreshCredit = () => { api.getPro().then(setPro).catch(() => undefined); };
+  const vid = useVideoJob(refreshCredit);   // Video tab (lucy-2.5, face swap + edits)
+  const rst = useVideoJob(refreshCredit);   // Restyle tab (lucy-restyle-2, style only)
+
+  // Reference image belongs to the Video tab only (Restyle takes no face).
   const [vRef, setVRef] = useState<File | null>(null);
   const [vRefUrl, setVRefUrl] = useState<string | null>(null);
   const [vRefMode, setVRefMode] = useState<RefMode>("face");
   const clearVRef = () => { setVRef(null); setVRefUrl(null); };
-  const [vPrompt, setVPrompt] = useState("");
-  const [vStatus, setVStatus] = useState<"" | "submitting" | "processing" | "done" | "error">("");
-  const [vResult, setVResult] = useState<string | null>(null);
-  const [vErr, setVErr] = useState<string | null>(null);
-  const vFileRef = useRef<HTMLInputElement>(null);
   const vRefRef = useRef<HTMLInputElement>(null);
-  const vBusy = vStatus === "submitting" || vStatus === "processing";
   const runVideo = (mode: "video" | "restyle", promptText: string, refMode: RefMode = "none") => {
-    if (mode === "video" && refMode === "style" && !vRef) {
-      setVErr("Upload a reference image to copy its look"); return;
+    if (refMode === "style" && !vRef) {
+      vid.setErr("Upload a reference image to copy its look"); return;
     }
-    if (!vFile) { setVErr("Upload a video first"); return; }
-    setVStatus("submitting"); setVErr(null); setVResult(null);
-    api.startProVideo(vFile, promptText, mode, mode === "video" ? vRef : null, refMode)
-      .then((r) => {
-        setVStatus("processing");
-        const poll = () => api.getProJob(r.job_id).then((s) => {
-          if (s.status === "completed") {
-            setVResult(api.proJobContentUrl(r.job_id)); setVStatus("done");
-            api.getPro().then(setPro).catch(() => undefined);
-          } else if (s.status === "failed") { setVStatus("error"); setVErr("The job failed — try again"); }
-          else setTimeout(poll, 3000);
-        }).catch(() => setTimeout(poll, 4000));
-        poll();
-      })
-      .catch((e) => { setVStatus("error"); setVErr(String(e.message || e)); });
-  };
-  const pickVideo = (f: File | undefined) => {
-    if (!f) return; setVFile(f); setVFileName(f.name); setVResult(null); setVStatus(""); setVErr(null);
+    vid.run(mode, promptText, refMode, vRef);
   };
   // Real purchase: open the Flutterwave checkout in the browser. After paying,
   // the backend callback adds the minutes and our poll picks up the new balance.
@@ -508,11 +526,11 @@ export function ProTab() {
                   <div className="pro-uploads">
                     <div>
                       <div className="pro-uplabel">Video clip</div>
-                      <div className="pro-photo-slot" onClick={() => vFileRef.current?.click()}>
-                        <span className="pro-muted">{vFileName || "＋ Upload video"}</span>
+                      <div className="pro-photo-slot" onClick={() => vid.fileRef.current?.click()}>
+                        <span className="pro-muted">{vid.fileName || "＋ Upload video"}</span>
                       </div>
-                      <input ref={vFileRef} type="file" accept="video/mp4,.mp4" hidden
-                             onChange={(e) => pickVideo(e.target.files?.[0])} />
+                      <input ref={vid.fileRef} type="file" accept="video/mp4,.mp4" hidden
+                             onChange={(e) => vid.pick(e.target.files?.[0])} />
                     </div>
                     <div>
                       <div className="pro-uplabel">Reference <span className="pro-muted">(optional)</span></div>
@@ -543,31 +561,31 @@ export function ProTab() {
                   </p>
 
                   <div className="pro-uplabel">What do you want?</div>
-                  <input className="pro-input" type="text" value={vPrompt}
+                  <input className="pro-input" type="text" value={vid.prompt}
                          placeholder="Leave blank to just apply the mode above, or describe any edit…"
-                         onChange={(e) => setVPrompt(e.target.value)} />
+                         onChange={(e) => vid.setPrompt(e.target.value)} />
                   <div className="row preset-row pro-photo-presets">
                     {VIDEO_PRESETS.map((p) => (
-                      <button key={p} type="button" className="pro-chip" disabled={vBusy || !vFile}
-                              onClick={() => { setVPrompt(p); runVideo("video", p, "none"); }}>
+                      <button key={p} type="button" className="pro-chip" disabled={vid.busy || !vid.file}
+                              onClick={() => { vid.setPrompt(p); runVideo("video", p, "none"); }}>
                         {p.split(",")[0].replace(/^(Turn the video into |Change the background to |Dress the person in )/, "")}</button>
                     ))}
                   </div>
                   <div className="row preset-row">
                     <button type="button" className="pro-goldbtn"
-                            disabled={vBusy || !vFile || (vRefMode === "none" && !vPrompt)}
-                            onClick={() => runVideo("video", vPrompt, vRefMode)}>✦ Transform video</button>
+                            disabled={vid.busy || !vid.file || (vRefMode === "none" && !vid.prompt)}
+                            onClick={() => runVideo("video", vid.prompt, vRefMode)}>✦ Transform video</button>
                   </div>
-                  {vErr && <p className="error">{vErr}</p>}
+                  {vid.err && <p className="error">{vid.err}</p>}
                 </div>
                 <div className="pro-editor-result">
                   <div className="pro-uplabel">Result</div>
                   <div className="pro-result-slot">
-                    {vBusy ? <span className="pro-muted">{vStatus === "submitting" ? "Uploading…" : "Processing your video… (this can take a while)"}</span>
-                      : vResult ? <video src={vResult} controls />
+                    {vid.busy ? <span className="pro-muted">{vid.status === "submitting" ? "Uploading…" : "Processing your video… (this can take a while)"}</span>
+                      : vid.result ? <video src={vid.result} controls />
                       : <span className="pro-muted">Your video appears here</span>}
                   </div>
-                  {vResult && <a className="pro-goldbtn pro-dl" href={vResult} download="apexpro-video.mp4">⤓ Download</a>}
+                  {vid.result && <a className="pro-goldbtn pro-dl" href={vid.result} download="apexpro-video.mp4">⤓ Download</a>}
                 </div>
               </div>
             </div>
@@ -584,35 +602,35 @@ export function ProTab() {
               <div className="pro-editor">
                 <div className="pro-editor-inputs">
                   <div className="pro-uplabel">Video</div>
-                  <div className="pro-photo-slot" onClick={() => vFileRef.current?.click()}>
-                    <span className="pro-muted">{vFileName || "＋ Upload video"}</span>
+                  <div className="pro-photo-slot" onClick={() => rst.fileRef.current?.click()}>
+                    <span className="pro-muted">{rst.fileName || "＋ Upload video"}</span>
                   </div>
-                  <input ref={vFileRef} type="file" accept="video/mp4,.mp4" hidden
-                         onChange={(e) => pickVideo(e.target.files?.[0])} />
+                  <input ref={rst.fileRef} type="file" accept="video/mp4,.mp4" hidden
+                         onChange={(e) => rst.pick(e.target.files?.[0])} />
                   <div className="pro-uplabel">Style</div>
-                  <input className="pro-input" type="text" value={vPrompt}
+                  <input className="pro-input" type="text" value={rst.prompt}
                          placeholder="Describe the style…"
-                         onChange={(e) => setVPrompt(e.target.value)} />
+                         onChange={(e) => rst.setPrompt(e.target.value)} />
                   <div className="row preset-row pro-photo-presets">
                     {RESTYLE_PRESETS.map((s) => (
-                      <button key={s} type="button" className="pro-chip" disabled={vBusy || !vFile}
-                              onClick={() => { setVPrompt(s); runVideo("restyle", s); }}>{s}</button>
+                      <button key={s} type="button" className="pro-chip" disabled={rst.busy || !rst.file}
+                              onClick={() => { rst.setPrompt(s); rst.run("restyle", s); }}>{s}</button>
                     ))}
                   </div>
                   <div className="row preset-row">
-                    <button type="button" className="pro-goldbtn" disabled={vBusy || !vFile || !vPrompt}
-                            onClick={() => runVideo("restyle", vPrompt)}>✦ Restyle video</button>
+                    <button type="button" className="pro-goldbtn" disabled={rst.busy || !rst.file || !rst.prompt}
+                            onClick={() => rst.run("restyle", rst.prompt)}>✦ Restyle video</button>
                   </div>
-                  {vErr && <p className="error">{vErr}</p>}
+                  {rst.err && <p className="error">{rst.err}</p>}
                 </div>
                 <div className="pro-editor-result">
                   <div className="pro-uplabel">Result</div>
                   <div className="pro-result-slot">
-                    {vBusy ? <span className="pro-muted">{vStatus === "submitting" ? "Uploading…" : "Restyling your video…"}</span>
-                      : vResult ? <video src={vResult} controls />
+                    {rst.busy ? <span className="pro-muted">{rst.status === "submitting" ? "Uploading…" : "Restyling your video…"}</span>
+                      : rst.result ? <video src={rst.result} controls />
                       : <span className="pro-muted">Your restyled video appears here</span>}
                   </div>
-                  {vResult && <a className="pro-goldbtn pro-dl" href={vResult} download="apexpro-restyle.mp4">⤓ Download</a>}
+                  {rst.result && <a className="pro-goldbtn pro-dl" href={rst.result} download="apexpro-restyle.mp4">⤓ Download</a>}
                 </div>
               </div>
             </div>
