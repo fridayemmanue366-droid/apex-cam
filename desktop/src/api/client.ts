@@ -184,7 +184,17 @@ export interface ModelInfo {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  if (!res.ok) {
+    // Surface the server's real explanation (FastAPI puts it in `detail`) instead
+    // of a bare status code — "…busy, try again", "Lost the internet connection", etc.
+    let msg = "";
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") msg = body.detail;
+      else if (body?.detail) msg = JSON.stringify(body.detail);
+    } catch { /* non-JSON body — fall back below */ }
+    throw new Error(msg || `Request failed (${res.status})`);
+  }
   return res.json() as Promise<T>;
 }
 
