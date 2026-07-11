@@ -28,7 +28,8 @@ export function ConsentModal({ onAccept }: { onAccept: () => void }) {
             Using someone's face or voice to deceive, defraud, or harass may be illegal.
           </li>
           <li>
-            All output is <strong>labeled AI-generated</strong>. Do not remove or hide the label.
+            Where the law requires it, you must <strong>disclose that the video is
+            AI-generated</strong> to the people you share it with.
           </li>
           <li>
             Misuse can be reported and leads to <strong>blocking and restriction</strong>.

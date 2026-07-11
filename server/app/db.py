@@ -50,16 +50,30 @@ def _init(c: sqlite3.Connection) -> None:
             WHERE tx_ref IS NOT NULL;
         """
     )
+    # Subscription access (local app): a unix time until which the app is unlocked.
+    # Added by migration so existing databases upgrade in place.
+    cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
+    if "access_until" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN access_until REAL NOT NULL DEFAULT 0")
     c.commit()
+
+
+# Local-app subscription: new accounts get a free trial; a payment extends access.
+TRIAL_DAYS = float(os.environ.get("APEXCAM_TRIAL_DAYS", "1"))
+DAY = 86400.0
 
 
 # --- users ---------------------------------------------------------------
 def create_user(email: str, password_hash: str) -> int:
+    """Create an account and start the free trial clock (access_until = now +
+    TRIAL_DAYS). After the trial lapses the app is locked until a payment."""
+    now = time.time()
     with _lock:
         c = _connect()
         cur = c.execute(
-            "INSERT INTO users(email, password_hash, created) VALUES(?,?,?)",
-            (email.lower(), password_hash, time.time()))
+            "INSERT INTO users(email, password_hash, created, access_until)"
+            " VALUES(?,?,?,?)",
+            (email.lower(), password_hash, now, now + TRIAL_DAYS * DAY))
         c.commit()
         return int(cur.lastrowid)
 
@@ -123,3 +137,40 @@ def refund(uid: int, seconds: float, detail: str = "") -> None:
         c.execute("INSERT INTO transactions(user_id,kind,seconds,detail,created)"
                   " VALUES(?,?,?,?,?)", (uid, "refund", seconds, detail, time.time()))
         c.commit()
+
+
+# --- subscription (local-app access) -------------------------------------
+def access_until(uid: int) -> float:
+    u = get_user(uid)
+    return float(u["access_until"]) if u and u["access_until"] is not None else 0.0
+
+
+def has_subscription_payment(uid: int) -> bool:
+    """True once the user has paid at least once (used to tell trial from paid)."""
+    c = _connect()
+    row = c.execute(
+        "SELECT 1 FROM transactions WHERE user_id=? AND kind='subscription' LIMIT 1",
+        (uid,)).fetchone()
+    return row is not None
+
+
+def extend_subscription(uid: int, days: float, tx_ref: str, detail: str = "") -> bool:
+    """Add `days` of access from a verified payment. Idempotent by tx_ref (a repeated
+    callback/webhook can't double-extend). Extends from whichever is later — now or
+    the current expiry — so paying early never loses days. Returns False if this
+    tx_ref was already applied."""
+    now = time.time()
+    with _lock:
+        c = _connect()
+        try:
+            c.execute(
+                "INSERT INTO transactions(user_id,kind,seconds,detail,tx_ref,created)"
+                " VALUES(?,?,?,?,?,?)",
+                (uid, "subscription", days * DAY, detail or f"{days:g} days", tx_ref, now))
+        except sqlite3.IntegrityError:
+            return False   # tx_ref already applied
+        row = c.execute("SELECT access_until FROM users WHERE id=?", (uid,)).fetchone()
+        base = max(now, float(row["access_until"]) if row and row["access_until"] else 0.0)
+        c.execute("UPDATE users SET access_until=? WHERE id=?", (base + days * DAY, uid))
+        c.commit()
+        return True

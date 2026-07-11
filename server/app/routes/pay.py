@@ -18,7 +18,8 @@ from pydantic import BaseModel
 
 from app import db
 from app.deps import current_user
-from app.pricing import (CURRENCY, PACKAGES, charge_amount, usd_price)
+from app.pricing import (CURRENCY, PACKAGES, charge_amount, sub_charge_amount,
+                         usd_price)
 
 router = APIRouter(prefix="/pay", tags=["pay"])
 
@@ -79,14 +80,27 @@ def _apply(transaction_id: str) -> bool:
         return False
     meta = d.get("meta") or {}
     uid = int(meta.get("user_id", 0))
+    if uid <= 0 or d.get("currency") != CURRENCY:
+        return False
+    tx_ref = d.get("tx_ref", transaction_id)
+    amount = float(d.get("amount", 0))
+
+    # Two kinds of payment share this callback, told apart by the meta:
+    #   sub_days -> a local-app subscription (extend access)
+    #   seconds  -> a Pro credit top-up (add wallet seconds)
+    sub_days = float(meta.get("sub_days", 0) or 0)
+    if sub_days > 0:
+        if abs(amount - sub_charge_amount()) > 1.0:   # amount must match the plan
+            return False
+        db.extend_subscription(uid, sub_days, tx_ref=tx_ref, detail="subscription")
+        return True
+
     seconds = float(meta.get("seconds", 0))
     minutes = seconds / 60.0
     # amount + currency must match the package (guard against tampering)
-    if uid <= 0 or seconds <= 0 or d.get("currency") != CURRENCY \
-       or abs(float(d.get("amount", 0)) - charge_amount(minutes)) > 1.0:
+    if seconds <= 0 or abs(amount - charge_amount(minutes)) > 1.0:
         return False
-    db.topup(uid, seconds, tx_ref=d.get("tx_ref", transaction_id),
-             detail=f"{minutes:g} min")   # idempotent by tx_ref
+    db.topup(uid, seconds, tx_ref=tx_ref, detail=f"{minutes:g} min")   # idempotent
     return True
 
 

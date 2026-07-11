@@ -478,3 +478,40 @@ select {
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.ok { background: var(--ok); }
 .dot.bad { background: var(--bad); }
+
+/* --- Account / subscription gate --- */
+.gate-splash {
+  position: fixed; inset: 0; display: grid; place-items: center;
+  background: var(--bg); color: var(--muted); font-size: 15px; letter-spacing: 0.5px;
+}
+.modal .gate-input {
+  display: block; width: 100%; box-sizing: border-box; margin: 8px 0;
+  padding: 10px 12px; font-size: 14px; color: var(--text);
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+}
+.modal .gate-input:focus { outline: none; border-color: var(--accent); }
+.modal .btn.primary { width: 100%; margin-top: 12px; padding: 11px; font-size: 14px; }
+.gate-error { color: var(--bad); font-size: 13px; margin: 8px 0 0; }
+.gate-link {
+  display: block; width: 100%; margin-top: 10px; padding: 6px;
+  background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer;
+}
+.gate-link:hover { color: var(--text); text-decoration: underline; }
+.gate-price { margin: 18px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+.gate-price-main { font-size: 30px; font-weight: 700; color: var(--text); }
+.gate-price-sub { font-size: 14px; color: var(--muted); }
+.gate-fine { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+
+/* Slim non-intrusive ribbon shown during trial / near expiry */
+.access-ribbon {
+  position: fixed; top: 10px; right: 14px; z-index: 9;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px 6px 14px; font-size: 12px; color: var(--text);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.access-ribbon-btn {
+  padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: #fff; border: none; border-radius: 999px;
+}
+.access-ribbon-btn:hover { opacity: 0.9; }

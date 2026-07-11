@@ -49,6 +49,22 @@ async function callBlob(path: string, body: FormData): Promise<string> {
 
 export interface Account { email: string; minutes: number; credit_seconds: number }
 export interface Pkg { minutes: number; usd: number; charge: number; currency: string }
+export interface SubStatus {
+  active: boolean; trial: boolean; until: number; days_left: number;
+  price_ngn: number; price_usd: number; currency: string; sub_days: number;
+}
+
+// Cache the access expiry so a brief network drop doesn't lock a paid-up user out.
+// It only ever GRANTS access inside a window the server already confirmed — it can't
+// be edited to unlock beyond what was paid for (the real gate is server-side).
+const ACCESS_KEY = "apexcam.access_until";
+export function cacheAccessUntil(until: number) {
+  try { localStorage.setItem(ACCESS_KEY, String(until)); } catch { /* ignore */ }
+}
+export function cachedActive(): boolean {
+  const v = Number(localStorage.getItem(ACCESS_KEY) || 0);
+  return v > Date.now() / 1000;
+}
 
 export const cloud = {
   url: CLOUD,
@@ -72,6 +88,15 @@ export const cloud = {
   },
   logout: () => setToken(null),
   me: () => call<Account>("/me"),
+
+  // --- subscription (local-app access: 1-day trial, then ₦20,000/month) ---
+  subscription: async () => {
+    const s = await call<SubStatus>("/subscription");
+    cacheAccessUntil(s.until);   // remember for offline grace
+    return s;
+  },
+  startSubscription: () =>
+    call<{ link: string; tx_ref: string }>("/subscription/start", { method: "POST" }),
 
   // --- credits / payment ---
   packages: () => call<Pkg[]>("/pay/packages"),

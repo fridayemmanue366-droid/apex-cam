@@ -3,6 +3,7 @@ import { TABS, TAB_SUMMARY, TAB_COMPONENTS, type TabName } from "./tabs";
 import { StatusBar } from "./components/StatusBar";
 import { ConsentModal, hasConsent } from "./components/ConsentModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { AccountGate } from "./components/AccountGate";
 import { MediaProvider } from "./context/MediaContext";
 import { PipelineProvider } from "./context/PipelineContext";
 
@@ -14,6 +15,7 @@ export function App() {
   return (
     <MediaProvider>
       <PipelineProvider>
+      <AccountGate>
       <div className="app">
         {!consented && <ConsentModal onAccept={() => setConsented(true)} />}
         <ConfirmDialog />
@@ -42,6 +44,7 @@ export function App() {
 
         <StatusBar />
       </div>
+      </AccountGate>
       </PipelineProvider>
     </MediaProvider>
   );

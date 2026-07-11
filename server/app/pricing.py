@@ -28,3 +28,20 @@ def usd_price(minutes: float) -> float:
 def charge_amount(minutes: float) -> float:
     usd = usd_price(minutes)
     return float(round(usd * NGN_PER_USD)) if CURRENCY == "NGN" else usd
+
+
+# --- Local-app subscription (separate from the pay-per-minute Pro wallet) ---
+# The base price is a flat ₦20,000/month; USD is shown for a premium feel.
+SUB_MONTHLY_NGN = float(os.environ.get("APEXCAM_SUB_NGN", "20000"))
+SUB_DAYS = int(os.environ.get("APEXCAM_SUB_DAYS", "30"))       # a month of access
+TRIAL_DAYS = float(os.environ.get("APEXCAM_TRIAL_DAYS", "1"))  # free on first sign-up
+
+
+def sub_charge_amount() -> float:
+    """What we actually charge, in CURRENCY. NGN is the base; convert if display USD."""
+    return SUB_MONTHLY_NGN if CURRENCY == "NGN" else round(SUB_MONTHLY_NGN / NGN_PER_USD, 2)
+
+
+def sub_usd() -> float:
+    """USD equivalent of the monthly price (for display)."""
+    return round(SUB_MONTHLY_NGN / NGN_PER_USD, 2)
