@@ -479,18 +479,21 @@ select {
 .dot.ok { background: var(--ok); }
 .dot.bad { background: var(--bad); }
 
-/* --- Account / subscription gate --- */
-.gate-splash {
-  position: fixed; inset: 0; display: grid; place-items: center;
-  background: var(--bg); color: var(--muted); font-size: 15px; letter-spacing: 0.5px;
+/* --- Account / subscription gate (LOCAL tabs only; inline, sidebar stays usable) --- */
+.gate-inline { display: grid; place-items: center; padding: 40px 20px; min-height: 60vh; }
+.gate-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px 28px; max-width: 460px; width: 100%; font-size: 14px;
 }
-.modal .gate-input {
+.gate-card h2 { margin: 0 0 10px; }
+.gate-splash { color: var(--muted); font-size: 15px; letter-spacing: 0.5px; padding: 40px; }
+.modal .gate-input, .gate-card .gate-input {
   display: block; width: 100%; box-sizing: border-box; margin: 8px 0;
   padding: 10px 12px; font-size: 14px; color: var(--text);
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
 }
-.modal .gate-input:focus { outline: none; border-color: var(--accent); }
-.modal .btn.primary { width: 100%; margin-top: 12px; padding: 11px; font-size: 14px; }
+.modal .gate-input:focus, .gate-card .gate-input:focus { outline: none; border-color: var(--accent); }
+.modal .btn.primary, .gate-card .btn.primary { width: 100%; margin-top: 12px; padding: 11px; font-size: 14px; }
 .gate-error { color: var(--bad); font-size: 13px; margin: 8px 0 0; }
 .gate-link {
   display: block; width: 100%; margin-top: 10px; padding: 6px;

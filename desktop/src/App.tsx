@@ -3,7 +3,7 @@ import { TABS, TAB_SUMMARY, TAB_COMPONENTS, type TabName } from "./tabs";
 import { StatusBar } from "./components/StatusBar";
 import { ConsentModal, hasConsent } from "./components/ConsentModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { AccountGate } from "./components/AccountGate";
+import { SubscriptionProvider, LocalGate, AccessRibbon } from "./components/AccountGate";
 import { MediaProvider } from "./context/MediaContext";
 import { PipelineProvider } from "./context/PipelineContext";
 
@@ -15,7 +15,7 @@ export function App() {
   return (
     <MediaProvider>
       <PipelineProvider>
-      <AccountGate>
+      <SubscriptionProvider>
       <div className="app">
         {!consented && <ConsentModal onAccept={() => setConsented(true)} />}
         <ConfirmDialog />
@@ -39,12 +39,20 @@ export function App() {
             <h1>{active}</h1>
             <p>{TAB_SUMMARY[active]}</p>
           </header>
-          <ActiveTab />
+          {active === "Apex Pro" ? (
+            // Apex Pro is separate: its own sign-in + pay-per-call credits, no subscription.
+            <ActiveTab />
+          ) : (
+            <LocalGate>
+              <ActiveTab />
+            </LocalGate>
+          )}
         </main>
 
         <StatusBar />
+        <AccessRibbon />
       </div>
-      </AccountGate>
+      </SubscriptionProvider>
       </PipelineProvider>
     </MediaProvider>
   );
