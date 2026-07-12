@@ -176,13 +176,19 @@ class NeuralFaceSwapEngine:
             model_path = best_inswapper()
             self._swapper = get_model(str(model_path), providers=providers)
             self._loaded = True
-            # Sharpness: enable GFPGAN by default (the Roop/Deep-Live-Cam recipe —
-            # a GFPGAN pass after the swap is what makes it look crisp/real).
+            # Sharpness: run a face-restoration pass after the swap (the
+            # Roop/Deep-Live-Cam recipe — what makes the swap look crisp/real).
+            # Prefer CodeFormer over GFPGAN: same speed class, but noticeably more
+            # natural skin/detail and fewer over-sharpened artifacts. Falls back to
+            # GFPGAN, then none. Override with APEXCAM_ENHANCER=gfpgan|codeformer|none.
             if self.enhancer_kind == "none":
                 from app.engines.face.enhancer import enhancer_models_available
                 avail = enhancer_models_available()
-                if "gfpgan" in avail:
-                    self.set_enhancer("gfpgan")
+                pref = os.environ.get("APEXCAM_ENHANCER", "").strip().lower()
+                order = [pref] if pref else ["codeformer", "gfpgan"]
+                for kind in order:
+                    if kind in avail and self.set_enhancer(kind) == kind:
+                        break
             log.info("Neural swap engine loaded (%s, providers=%s, enhancer=%s)",
                      model_path.name, providers, self.enhancer_kind)
             return True
