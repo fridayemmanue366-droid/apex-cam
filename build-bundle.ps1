@@ -98,11 +98,21 @@ if ($Gpu) {
   & (Join-Path $pyOut "python.exe") -m pip install --no-warn-script-location onnxruntime-gpu
 }
 
-# --- 5) Backend code (no venv, no models, no caches) ------------------------
-Say "Copy backend code"
+# --- 5) Backend code (no venv, no models, no caches, NO SECRETS) ------------
+# CRITICAL: the .*.local files hold OUR paid API keys (Decart/Flutterwave/fal).
+# They must NEVER ship to customers — the keys live only on the cloud server.
+# /XF excludes them by name so a consumer bundle can't leak them.
+Say "Copy backend code (excluding secret key files)"
 $beOut = Join-Path $out "backend"
 robocopy (Join-Path $root "backend") $beOut /E /NFL /NDL /NJH /NJS /NP /MT:16 `
-  /XD ".venv311" "models" "__pycache__" ".pytest_cache" "data" | Out-Null
+  /XD ".venv311" "models" "__pycache__" ".pytest_cache" "data" `
+  /XF "*.local" ".env" "*.env" "*.db" "*.key" "*.pem" "*.log" | Out-Null
+# Belt-and-suspenders: delete any secret that somehow slipped through.
+Get-ChildItem $beOut -Recurse -File -Include "*.local", ".env", "*.env", "*.key", "*.pem", "*.db" `
+  -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+$leak = Get-ChildItem $beOut -Recurse -File -Include "*.local", "*.key", "*.pem" -ErrorAction SilentlyContinue
+if ($leak) { Die ("SECURITY: secret files still present in bundle: " + ($leak.Name -join ', ')) }
+Write-Host "  verified: no secret key files in the bundle" -ForegroundColor Green
 
 $sizeGB = [math]::Round((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1GB, 2)
 Say "Bundle ready"
