@@ -4,6 +4,7 @@ import { StatusBar } from "./components/StatusBar";
 import { ConsentModal } from "./components/ConsentModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { SubscriptionProvider, LocalGate, AccessRibbon } from "./components/AccountGate";
+import { SidebarPromo, PromoModal } from "./components/Promo";
 import { MediaProvider } from "./context/MediaContext";
 import { PipelineProvider } from "./context/PipelineContext";
 
@@ -12,14 +13,22 @@ export function App() {
   // Show the welcome / responsible-use notice EVERY time the app opens (not just
   // the first run) — it always starts unacknowledged for this session.
   const [consented, setConsented] = useState(false);
+  const [showPromo, setShowPromo] = useState(false);
   const ActiveTab = TAB_COMPONENTS[active];
+
+  const acceptConsent = () => {
+    setConsented(true);
+    // Sometimes surface the developer advert right after the welcome notice.
+    if (Math.random() < 0.5) setShowPromo(true);
+  };
 
   return (
     <MediaProvider>
       <PipelineProvider>
       <SubscriptionProvider>
       <div className="app">
-        {!consented && <ConsentModal onAccept={() => setConsented(true)} />}
+        {!consented && <ConsentModal onAccept={acceptConsent} />}
+        {consented && showPromo && <PromoModal onClose={() => setShowPromo(false)} />}
         <ConfirmDialog />
 
         <nav className="sidebar">
@@ -34,6 +43,7 @@ export function App() {
               </button>
             );
           })}
+          <SidebarPromo onMore={() => setShowPromo(true)} />
         </nav>
 
         <main className="content">

@@ -44,6 +44,8 @@ body {
   flex-direction: column;
   gap: 2px;
   border-right: 1px solid var(--border);
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .brand {
@@ -550,3 +552,65 @@ select {
 .legal-body ul { margin: 8px 0; padding-left: 20px; line-height: 1.6; }
 .legal-updated { color: var(--muted); font-size: 12px; }
 .legal-done { align-self: flex-start; }
+
+/* --- Developer advert: sidebar promo card (on every page) --- */
+.promo-card {
+  position: relative; margin-top: auto; margin-bottom: 4px;
+  padding: 12px 12px 11px; border-radius: 12px; overflow: hidden;
+  background: linear-gradient(150deg, rgba(37, 211, 102, 0.14), rgba(91, 140, 255, 0.10));
+  border: 1px solid rgba(37, 211, 102, 0.35);
+}
+.promo-card-glow {
+  position: absolute; inset: -40% 40% auto -20%; height: 120px;
+  background: radial-gradient(closest-side, rgba(37, 211, 102, 0.28), transparent);
+  pointer-events: none;
+}
+.promo-card-kicker { position: relative; font-size: 9px; letter-spacing: 1.2px; color: var(--muted); font-weight: 700; }
+.promo-card-title { position: relative; font-size: 15px; font-weight: 800; margin: 2px 0 2px; color: var(--text); }
+.promo-card-sub { position: relative; font-size: 11px; line-height: 1.45; color: var(--muted); margin-bottom: 10px; }
+.promo-wa-btn {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; padding: 9px 10px; border: none; border-radius: 9px; cursor: pointer;
+  background: #25d366; color: #05320f; font-weight: 800; font-size: 12.5px;
+  box-shadow: 0 4px 14px rgba(37, 211, 102, 0.35); transition: transform .08s ease, box-shadow .2s ease;
+}
+.promo-wa-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(37, 211, 102, 0.5); }
+.promo-wa-icon { font-size: 14px; }
+.promo-more {
+  position: relative; display: block; width: 100%; margin-top: 8px; padding: 2px;
+  background: none; border: none; color: var(--accent); font-size: 11px; cursor: pointer; text-align: center;
+}
+.promo-more:hover { text-decoration: underline; }
+
+/* --- Developer advert: popup --- */
+.promo-backdrop { z-index: 12; }
+.promo-modal {
+  position: relative; max-width: 460px; width: 92%; text-align: center;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(37, 211, 102, 0.16), transparent 60%),
+    var(--panel);
+  border: 1px solid rgba(37, 211, 102, 0.30);
+}
+.promo-x { position: absolute; top: 12px; right: 14px; }
+.promo-kicker { font-size: 10px; letter-spacing: 2px; font-weight: 800; color: #25d366; }
+.promo-title { margin: 6px 0 8px; font-size: 21px; line-height: 1.25; }
+.promo-lead { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+.promo-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; text-align: left; margin-bottom: 16px;
+}
+.promo-item {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text);
+  padding: 8px 10px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border);
+}
+.promo-item-icon { font-size: 15px; }
+.promo-trust {
+  font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 14px;
+  padding: 9px; border-radius: 9px; background: rgba(53, 196, 106, 0.12);
+}
+.promo-wa-lg { padding: 12px 16px; font-size: 14px; border-radius: 11px; }
+.promo-later {
+  display: block; width: 100%; margin-top: 10px; padding: 6px;
+  background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.promo-later:hover { color: var(--text); }
+@media (max-width: 420px) { .promo-grid { grid-template-columns: 1fr; } }
