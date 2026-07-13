@@ -155,7 +155,7 @@ function SubscribeCard({ status, offline, onRefresh, onSignOut }: {
   const [err, setErr] = useState<string | null>(null);
   const price = status ? `₦${status.price_ngn.toLocaleString()}` : "₦20,000";
   const usd = status ? `$${status.price_usd.toFixed(2)}` : "$12.50";
-  const everPaid = status ? !status.trial : false;
+  const everPaid = status ? status.ever_paid : false;
 
   const subscribe = async () => {
     setErr(null); setBusy(true);

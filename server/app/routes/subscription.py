@@ -27,7 +27,8 @@ router = APIRouter(prefix="/subscription", tags=["subscription"])
 
 class SubStatus(BaseModel):
     active: bool          # is the app unlocked right now?
-    trial: bool           # currently in the free trial (never paid)?
+    trial: bool           # currently in the free trial (active & never paid)
+    ever_paid: bool       # has ever paid — tells an expired trial from a lapsed sub
     until: float          # unix time access expires (0 = never had access)
     days_left: float      # whole-ish days remaining (0 if expired)
     price_ngn: float      # what we charge per month
@@ -40,10 +41,12 @@ def _status(uid: int) -> SubStatus:
     until = db.access_until(uid)
     now = time.time()
     active = until > now
+    ever_paid = db.has_subscription_payment(uid)
     days_left = round(max(0.0, until - now) / 86400.0, 1) if active else 0.0
     return SubStatus(
         active=active,
-        trial=active and not db.has_subscription_payment(uid),
+        trial=active and not ever_paid,
+        ever_paid=ever_paid,
         until=until,
         days_left=days_left,
         price_ngn=SUB_MONTHLY_NGN,
