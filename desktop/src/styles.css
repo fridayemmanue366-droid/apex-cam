@@ -518,3 +518,35 @@ select {
   background: var(--accent); color: #fff; border: none; border-radius: 999px;
 }
 .access-ribbon-btn:hover { opacity: 0.9; }
+
+/* --- Welcome / consent lightbox --- */
+.consent-modal { max-width: 560px; max-height: 88vh; overflow-y: auto; }
+.consent-box { border-radius: 10px; padding: 12px 14px; margin: 12px 0; font-size: 13px; }
+.consent-box strong { display: block; margin-bottom: 6px; }
+.consent-box ul { margin: 0; padding-left: 20px; line-height: 1.6; }
+.consent-ok { background: rgba(53, 196, 106, 0.12); border: 1px solid rgba(53, 196, 106, 0.40); }
+.consent-no { background: rgba(229, 72, 77, 0.12); border: 1px solid rgba(229, 72, 77, 0.40); }
+.consent-fine { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.consent-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 4px; }
+
+/* buttons that look like inline text links to open a policy */
+.legal-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--accent); font-size: 12px; text-decoration: underline;
+}
+.legal-link:hover { opacity: 0.85; }
+.legal-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+/* --- Legal document reader --- */
+.legal-backdrop { z-index: 20; }        /* sits above the consent modal */
+.legal-modal { max-width: 680px; width: 92%; max-height: 86vh; display: flex; flex-direction: column; }
+.legal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.legal-head h2 { margin: 0; }
+.legal-close { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; line-height: 1; }
+.legal-close:hover { color: var(--text); }
+.legal-body { overflow-y: auto; margin: 12px 0; padding-right: 6px; font-size: 13px; line-height: 1.65; }
+.legal-body h4 { margin: 16px 0 6px; font-size: 14px; }
+.legal-body p { margin: 8px 0; }
+.legal-body ul { margin: 8px 0; padding-left: 20px; line-height: 1.6; }
+.legal-updated { color: var(--muted); font-size: 12px; }
+.legal-done { align-self: flex-start; }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { TABS, TAB_SUMMARY, TAB_COMPONENTS, type TabName } from "./tabs";
 import { StatusBar } from "./components/StatusBar";
-import { ConsentModal, hasConsent } from "./components/ConsentModal";
+import { ConsentModal } from "./components/ConsentModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { SubscriptionProvider, LocalGate, AccessRibbon } from "./components/AccountGate";
 import { MediaProvider } from "./context/MediaContext";
@@ -9,7 +9,9 @@ import { PipelineProvider } from "./context/PipelineContext";
 
 export function App() {
   const [active, setActive] = useState<TabName>("Home");
-  const [consented, setConsented] = useState(hasConsent());
+  // Show the welcome / responsible-use notice EVERY time the app opens (not just
+  // the first run) — it always starts unacknowledged for this session.
+  const [consented, setConsented] = useState(false);
   const ActiveTab = TAB_COMPONENTS[active];
 
   return (

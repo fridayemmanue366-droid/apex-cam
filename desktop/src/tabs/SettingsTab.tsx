@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePipeline } from "../context/PipelineContext";
+import { LegalModal } from "../components/LegalModal";
+import { LEGAL_ORDER, LEGAL_TITLES, type DocId } from "../legal/LegalContent";
 
 // Theme preference is applied by toggling a class on <body>; dark is default.
 export function SettingsTab() {
@@ -7,6 +9,7 @@ export function SettingsTab() {
   const consentDate = localStorage.getItem("apexcam.consent.date");
   const { resetAll, resetting } = usePipeline();
   const [resetDone, setResetDone] = useState(false);
+  const [openDoc, setOpenDoc] = useState<DocId | null>(null);
 
   const doReset = async () => {
     await resetAll();
@@ -54,18 +57,31 @@ export function SettingsTab() {
       <section className="panel">
         <h3>Responsible use</h3>
         <div className="kv">
-          <span>Terms accepted</span>
+          <span>Terms last acknowledged</span>
           <span>{consentDate ? new Date(consentDate).toLocaleString() : "Not yet"}</span>
-          <span>Output labeling</span>
-          <span>Always on (cannot be disabled)</span>
           <span>Local audit log</span>
           <span>On — records active profile/model per session</span>
         </div>
         <p className="muted">
-          If someone uses Apex Cam to impersonate you without permission, report it — confirmed
-          misuse leads to blocking and restriction. See docs/LEGAL.md.
+          Apex Cam is for streamers, creators and entertainment — never for scams, fraud, or
+          impersonating real people to deceive. If someone uses Apex Cam to impersonate you without
+          permission, report it: confirmed misuse leads to blocking and restriction.
         </p>
       </section>
+
+      <section className="panel">
+        <h3>Legal &amp; policies</h3>
+        <p className="muted">Read the terms and policies that apply to Apex Cam.</p>
+        <div className="legal-links">
+          {LEGAL_ORDER.map((id) => (
+            <button type="button" key={id} className="btn" onClick={() => setOpenDoc(id)}>
+              {LEGAL_TITLES[id]}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {openDoc && <LegalModal doc={openDoc} onClose={() => setOpenDoc(null)} />}
     </>
   );
 }
