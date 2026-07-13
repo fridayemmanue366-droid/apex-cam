@@ -45,7 +45,16 @@ body {
   gap: 2px;
   border-right: 1px solid var(--border);
   min-height: 0;
+  overflow: hidden;   /* the nav list scrolls; the promo stays pinned below it */
+}
+/* scrollable tab list, so the sidebar promo below never gets pushed off-screen */
+.nav-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .brand {
@@ -555,7 +564,7 @@ select {
 
 /* --- Developer advert: sidebar promo card (on every page) --- */
 .promo-card {
-  position: relative; margin-top: auto; margin-bottom: 4px;
+  position: relative; flex: 0 0 auto; margin-top: 8px; margin-bottom: 2px;
   padding: 12px 12px 11px; border-radius: 12px; overflow: hidden;
   background: linear-gradient(150deg, rgba(37, 211, 102, 0.14), rgba(91, 140, 255, 0.10));
   border: 1px solid rgba(37, 211, 102, 0.35);
