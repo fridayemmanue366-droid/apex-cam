@@ -27,9 +27,9 @@ log = get_logger(__name__)
 WIDTH, HEIGHT = 1280, 720
 FRAME_BYTES = WIDTH * HEIGHT * 4
 MMF_TAG = "Local\\ApexCamFrame"
-# RGB32 in a Media Foundation camera is bottom-up, but our frames are top-down —
-# flip vertically by default. Toggle with APEXCAM_MF_FLIP=0 if it comes out upside down.
-FLIP = os.environ.get("APEXCAM_MF_FLIP", "1") not in ("0", "false", "")
+# Verified on a real Win11 machine: our top-down frames come out right-side up
+# WITHOUT a vertical flip. Set APEXCAM_MF_FLIP=1 to flip if a setup ever needs it.
+FLIP = os.environ.get("APEXCAM_MF_FLIP", "0") not in ("0", "false", "")
 CREATE_NO_WINDOW = 0x08000000
 
 
