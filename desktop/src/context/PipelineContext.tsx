@@ -83,9 +83,12 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       // The backend needs exclusive camera access — take the hold, which stops
-      // and locks out the UI's local preview, then wait for Windows to release.
+      // and locks out the UI's local preview, then wait for Windows to fully
+      // release the device. Too short a wait = the backend opens it mid-teardown
+      // and negotiates a broken format (coloured static); the backend also detects
+      // and reopens on static, but giving Windows ~900ms first avoids it entirely.
       media.setExternalHold(true);
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 900));
       const status = await api.pipelineStart(0);
       if (status.error) throw new Error(status.error);
 

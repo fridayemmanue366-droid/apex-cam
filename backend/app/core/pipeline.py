@@ -241,20 +241,63 @@ class Pipeline:
 
     # -- worker -------------------------------------------------------------
 
+    def _open_camera(self, camera_index: int):
+        """Open the webcam and make sure it delivers a REAL image — not the coloured
+        static a broken format negotiation produces (which happens when the device was
+        just released by the UI preview and Windows hasn't fully freed it). Warms past
+        torn/black startup frames, and if it sees static, reopens — trying DirectShow
+        then Media Foundation — until the feed is clean."""
+        backends = (cv2.CAP_DSHOW, cv2.CAP_MSMF)
+        cap = None
+        for attempt in range(4):
+            backend = backends[attempt % len(backends)]
+            name = "DSHOW" if backend == cv2.CAP_DSHOW else "MSMF"
+            cap = cv2.VideoCapture(camera_index, backend)
+            if self.capture_width and self.capture_height:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.capture_width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.capture_height)
+            try:
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # lowest latency
+            except Exception:
+                pass
+            if not cap.isOpened():
+                cap.release()
+                time.sleep(0.4)
+                continue
+            # Warm-up: discard torn/black startup frames until a few good ones.
+            good = 0
+            for _ in range(30):
+                if self._stop.is_set():
+                    return cap
+                ok, f = cap.read()
+                if ok and f is not None and f.size and f.ndim == 3:
+                    good += 1
+                    if good >= 4:
+                        break
+                else:
+                    good = 0
+                time.sleep(0.015)
+            # Static check: coloured noise changes completely every frame (huge
+            # frame-to-frame difference) and is near-uniformly bright; a real image —
+            # even a dark room — barely differs between two quick back-to-back reads.
+            ok1, a = cap.read()
+            ok2, b = cap.read()
+            if ok1 and ok2 and a is not None and b is not None and a.shape == b.shape:
+                diff = float(np.mean(cv2.absdiff(a, b)))
+                if float(a.std()) > 65 and diff > 32:
+                    log.warning("Camera %d gave static on %s (std=%.0f diff=%.0f); reopening",
+                                camera_index, name, a.std(), diff)
+                    cap.release()
+                    time.sleep(0.6)
+                    continue
+            log.info("Camera %d opened cleanly (%s)", camera_index, name)
+            return cap
+        return cap   # best effort — return the last capture even if imperfect
+
     def _run(self, camera_index: int) -> None:
         log.info("Pipeline starting on camera %d", camera_index)
-        # DirectShow at 640x480 opens ~2x faster than forcing 720p on typical
-        # webcams and keeps CPU processing light. GPU builds can raise this.
-        cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-        if self.capture_width and self.capture_height:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.capture_width)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.capture_height)
-        try:
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # lowest latency
-        except Exception:
-            pass
-
-        if not cap.isOpened():
+        cap = self._open_camera(camera_index)
+        if cap is None or not cap.isOpened():
             with self._shared.lock:
                 self._shared.stats.running = False
                 self._shared.stats.error = (
@@ -263,24 +306,6 @@ class Pipeline:
                 )
             log.error("Pipeline: camera %d could not be opened", camera_index)
             return
-
-        # Warm-up: a webcam's first frames (especially DirectShow/MJPEG) are often
-        # torn or black while it settles exposure and syncs the video format. Read
-        # and DISCARD them so that startup garbage — the "zig-zag and black" — never
-        # reaches the engine, preview, or virtual camera. Stop early once we get a
-        # couple of good, full-size frames in a row.
-        good = 0
-        for _ in range(30):                       # ~0.5s max
-            if self._stop.is_set():
-                break
-            ok, frame = cap.read()
-            if ok and frame is not None and frame.size and frame.ndim == 3:
-                good += 1
-                if good >= 3:
-                    break
-            else:
-                good = 0
-            time.sleep(0.015)
 
         fps_ema = 0.0
         last = time.perf_counter()
