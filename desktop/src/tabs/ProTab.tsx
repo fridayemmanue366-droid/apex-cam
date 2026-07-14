@@ -3,6 +3,7 @@ import { api, type ProStatus, type RefMode } from "../api/client";
 import { cloud, signedIn, type Account } from "../api/cloud";
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
+import { usePipeline } from "../context/PipelineContext";
 
 // Apex Pro — its OWN universe, separate from local Apex Cam: its own dashboard,
 // its own cam (studio) page, its own face (persona) page, its own voice and
@@ -136,6 +137,7 @@ function useVideoJob(onCredit: () => void) {
 }
 
 export function ProTab() {
+  const pipeline = usePipeline();
   const [pro, setPro] = useState<ProStatus | null>(null);
   const [entered, setEntered] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
@@ -189,8 +191,19 @@ export function ProTab() {
 
   const minutes = pro?.minutes_remaining ?? 0;
 
-  const save = (enabled: boolean, p = prompt) =>
-    api.setPro({ enabled, prompt: p }).then(setPro).catch(() => undefined);
+  // GO LIVE / Stop for the Lucy live cam. Going live must drive the SHARED
+  // pipeline: start it (which releases the local preview camera AND switches the
+  // preview to the backend's Lucy output — otherwise you'd keep seeing the raw
+  // local cam), then enable the cloud model. Stopping hands the camera back.
+  const save = async (enabled: boolean, p = prompt) => {
+    if (enabled && !pipeline.active) {
+      await pipeline.start();          // release local cam + show Lucy output
+    }
+    await api.setPro({ enabled, prompt: p }).then(setPro).catch(() => undefined);
+    if (!enabled && pipeline.active) {
+      await pipeline.stop();           // give the camera back to the local preview
+    }
+  };
   const uploadRef = (f: File | undefined) => {
     if (f) api.uploadProReference(f).then(setPro).catch(() => undefined);
   };
