@@ -85,12 +85,21 @@ namespace ApexCam
 
         public override void CreateFrame(long time, BinaryWriter writer, uint bytes)
         {
-            // No ThrottleFrameRate: we always have a latest frame ready, so deliver
-            // it immediately when the frame server pulls — throttling only adds delay.
+            // Pace frames as the framework expects — bad timing makes the consuming
+            // app (WhatsApp) stutter or hang.
+            ThrottleFrameRate(time);
             int n = (int)Math.Min((uint)_buf.Length, bytes);
-            _acc.ReadArray(0, _buf, 0, n);
-            writer.Write(_buf, 0, n);
-            for (uint i = (uint)n; i < bytes; i++) writer.Write((byte)0);  // pad if asked for more
+            // NEVER throw here: if the shared memory read fails (e.g. the app is
+            // restarting), hand back a black frame instead of breaking the protocol,
+            // which would freeze the camera and hang WhatsApp.
+            try { _acc.ReadArray(0, _buf, 0, n); }
+            catch { Array.Clear(_buf, 0, n); }
+            try
+            {
+                writer.Write(_buf, 0, n);
+                for (uint i = (uint)n; i < bytes; i++) writer.Write((byte)0);
+            }
+            catch { /* pipe closing — nothing we can safely do */ }
         }
     }
 }
