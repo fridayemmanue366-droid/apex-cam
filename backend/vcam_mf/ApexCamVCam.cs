@@ -20,8 +20,10 @@ namespace ApexCam
 {
     internal class Program
     {
-        public const int WIDTH = 1280;
-        public const int HEIGHT = 720;
+        // 540p keeps 16:9 but pushes ~45% fewer bytes through the frame pipe than
+        // 720p — smoother delivery into a WhatsApp call, which downscales anyway.
+        public const int WIDTH = 960;
+        public const int HEIGHT = 540;
         public const int FRAME_BYTES = WIDTH * HEIGHT * 4;   // RGB32
         // Session-local shared memory shared with the Python backend.
         public const string MMF_NAME = "Local\\ApexCamFrame";
@@ -83,7 +85,8 @@ namespace ApexCam
 
         public override void CreateFrame(long time, BinaryWriter writer, uint bytes)
         {
-            ThrottleFrameRate(time);
+            // No ThrottleFrameRate: we always have a latest frame ready, so deliver
+            // it immediately when the frame server pulls — throttling only adds delay.
             int n = (int)Math.Min((uint)_buf.Length, bytes);
             _acc.ReadArray(0, _buf, 0, n);
             writer.Write(_buf, 0, n);

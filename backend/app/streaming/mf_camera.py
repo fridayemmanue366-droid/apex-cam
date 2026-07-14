@@ -24,7 +24,7 @@ from app.core.logging import get_logger
 
 log = get_logger(__name__)
 
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = 960, 540   # must match ApexCamVCam.cs
 FRAME_BYTES = WIDTH * HEIGHT * 4
 MMF_TAG = "Local\\ApexCamFrame"
 # Verified on a real Win11 machine: our top-down frames come out right-side up
