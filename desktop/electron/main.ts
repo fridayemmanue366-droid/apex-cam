@@ -48,6 +48,24 @@ function startBackend() {
   }
 }
 
+function killBackend() {
+  const proc = backend;
+  backend = null;
+  if (!proc || proc.killed || proc.pid === undefined) return;
+  if (process.platform === "win32") {
+    // On Windows a plain .kill() can leave the Python child (and the camera handle)
+    // alive — the webcam light then stays on after the app closes. Force-kill the
+    // whole tree so the device is released.
+    try {
+      spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      proc.kill();
+    }
+  } else {
+    proc.kill();
+  }
+}
+
 function appIcon(): string | undefined {
   // Bundle: resources/app/apexcam.ico; dev: desktop/build/apexcam.ico.
   for (const p of [
@@ -111,6 +129,9 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  backend?.kill();
+  killBackend();
   if (process.platform !== "darwin") app.quit();
 });
+
+// Belt-and-suspenders: also release the backend/camera on any quit path.
+app.on("before-quit", killBackend);
