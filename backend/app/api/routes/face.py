@@ -55,6 +55,16 @@ def set_state(new: FaceState) -> FaceState:
     return _state
 
 
+def deactivate_local() -> None:
+    """Fully turn OFF the local face swap and DESELECT its face. Called when Apex
+    Pro (Lucy) goes live so the local engine and Pro never run together and the
+    local persona never lingers. To use the local swap again the user must go to
+    the Face tab, re-select a face, and re-enable it."""
+    global _state
+    _state = FaceState()   # enabled=False, swap_enabled=False, profile_id=None
+    _apply_swap()          # pushes swap OFF into the live pipeline
+
+
 class SwapStrength(BaseModel):
     strength: float = 0.85
 

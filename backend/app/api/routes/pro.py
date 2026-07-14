@@ -75,6 +75,14 @@ def set_pro(cfg: ProConfig) -> ProStatus:
         # False on an empty balance -> GO LIVE is blocked at zero.
         if pro_credits.start(_stop_pro_call, is_active=lambda: lucy_pro.live):
             lucy_pro.enabled = True
+            # Apex Pro and the local swap are SEPARATE — never run together. Turn the
+            # local engine down and deselect its face so only Lucy is live. (The user
+            # re-selects on the Face tab to use the local swap again.)
+            try:
+                from app.api.routes.face import deactivate_local
+                deactivate_local()
+            except Exception:
+                log.exception("Pro GO LIVE: could not deactivate local swap")
             # One click: also turn ON the camera pipeline + publish to the virtual
             # camera, so the user doesn't have to start the engine separately.
             try:
