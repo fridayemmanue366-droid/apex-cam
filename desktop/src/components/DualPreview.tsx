@@ -14,7 +14,7 @@ export type OutputMediaRef = MutableRefObject<HTMLVideoElement | HTMLImageElemen
 export function DualPreview({ outputMediaRef }: { outputMediaRef?: OutputMediaRef }) {
   const rawRef = useRef<HTMLVideoElement>(null);
   const outVideoRef = useRef<HTMLVideoElement>(null);
-  const { stream, error, running, start, enhance, externalHold } = useMedia();
+  const { stream, error, running, start, stop, enhance, externalHold } = useMedia();
   const pipeline = usePipeline();
 
   useEffect(() => {
@@ -23,6 +23,14 @@ export function DualPreview({ outputMediaRef }: { outputMediaRef?: OutputMediaRe
     if (outVideoRef.current) outVideoRef.current.srcObject = stream;
     if (outputMediaRef && outVideoRef.current) outputMediaRef.current = outVideoRef.current;
   }, [stream, pipeline.active, outputMediaRef]);
+
+  // Release the camera (and its indicator light) when you navigate away from the
+  // preview, unless the AI engine is running the camera itself.
+  const stopRef = useRef(stop);
+  const activeRef = useRef(pipeline.active);
+  stopRef.current = stop;
+  activeRef.current = pipeline.active;
+  useEffect(() => () => { if (!activeRef.current) stopRef.current(); }, []);
 
   // The enhancement filter is user-adjustable at runtime, so it can't live in a
   // static stylesheet; apply it imperatively.
@@ -82,16 +90,22 @@ export function DualPreview({ outputMediaRef }: { outputMediaRef?: OutputMediaRe
   }
 
   return (
-    <div className="dual">
-      <div className="dual-pane">
-        <div className="pane-label">You — raw input</div>
-        <video ref={rawRef} autoPlay playsInline muted className="preview-video" />
+    <>
+      <div className="dual">
+        <div className="dual-pane">
+          <div className="pane-label">You — raw input</div>
+          <video ref={rawRef} autoPlay playsInline muted className="preview-video" />
+        </div>
+        <div className="dual-pane">
+          <div className="pane-label accent">Apex Cam output</div>
+          <AiLabelBadge />
+          <video ref={outVideoRef} autoPlay playsInline muted className="preview-video" />
+        </div>
       </div>
-      <div className="dual-pane">
-        <div className="pane-label accent">Apex Cam output</div>
-        <AiLabelBadge />
-        <video ref={outVideoRef} autoPlay playsInline muted className="preview-video" />
+      <div className="preview-controls">
+        <button type="button" className="btn" onClick={stop}>⏹ Turn camera off</button>
+        <span className="muted">Your camera light stays on while the preview is running.</span>
       </div>
-    </div>
+    </>
   );
 }

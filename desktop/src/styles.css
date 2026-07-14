@@ -490,6 +490,9 @@ select {
 .dot.ok { background: var(--ok); }
 .dot.bad { background: var(--bad); }
 
+.preview-controls { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.preview-controls .muted { font-size: 12px; }
+
 /* --- Account / subscription gate (LOCAL tabs only; inline, sidebar stays usable) --- */
 .gate-inline { display: grid; place-items: center; padding: 40px 20px; min-height: 60vh; }
 .gate-card {
