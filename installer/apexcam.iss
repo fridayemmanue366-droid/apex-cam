@@ -20,8 +20,15 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist-bundle
 OutputBaseFilename=ApexCam-Setup
+; Default: maximum compression = smallest download for customers (slow to build).
+; Pass /DFastBuild (build-installer.ps1 -Fast) for quick test builds instead.
+#ifdef FastBuild
+Compression=lzma2/fast
+SolidCompression=no
+#else
 Compression=lzma2/max
 SolidCompression=yes
+#endif
 WizardStyle=modern
 LicenseFile=terms.txt
 ; Brand the installer itself + the Add/Remove Programs entry with the logo.

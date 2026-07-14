@@ -6,6 +6,7 @@
 # installs Inno Setup if needed, then compiles installer\apexcam.iss into
 # dist-bundle\ApexCam-Setup.exe.
 
+param([switch]$Fast)   # -Fast = quick test build (bigger .exe); default = smallest .exe
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 function Say($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
@@ -35,7 +36,10 @@ if (-not $iscc) {
 if (-not $iscc) { Die "Inno Setup not found. Install it from https://jrsoftware.org/isdl.php and re-run." }
 
 Say "Compile the installer"
-& $iscc (Join-Path $root "installer\apexcam.iss")
+$issArgs = @()
+if ($Fast) { $issArgs += "/DFastBuild"; Write-Host "  fast mode: bigger .exe, much quicker build" -ForegroundColor DarkGray }
+$issArgs += (Join-Path $root "installer\apexcam.iss")
+& $iscc @issArgs
 if ($LASTEXITCODE -ne 0) { Die "Inno Setup compile failed." }
 
 $setup = Join-Path $root "dist-bundle\ApexCam-Setup.exe"
