@@ -49,26 +49,28 @@ export function StreamingTab() {
         {vcamError && <p className="error">{vcamError}</p>}
         <p className="muted">
           Going live starts the AI engine (if needed) and publishes its output as a standard
-          system camera. On Windows this uses the OBS Virtual Camera driver — if you see a
-          driver error above, install OBS Studio (free) from obsproject.com once, then retry.
+          system camera called <strong>“Apex Cam”</strong>. The camera driver installs with Apex
+          Cam — no OBS needed. If you see a driver error above, re-run the Apex Cam installer and
+          keep the “Install the Apex Cam virtual camera” option ticked.
         </p>
         <p className="muted">
-          <strong>Privacy by design:</strong> the virtual devices carry only the AI-processed
-          Apex Cam output (with its AI-GENERATED label). Your raw camera feed is never exposed
-          to WhatsApp, Telegram, Zoom, or any other app.
+          <strong>Privacy by design:</strong> the virtual devices carry only the processed Apex Cam
+          output. Your raw camera feed is never exposed to WhatsApp, Telegram, Zoom, YouCam, or any
+          other app.
         </p>
       </section>
 
       <section className="panel">
         <h3>Selecting Apex Cam in your apps</h3>
+        <p className="muted">In each app's camera list, pick <strong>“Apex Cam”</strong>.</p>
         <ul className="list">
-          <li><strong>Zoom</strong> — Settings → Video → Camera → “OBS Virtual Camera”.</li>
+          <li><strong>Zoom</strong> — Settings → Video → Camera → “Apex Cam”.</li>
+          <li><strong>YouCam</strong> — camera/source list → “Apex Cam”.</li>
           <li><strong>Discord</strong> — User Settings → Voice &amp; Video → Camera.</li>
           <li><strong>Google Meet</strong> — gear icon → Video → Camera.</li>
           <li><strong>Microsoft Teams</strong> — Settings → Devices → Camera.</li>
           <li><strong>WhatsApp Desktop</strong> — Settings → Video &amp; audio → Camera.</li>
           <li><strong>Telegram Desktop</strong> — Settings → Calls → Camera.</li>
-          <li><strong>OBS Studio</strong> — add a Video Capture Device source.</li>
         </ul>
         <p className="muted">
           For the processed voice, also set the app's <strong>microphone</strong> to

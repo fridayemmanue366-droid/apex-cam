@@ -35,6 +35,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
+Name: "vcam"; Description: "Install the Apex Cam virtual camera (use your Apex Cam video in Zoom, WhatsApp, YouCam, Meet & more)"; GroupDescription: "Virtual camera:"
 Name: "getmodels"; Description: "Download the AI models now (~2 GB, needs internet - recommended)"; GroupDescription: "AI models:"
 
 [Files]
@@ -47,12 +48,22 @@ Name: "{group}\Uninstall Apex Cam"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Apex Cam"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\apexcam.ico"; Tasks: desktopicon
 
 [Run]
+; Register the Apex Cam virtual camera. The .bat self-elevates (one UAC prompt) and
+; registers the MIT-licensed Unity Capture filter under the device name "Apex Cam".
+Filename: "{app}\vcam\register-camera.bat"; \
+  StatusMsg: "Setting up the Apex Cam virtual camera (please approve the prompt)..."; \
+  Flags: runhidden waituntilterminated; Tasks: vcam
 ; Optional one-time model download (visible console so the user sees progress).
 Filename: "{app}\python\python.exe"; Parameters: "backend\scripts\download_models.py --all"; \
   WorkingDir: "{app}"; StatusMsg: "Downloading AI models (~2 GB, one-time)..."; \
   Tasks: getmodels
 ; Offer to launch after install.
 Filename: "{app}\{#AppExe}"; Description: "Launch Apex Cam"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Remove the virtual camera on uninstall (self-elevates for one UAC prompt).
+Filename: "{app}\vcam\unregister-camera.bat"; Flags: runhidden waituntilterminated; \
+  RunOnceId: "unregvcam"
 
 [UninstallDelete]
 ; Remove models/data created after install so uninstall is clean.

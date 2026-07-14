@@ -114,6 +114,49 @@ $leak = Get-ChildItem $beOut -Recurse -File -Include "*.local", "*.key", "*.pem"
 if ($leak) { Die ("SECURITY: secret files still present in bundle: " + ($leak.Name -join ', ')) }
 Write-Host "  verified: no secret key files in the bundle" -ForegroundColor Green
 
+# --- 6) Apex Cam virtual camera (Unity Capture filter, MIT-licensed) --------
+# Ship our OWN virtual-camera driver so customers never install OBS. The installer
+# registers it (elevated, one UAC prompt) as the device "Apex Cam".
+Say "Bundle the Apex Cam virtual camera (Unity Capture, MIT)"
+$vcam = Join-Path $out "vcam"
+New-Item -ItemType Directory -Force $vcam | Out-Null
+$ucBase = "https://raw.githubusercontent.com/schellingb/UnityCapture/master/Install"
+foreach ($f in @("UnityCaptureFilter64.dll", "UnityCaptureFilter32.dll")) {
+  $cacheF = Join-Path $cache $f
+  if (-not (Test-Path $cacheF) -or (Get-Item $cacheF).Length -lt 10000) {
+    Write-Host "Downloading virtual camera driver: $f"
+    try { Invoke-WebRequest -Uri "$ucBase/$f" -OutFile $cacheF }
+    catch { Die "Could not download the virtual camera driver ($f). Check your connection and retry." }
+  }
+  Copy-Item $cacheF (Join-Path $vcam $f) -Force
+}
+# Self-elevating register/unregister scripts. ASCII (no BOM) so cmd.exe runs them.
+@'
+@echo off
+>nul 2>&1 net session || (
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" & exit /b
+)
+cd /d "%~dp0"
+regsvr32 /s "UnityCaptureFilter64.dll" "/i:UnityCaptureName=Apex Cam"
+regsvr32 /s "UnityCaptureFilter32.dll" "/i:UnityCaptureName=Apex Cam"
+exit /b
+'@ | Set-Content -Encoding ascii (Join-Path $vcam "register-camera.bat")
+@'
+@echo off
+>nul 2>&1 net session || (
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" & exit /b
+)
+cd /d "%~dp0"
+regsvr32 /s /u "UnityCaptureFilter64.dll"
+regsvr32 /s /u "UnityCaptureFilter32.dll"
+exit /b
+'@ | Set-Content -Encoding ascii (Join-Path $vcam "unregister-camera.bat")
+@'
+Apex Cam's virtual camera uses UnityCaptureFilter by Bernhard Schelling.
+Licensed under the MIT License. https://github.com/schellingb/UnityCapture
+'@ | Set-Content -Encoding ascii (Join-Path $vcam "LICENSE-UnityCapture.txt")
+Write-Host "  virtual camera driver staged in $vcam" -ForegroundColor Green
+
 $sizeGB = [math]::Round((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1GB, 2)
 Say "Bundle ready"
 Write-Host "  $out  ($sizeGB GB)" -ForegroundColor Green
