@@ -264,13 +264,31 @@ class Pipeline:
             log.error("Pipeline: camera %d could not be opened", camera_index)
             return
 
+        # Warm-up: a webcam's first frames (especially DirectShow/MJPEG) are often
+        # torn or black while it settles exposure and syncs the video format. Read
+        # and DISCARD them so that startup garbage — the "zig-zag and black" — never
+        # reaches the engine, preview, or virtual camera. Stop early once we get a
+        # couple of good, full-size frames in a row.
+        good = 0
+        for _ in range(30):                       # ~0.5s max
+            if self._stop.is_set():
+                break
+            ok, frame = cap.read()
+            if ok and frame is not None and frame.size and frame.ndim == 3:
+                good += 1
+                if good >= 3:
+                    break
+            else:
+                good = 0
+            time.sleep(0.015)
+
         fps_ema = 0.0
         last = time.perf_counter()
         try:
             while not self._stop.is_set():
                 ok, frame = cap.read()
-                if not ok:
-                    time.sleep(0.01)
+                if not ok or frame is None or frame.ndim != 3 or not frame.size:
+                    time.sleep(0.01)   # skip a dropped/torn frame rather than show it
                     continue
                 t0 = time.perf_counter()
 
@@ -310,7 +328,9 @@ class Pipeline:
                 with self._shared.lock:
                     self._shared.stats.vcam_active = True
                     self._shared.stats.vcam_device = self.vcam.device
-            self.vcam.send(processed)
+            # A non-contiguous buffer is read with the wrong row stride downstream
+            # and shows as a diagonal "zig-zag" tear — force a clean C-order copy.
+            self.vcam.send(np.ascontiguousarray(processed))
         except Exception as exc:
             self._vcam_requested = False
             self.vcam.close()
