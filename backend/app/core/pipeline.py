@@ -224,13 +224,16 @@ class Pipeline:
     def enable_vcam(self) -> None:
         """Ask the worker to open the virtual camera on the next frame."""
         self._vcam_requested = True
-        # Also bring up the Media Foundation camera so WhatsApp/Windows Camera see
-        # "Apex Cam". Best-effort — if its runtime isn't installed the DirectShow
-        # camera still works.
-        try:
-            self.mf_cam.start()
-        except Exception:
-            log.exception("MF camera start failed")
+        # The Media Foundation camera (the one WhatsApp could see) is OFF by default:
+        # the current third-party bridge lags and can hang the calling app. We use
+        # the stable DirectShow / OBS virtual camera instead (works in OBS, Zoom,
+        # Meet, Teams, Discord). Set APEXCAM_MF_CAMERA=1 to try the WhatsApp bridge.
+        import os
+        if os.environ.get("APEXCAM_MF_CAMERA", "0") not in ("0", "false", ""):
+            try:
+                self.mf_cam.start()
+            except Exception:
+                log.exception("MF camera start failed")
         with self._shared.lock:
             self._shared.stats.vcam_error = None
 
