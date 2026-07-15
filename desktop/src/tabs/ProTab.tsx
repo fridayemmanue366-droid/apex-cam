@@ -189,7 +189,17 @@ export function ProTab() {
     return () => clearInterval(t);
   }, [entered]);
 
-  const minutes = pro?.minutes_remaining ?? 0;
+  // Live per-second balance, like Decart. The server meters per second at the live
+  // rate ($0.03/s); we tick the display down each second and re-sync on every poll.
+  const [secsLeft, setSecsLeft] = useState(0);
+  useEffect(() => { setSecsLeft(Math.round((pro?.minutes_remaining ?? 0) * 60)); }, [pro?.minutes_remaining]);
+  useEffect(() => {
+    if (!pro?.enabled || !pro?.live) return;   // only counts while Lucy is transforming
+    const id = setInterval(() => setSecsLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [pro?.enabled, pro?.live]);
+  const perSec = pricing ? pricing.usd_per_minute / 60 : 0.03;
+  const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   // GO LIVE / Stop for the Lucy live cam. Going live must drive the SHARED
   // pipeline: start it (which releases the local preview camera AND switches the
@@ -323,7 +333,9 @@ export function ProTab() {
           <p className="pro-sub">Cloud studio · Lucy 2.1 + voice · photorealistic full-cam persona</p>
         </div>
         <div className="pro-hero-right">
-          <span className="pro-pill">◈ {minutes} min</span>
+          <span className="pro-pill" title={`$${perSec.toFixed(2)}/sec`}>
+            ◈ {clock(secsLeft)}{pro.enabled && pro.live ? " ⏱" : ""}
+          </span>
           {liveBadge}
           <span className="pro-account">
             <span className="pro-muted">{account.email}</span>
@@ -377,8 +389,11 @@ export function ProTab() {
                   <button type="button" className="pro-chip" onClick={() => setPage("voice")}>Pick voice</button>
                 </div>
                 <div className="pro-card">
-                  <h3>Minutes</h3>
-                  <p className="pro-muted">{minutes} min left</p>
+                  <h3>Balance</h3>
+                  <p className="pro-muted">{clock(secsLeft)} left</p>
+                  <p className="pro-muted" style={{ fontSize: 12 }}>
+                    ${perSec.toFixed(2)}/sec · ${(perSec * 60).toFixed(2)}/min — charged per second while live
+                  </p>
                   <button type="button" className="pro-chip" onClick={() => setPage("credits")}>Buy minutes</button>
                 </div>
               </div>

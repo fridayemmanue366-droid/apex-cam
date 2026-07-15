@@ -150,6 +150,7 @@ export interface ProStatus {
   model: string;
   has_reference: boolean;
   prompt: string;
+  live?: boolean;
   minutes_remaining: number;
   has_credit: boolean;
   error: string | null;
