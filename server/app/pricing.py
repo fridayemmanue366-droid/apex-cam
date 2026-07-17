@@ -14,7 +14,9 @@ MODE_RATE = {"live": 1.0, "video": 2.0, "restyle": 2.0 / 3.0}
 IMAGE_COST_SECONDS = round(0.40 / LIVE_USD_PER_SEC, 2)   # ~13.33 wallet-sec/photo
 
 # Minute packages the app sells (wallet minutes).
-PACKAGES = [5, 12, 15, 25, 30, 50, 100, 160, 375, 1000]
+# The 1-minute entry is the cheapest real package (₦2,880) — handy for verifying
+# the live Flutterwave flow with a small charge. Remove it once payments are proven.
+PACKAGES = [1, 5, 12, 15, 25, 30, 50, 100, 160, 375, 1000]
 
 # Currency: charge NGN (buffered), display USD. Keep in sync with the app.
 CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")

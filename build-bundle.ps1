@@ -30,7 +30,14 @@ if (-not (Test-Path $venvSP)) { Die "backend\.venv311 not found. Set up the dev 
 if (-not $node) { Die "Node.js not found (needed to build the UI on this build machine)." }
 
 Say "Clean output"
-if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+if (Test-Path $out) {
+  # Once the virtual camera is registered, browsers/YouCam LOAD its driver DLLs,
+  # which locks those files and would fail the whole clean. Those DLLs never change
+  # between builds, so keep the vcam folder and clear everything else.
+  Get-ChildItem $out -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "vcam" } |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Force $out, $cache | Out-Null
 
 # --- 1) Build the desktop UI (renderer + electron main/preload) -------------
@@ -128,7 +135,14 @@ foreach ($f in @("UnityCaptureFilter64.dll", "UnityCaptureFilter32.dll")) {
     try { Invoke-WebRequest -Uri "$ucBase/$f" -OutFile $cacheF }
     catch { Die "Could not download the virtual camera driver ($f). Check your connection and retry." }
   }
-  Copy-Item $cacheF (Join-Path $vcam $f) -Force
+  # Skip re-copying if it's already there and the right size — the file may be
+  # locked because the camera is registered and loaded by a browser/YouCam.
+  $dst = Join-Path $vcam $f
+  if ((Test-Path $dst) -and ((Get-Item $dst).Length -eq (Get-Item $cacheF).Length)) {
+    Write-Host "  $f already staged (in use) - keeping it"
+  } else {
+    Copy-Item $cacheF $dst -Force
+  }
 }
 # Self-elevating register/unregister scripts. ASCII (no BOM) so cmd.exe runs them.
 @'

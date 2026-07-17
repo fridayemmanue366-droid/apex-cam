@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { useMedia } from "../context/MediaContext";
-import { AiLabelBadge } from "./AiLabelBadge";
 
 // Live view of the shared capture stream with the AI-GENERATED badge overlay.
 // `videoRef` can be passed in so other features (recording, screenshots) can
@@ -22,7 +21,6 @@ export function LivePreview({
 
   return (
     <div className="preview-frame">
-      <AiLabelBadge />
       {stream ? (
         <video ref={ref} autoPlay playsInline muted={muted} className="preview-video" />
       ) : (

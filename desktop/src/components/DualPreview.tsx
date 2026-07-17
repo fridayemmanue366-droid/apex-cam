@@ -1,7 +1,6 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { enhanceFilter, useMedia } from "../context/MediaContext";
 import { usePipeline } from "../context/PipelineContext";
-import { AiLabelBadge } from "./AiLabelBadge";
 
 export type OutputMediaRef = MutableRefObject<HTMLVideoElement | HTMLImageElement | null>;
 
@@ -98,7 +97,6 @@ export function DualPreview({ outputMediaRef }: { outputMediaRef?: OutputMediaRe
         </div>
         <div className="dual-pane">
           <div className="pane-label accent">Apex Cam output</div>
-          <AiLabelBadge />
           <video ref={outVideoRef} autoPlay playsInline muted className="preview-video" />
         </div>
       </div>
