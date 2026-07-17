@@ -1,0 +1,49 @@
+# Apex Cam cloud server on Fly.io.
+#
+# Deploy (from the server/ folder):
+#   fly launch --no-deploy      # creates the app; keep this fly.toml
+#   fly volumes create apexcam_data --size 1 --region fra
+#   fly secrets set APEXCAM_SECRET=<random> APEXCAM_DECART_KEY=<key> FLW_SECRET=<live key> \
+#                   APEXCAM_PUBLIC_URL=https://<app>.fly.dev
+#   fly deploy
+#
+# Secrets are set with `fly secrets set` — they live only on Fly, never in git and
+# never in the shipped app.
+
+app = "apexcam-api"
+primary_region = "fra"          # Frankfurt — closest Fly region to Nigeria
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APEXCAM_DB = "/data/apexcam.db"     # on the persistent volume
+  APEXCAM_PAY_CURRENCY = "NGN"
+  APEXCAM_NGN_PER_USD = "1600"
+  APEXCAM_SUB_NGN = "20000"           # local app subscription: ₦20,000/month
+  APEXCAM_TRIAL_DAYS = "1"
+
+# Persistent volume — accounts, credits and subscriptions MUST survive restarts.
+[[mounts]]
+  source = "apexcam_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Keep one machine always running: a customer opening the app must never wait
+  # for a cold start.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -22,7 +22,31 @@ exists so that never happens.
 so the database (accounts, credits, subscriptions) is wiped on every restart. You
 would lose customers' paid credits.
 
-## Steps
+## Option A — Fly.io (~$2–3/mo, cheapest with a free address)
+
+Uses `fly.toml` + `Dockerfile`. Free address: `https://<app>.fly.dev`.
+
+1. Install flyctl: `iwr https://fly.io/install.ps1 -useb | iex` (PowerShell), then
+   `fly auth signup` (or `fly auth login`).
+2. From the `server/` folder:
+   ```
+   fly launch --no-deploy            # keep the existing fly.toml when asked
+   fly volumes create apexcam_data --size 1 --region fra
+   ```
+3. Set the secrets — **these only ever live on Fly, never in git, never in the app**:
+   ```
+   fly secrets set APEXCAM_SECRET=<long-random-string> \
+                   APEXCAM_DECART_KEY=<your Decart key> \
+                   FLW_SECRET=<your LIVE Flutterwave secret> \
+                   APEXCAM_PUBLIC_URL=https://<app>.fly.dev
+   ```
+4. `fly deploy` → check `https://<app>.fly.dev/health` returns `{"status":"ok"}`.
+5. Point the app at it (see "After deploying" below).
+
+`auto_stop_machines = false` keeps one machine warm so customers never hit a cold
+start. The volume keeps the database across deploys.
+
+## Option B — Render ($7/mo, simplest)
 
 1. **Push this repo to GitHub** (private is fine).
 2. Create a free account at <https://render.com>.
