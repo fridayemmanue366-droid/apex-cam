@@ -21,7 +21,7 @@ const LOOKS = [
 // Prepaid minute packages. The price shown comes from the backend (/pro/pricing),
 // which sets the currency (Naira for Nigeria) at a buffered FX rate over our
 // underlying $0.03/sec.
-const PACKAGES = [5, 12, 15, 25, 30, 50, 100, 160, 375, 1000];
+const PACKAGES = [1, 5, 12, 15, 25, 30, 50, 100, 160, 375, 1000];
 
 // Cloud voices for the Pro tier (voice change/cloning via fal). Real list comes
 // from the backend once billing is live; these are the presets shown meanwhile.
