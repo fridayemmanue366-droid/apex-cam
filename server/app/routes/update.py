@@ -11,9 +11,33 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/update", tags=["update"])
+
+# Frontend-only ("Level 2") update: the app hot-swaps just its UI (~230KB) with no
+# full reinstall. Publish by rebuilding the frontend, zipping the CONTENTS of dist/
+# into app_bundle/frontend.zip and bumping app_bundle/version.txt, then pushing.
+APP_DIR = Path(os.environ.get("APEXCAM_APP_DIR", "app_bundle"))
+
+
+@router.get("/app")
+def app_update() -> dict:
+    """{version, url} for the frontend bundle. version is an integer in
+    app_bundle/version.txt; the app downloads when it's higher than what it has."""
+    vf = APP_DIR / "version.txt"
+    ver = vf.read_text().strip() if vf.exists() else "0"
+    base = os.environ.get("APEXCAM_PUBLIC_URL", "")
+    return {"version": ver, "url": f"{base}/update/app-bundle"}
+
+
+@router.get("/app-bundle")
+def app_bundle() -> FileResponse:
+    z = APP_DIR / "frontend.zip"
+    if not z.exists():
+        raise HTTPException(404, "no app bundle published")
+    return FileResponse(z, media_type="application/zip", filename="frontend.zip")
 
 # Optional JSON file so you can publish a release without redeploying the server.
 MANIFEST_FILE = Path(os.environ.get("APEXCAM_MANIFEST", "release.json"))

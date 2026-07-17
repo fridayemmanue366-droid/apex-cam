@@ -1,5 +1,6 @@
 import { app, BrowserWindow, session, shell } from "electron";
 import { startUpdateChecks } from "./updater";
+import { resolveFrontend, checkFrontendUpdate } from "./appUpdater";
 import { spawn, ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -109,11 +110,17 @@ function createWindow() {
   if (devUrl) {
     win.loadURL(devUrl);
   } else {
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
+    // Load the newest UI: a small downloaded update if present, else the bundled one.
+    win.loadFile(resolveFrontend());
   }
 
-  // Keep the app fresh, Chrome-style: check shortly after launch, then on a timer.
-  if (!devUrl) startUpdateChecks(win);
+  // Keep the app fresh, Chrome-style. Two layers:
+  //  - full installer update (Python/models changes — rare, big)
+  //  - frontend-only update (UI/features/fixes — tiny ~230KB, applies next launch)
+  if (!devUrl) {
+    startUpdateChecks(win);
+    setTimeout(() => void checkFrontendUpdate(), 8000);
+  }
 }
 
 app.whenReady().then(() => {
