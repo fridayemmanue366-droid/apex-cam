@@ -275,12 +275,17 @@ export function ProTab() {
     }
     vid.run(mode, promptText, refMode, vRef);
   };
-  // Real purchase: open the Flutterwave checkout in the browser. After paying,
-  // the backend callback adds the minutes and our poll picks up the new balance.
-  const buy = (min: number) =>
-    api.startPayment(min)
+  // Real purchase: open the Flutterwave checkout in the browser. This MUST go to
+  // the CLOUD server — that's where the Flutterwave key lives. (The local backend
+  // has no key: the installer strips secrets, so buying there silently did nothing.)
+  // After paying, the server callback credits the account and our poll shows it.
+  const [buyErr, setBuyErr] = useState<string | null>(null);
+  const buy = (min: number) => {
+    setBuyErr(null);
+    return cloud.startPayment(min)
       .then((r) => { window.open(r.link, "_blank"); })
-      .catch(() => undefined);
+      .catch((e) => setBuyErr(e instanceof Error ? e.message : "Could not start payment"));
+  };
 
   // Apex Pro requires a cloud account (that's where the credits live).
   if (!authChecked) return <section className="panel"><p className="muted">Loading…</p></section>;
@@ -736,9 +741,10 @@ export function ProTab() {
               <div className="pro-card">
                 <h3>Minutes — buy a package</h3>
                 <p className="pro-muted">
-                  Apex Pro runs on prepaid minutes. Minutes burn per second only while you're live,
-                  and leftovers stay for next time. (Checkout is wired next.)
+                  Apex Pro runs on prepaid minutes. Minutes burn per second only while you're live
+                  ({`$${perSec.toFixed(2)}/sec`}), and leftovers stay for next time.
                 </p>
+                {buyErr && <p className="error">{buyErr}</p>}
               </div>
               <div className="pro-packages">
                 {PACKAGES.map((m) => (
