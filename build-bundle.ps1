@@ -13,7 +13,9 @@
 # the customer never installs Python or C++ build tools). Models are downloaded
 # by the installer's post-install step (kept out of the bundle to stay small).
 
-param([switch]$Gpu)
+param([switch]$Gpu, [switch]$WithModels)   # -WithModels bakes the ~3GB AI models
+                                            # into the bundle so customers never
+                                            # download them (installer ~3GB).
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 function Say($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
@@ -170,6 +172,17 @@ Apex Cam's virtual camera uses UnityCaptureFilter by Bernhard Schelling.
 Licensed under the MIT License. https://github.com/schellingb/UnityCapture
 '@ | Set-Content -Encoding ascii (Join-Path $vcam "LICENSE-UnityCapture.txt")
 Write-Host "  virtual camera driver staged in $vcam" -ForegroundColor Green
+
+# --- 7) Optionally bake the AI models in (so customers never download them) ----
+if ($WithModels) {
+  Say "Bundle the AI models (~3 GB) so no download is needed"
+  $modelsSrc = Join-Path $root "backend\models"
+  if (-not (Test-Path $modelsSrc)) { Die "backend\models not found — download them once with download_models.py first." }
+  $modelsDst = Join-Path $beOut "models"
+  robocopy $modelsSrc $modelsDst /E /NFL /NDL /NJH /NJS /NP /MT:16 | Out-Null
+  $mGB = [math]::Round((Get-ChildItem $modelsDst -Recurse -File | Measure-Object Length -Sum).Sum/1GB, 2)
+  Write-Host "  models baked in ($mGB GB) — installer will NOT need a download" -ForegroundColor Green
+}
 
 $sizeGB = [math]::Round((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1GB, 2)
 Say "Bundle ready"
