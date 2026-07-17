@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type ProStatus, type RefMode } from "../api/client";
-import { cloud, signedIn, type Account } from "../api/cloud";
+import { cloud, signedIn, type Account, type Pkg } from "../api/cloud";
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
 import { usePipeline } from "../context/PipelineContext";
@@ -161,6 +161,11 @@ export function ProTab() {
     }
   }, []);
 
+  // Packages come LIVE from the cloud server (cloud.packages) — so adding, removing
+  // or repricing a package on the server updates every customer instantly, with no
+  // app update. Falls back to a default list only if the server can't be reached.
+  const [pkgs, setPkgs] = useState<Pkg[]>([]);
+
   useEffect(() => {
     api.getPro().then((p) => {
       setPro(p);
@@ -168,6 +173,7 @@ export function ProTab() {
       if (p.enabled) setEntered(true);
     }).catch(() => setPro(null));
     api.getProPricing().then(setPricing).catch(() => undefined);
+    cloud.packages().then(setPkgs).catch(() => undefined);
   }, []);
 
   // Show USD prominently (premium feel); the charge happens in charge_currency.
@@ -747,12 +753,13 @@ export function ProTab() {
                 {buyErr && <p className="error">{buyErr}</p>}
               </div>
               <div className="pro-packages">
-                {PACKAGES.map((m) => (
-                  <div key={m} className="pro-pack">
-                    <div className="pro-pack-min">{m}<span> min</span></div>
-                    <div className="pro-pack-price">{usdLabel(m)}</div>
-                    {chargeLabel(m) && <div className="pro-pack-alt">≈ {chargeLabel(m)}</div>}
-                    <button type="button" className="pro-chip" onClick={() => buy(m)}>Buy</button>
+                {(pkgs.length ? pkgs : PACKAGES.map((m) => ({ minutes: m, usd: 0, charge: 0, currency: "NGN" }))).map((p) => (
+                  <div key={p.minutes} className="pro-pack">
+                    <div className="pro-pack-min">{p.minutes}<span> min</span></div>
+                    <div className="pro-pack-price">{p.usd ? `$${p.usd.toFixed(2)}` : usdLabel(p.minutes)}</div>
+                    {(p.charge ? <div className="pro-pack-alt">≈ ₦{p.charge.toLocaleString()}</div>
+                               : chargeLabel(p.minutes) && <div className="pro-pack-alt">≈ {chargeLabel(p.minutes)}</div>)}
+                    <button type="button" className="pro-chip" onClick={() => buy(p.minutes)}>Buy</button>
                   </div>
                 ))}
               </div>

@@ -12,7 +12,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-const SERVER = process.env.APEXCAM_SERVER || "https://api.apexcam.app";
+const SERVER = process.env.APEXCAM_SERVER || "https://apexcam-api.onrender.com";
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000; // every 6 hours
 
 type Manifest = { version: string; url: string; notes?: string; mandatory?: boolean };
