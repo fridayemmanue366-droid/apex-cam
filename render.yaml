@@ -1,0 +1,41 @@
+# Apex Cam cloud server — Render Blueprint (must live at the REPO ROOT).
+#
+# Render -> New -> Blueprint -> pick this repo. Secrets marked `sync: false` are
+# typed into the Render dashboard by YOU — never in git, never in the shipped app.
+#
+# NOTE ON PLAN: 'starter' ($7/mo) is required for the PERSISTENT DISK. Render's
+# free tier has an ephemeral filesystem — the database (accounts, credits,
+# subscriptions) would be WIPED on every restart. Never use free for real money.
+services:
+  - type: web
+    name: apexcam-api
+    runtime: python
+    plan: starter
+    region: frankfurt          # closest Render region to Nigeria
+    rootDir: server            # the server code lives in server/
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    disk:
+      name: apexcam-data       # keeps the SQLite DB across restarts/deploys
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: APEXCAM_DB
+        value: /data/apexcam.db          # on the persistent disk
+      - key: APEXCAM_SECRET
+        generateValue: true              # Render generates a strong signing secret
+      - key: APEXCAM_DECART_KEY
+        sync: false                      # paste in the Render dashboard
+      - key: FLW_SECRET
+        sync: false                      # paste in the dashboard (LIVE Flutterwave)
+      - key: APEXCAM_PUBLIC_URL
+        sync: false                      # e.g. https://apexcam-api.onrender.com
+      - key: APEXCAM_PAY_CURRENCY
+        value: NGN
+      - key: APEXCAM_NGN_PER_USD
+        value: "1600"
+      - key: APEXCAM_SUB_NGN
+        value: "20000"                   # local app subscription: ₦20,000/month
+      - key: APEXCAM_TRIAL_DAYS
+        value: "1"
