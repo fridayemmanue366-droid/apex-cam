@@ -2,9 +2,12 @@
 // the Decart studio). The provider keys live on the server, never here, and the
 // credit balance is server-side so it can't be tampered with locally.
 
+// Our live cloud server (Render). Override with VITE_APEXCAM_SERVER for local dev
+// (e.g. http://127.0.0.1:8900). If you later put a custom domain in front of it,
+// change this one line and rebuild.
 const CLOUD =
   (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_APEXCAM_SERVER ||
-  "https://api.apexcam.app";
+  "https://apexcam-api.onrender.com";
 
 const TOKEN_KEY = "apexcam.token";
 
