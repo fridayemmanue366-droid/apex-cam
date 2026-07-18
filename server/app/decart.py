@@ -20,6 +20,9 @@ LIVE_MODEL = os.environ.get("APEXCAM_DECART_MODEL", "lucy-2.5")
 # enhancement (better results). Both verified against the live API.
 RESOLUTION = os.environ.get("APEXCAM_DECART_RESOLUTION", "720p")
 ENHANCE_PROMPT = os.environ.get("APEXCAM_DECART_ENHANCE", "1") not in ("0", "false", "")
+# Realtime only: "false" tracks the live camera on a face swap; "true" (Decart's
+# default) can lock onto an early generated frame. Set env to "" to omit entirely.
+SELF_ANCHOR = os.environ.get("APEXCAM_DECART_SELF_ANCHOR", "false") or None
 FACE_PROMPT = ("Replace the person with the person in the reference image — exact "
                "same face, hair and identity, photorealistic.")
 # Used when the customer has no persona photo — a prompt-only realtime transform.
@@ -156,6 +159,12 @@ async def live_room(reference_bytes: bytes | None, prompt: str | None) -> dict:
 
     ref_b64 = base64.b64encode(reference_bytes).decode() if reference_bytes else None
     url = f"{WS_BASE}?model={LIVE_MODEL}&api_key={_key()}"
+    # self_anchor feeds Lucy's own recent output back as a reference to stay stable.
+    # Decart says to DISABLE it when the scene/person changes — which is exactly a
+    # face swap — so it tracks the live camera instead of locking onto an early
+    # (bad) generated frame. Probed against the live API: accepted, room issued.
+    if SELF_ANCHOR is not None:
+        url += f"&self_anchor={SELF_ANCHOR}"
     ws = await websockets.connect(url, open_timeout=25, max_size=None)
     await ws.send(json.dumps({"type": "livekit_join", "passthrough": False}))
     if ref_b64:
