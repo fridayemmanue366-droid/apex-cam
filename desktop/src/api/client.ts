@@ -79,6 +79,30 @@ export interface PipelineStatus {
   faces_detected: number;
 }
 
+export interface CameraInfo {
+  index: number;
+  name: string;
+  virtual: boolean;
+}
+
+export interface CameraList {
+  cameras: CameraInfo[];
+  auto: number;
+}
+
+// Which camera the AI engine reads. -1 = auto-pick the real webcam (skip
+// YouCam/virtual/IR). Persisted so the customer's choice sticks across restarts.
+const AI_CAM_KEY = "apexcam.aiCameraIndex";
+
+export function getAiCameraIndex(): number {
+  const v = localStorage.getItem(AI_CAM_KEY);
+  return v == null || v === "" ? -1 : Number(v);
+}
+
+export function setAiCameraIndex(index: number): void {
+  localStorage.setItem(AI_CAM_KEY, String(index));
+}
+
 export interface PerformanceSettings {
   proc_width: number;
 }
@@ -250,6 +274,7 @@ export const api = {
   profileImageUrl: (id: string) => `${BASE}/face/profiles/${id}/image`,
 
   pipelineStatus: () => req<PipelineStatus>("/pipeline"),
+  listCameras: () => req<CameraList>("/pipeline/cameras"),
   // -1 = let the backend auto-pick the real webcam (skip YouCam/virtual/IR).
   pipelineStart: (cameraIndex = -1) =>
     req<PipelineStatus>("/pipeline/start", {

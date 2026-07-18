@@ -51,6 +51,12 @@ VIRTUAL_CAM_HINTS = (
 )
 
 
+def is_virtual_camera(name: str) -> bool:
+    """True if a device name looks like a virtual or IR camera (not a real webcam)."""
+    low = (name or "").lower()
+    return any(h in low for h in VIRTUAL_CAM_HINTS)
+
+
 def enumerate_cameras() -> list[tuple[int, str]]:
     """(index, name) for each DirectShow camera, in OpenCV's index order.
     Empty list if enumeration is unavailable (we then fall back to index 0)."""
@@ -75,8 +81,7 @@ def pick_real_camera_index() -> int:
     if not cams:
         return 0
     for i, name in cams:
-        low = (name or "").lower()
-        if not any(h in low for h in VIRTUAL_CAM_HINTS):
+        if not is_virtual_camera(name):
             log.info("Auto-selected real camera %d: %s", i, name)
             return i
     log.warning("Only virtual cameras found (%s); using index %d",

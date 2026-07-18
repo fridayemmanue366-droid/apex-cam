@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type BackgroundSettings } from "../api/client";
+import {
+  api,
+  getAiCameraIndex,
+  setAiCameraIndex,
+  type BackgroundSettings,
+  type CameraInfo,
+} from "../api/client";
 import { AiEngineControl } from "../components/AiEngineControl";
 import { DualPreview } from "../components/DualPreview";
+import { usePipeline } from "../context/PipelineContext";
 import {
   DEFAULT_ENHANCE,
   RESOLUTIONS,
@@ -23,10 +30,16 @@ export function CameraTab() {
     setEnhance,
     externalHold,
   } = useMedia();
+  const pipeline = usePipeline();
   const [sharpen, setSharpen] = useState(0);
   const [beauty, setBeauty] = useState(0);
   const [bg, setBg] = useState<BackgroundSettings | null>(null);
   const bgFileRef = useRef<HTMLInputElement>(null);
+  // AI-engine camera picker (the backend/OpenCV device that feeds the face swap
+  // and Lucy — separate from the browser-preview "Device" dropdown above).
+  const [aiCameras, setAiCameras] = useState<CameraInfo[]>([]);
+  const [aiAuto, setAiAuto] = useState(-1);
+  const [aiCam, setAiCam] = useState(getAiCameraIndex());
 
   useEffect(() => {
     api.getEnhance().then((e) => {
@@ -34,7 +47,23 @@ export function CameraTab() {
       setBeauty(e.beautify ?? 0);
     }).catch(() => undefined);
     api.getBackground().then(setBg).catch(() => setBg(null));
+    api.listCameras().then((r) => {
+      setAiCameras(r.cameras);
+      setAiAuto(r.auto);
+    }).catch(() => undefined);
   }, []);
+
+  const changeAiCamera = async (index: number) => {
+    setAiCam(index);
+    setAiCameraIndex(index);
+    // If the AI engine is already running, reopen it on the newly chosen camera.
+    if (pipeline.active) {
+      await pipeline.stop().catch(() => undefined);
+      await pipeline.start().catch(() => undefined);
+    }
+  };
+
+  const autoName = aiCameras.find((c) => c.index === aiAuto)?.name;
 
   const changeBeauty = (v: number) => {
     setBeauty(v);
@@ -110,6 +139,26 @@ export function CameraTab() {
             ))}
           </select>
         </label>
+        <label className="row">
+          AI engine camera
+          <select value={aiCam} onChange={(e) => changeAiCamera(Number(e.target.value))}>
+            <option value={-1}>
+              Auto{autoName ? ` — ${autoName}` : " — real webcam"}
+            </option>
+            {aiCameras.map((c) => (
+              <option key={c.index} value={c.index}>
+                {c.name}
+                {c.virtual ? " (virtual — not recommended)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="muted">
+          Which camera the AI face swap &amp; Lucy read. Leave on <strong>Auto</strong> — it
+          picks your real webcam and skips YouCam and other virtual cameras (which cause a
+          feedback loop). Only change this if the wrong camera is showing. Changing it while
+          the AI engine is running reopens it on the new camera.
+        </p>
         <div className="row">
           {running ? (
             <button type="button" className="btn" onClick={stop}>

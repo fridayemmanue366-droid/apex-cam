@@ -77,6 +77,28 @@ def status() -> PipelineStatus:
     return _status()
 
 
+class CameraInfo(BaseModel):
+    index: int
+    name: str
+    virtual: bool
+
+
+class CameraList(BaseModel):
+    cameras: list[CameraInfo]
+    auto: int   # index the app auto-picks (the real webcam)
+
+
+@router.get("/pipeline/cameras")
+def cameras() -> CameraList:
+    """List the real system cameras (index + name) so the UI can offer a picker.
+    `auto` is the index we'd choose automatically (the real webcam)."""
+    from app.core.pipeline import enumerate_cameras, is_virtual_camera, pick_real_camera_index
+
+    cams = [CameraInfo(index=i, name=n, virtual=is_virtual_camera(n))
+            for i, n in enumerate_cameras()]
+    return CameraList(cameras=cams, auto=pick_real_camera_index())
+
+
 @router.post("/pipeline/start")
 def start(req: StartRequest) -> PipelineStatus:
     pipeline.start(req.camera_index)

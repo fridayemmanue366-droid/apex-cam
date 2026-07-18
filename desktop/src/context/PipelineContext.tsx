@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, WS_PREVIEW_URL } from "../api/client";
+import { api, getAiCameraIndex, WS_PREVIEW_URL } from "../api/client";
 import { useMedia } from "./MediaContext";
 
 // AI-engine mode: the backend owns the camera and runs the full processing
@@ -89,7 +89,8 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       // and reopens on static, but giving Windows ~900ms first avoids it entirely.
       media.setExternalHold(true);
       await new Promise((r) => setTimeout(r, 900));
-      const status = await api.pipelineStart();   // auto-pick the real webcam
+      // The customer's picked camera (or -1 = auto-pick the real webcam).
+      const status = await api.pipelineStart(getAiCameraIndex());
       if (status.error) throw new Error(status.error);
 
       const ws = new WebSocket(WS_PREVIEW_URL);
