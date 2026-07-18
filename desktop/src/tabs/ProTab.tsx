@@ -185,20 +185,23 @@ export function ProTab() {
     return `${sym}${Math.round(min * pricing.charge_per_minute).toLocaleString()}`;
   };
 
-  // Poll the balance so the countdown updates live and the UI reflects an
-  // auto-stop (when minutes run out, the backend flips enabled -> false).
+  // Poll the balance. The credit that PURCHASES add lives on the CLOUD account
+  // (cloud.me) — that's the real wallet, and where a Flutterwave payment lands.
+  // (api.getPro is only the local engine's live flag.)
   useEffect(() => {
     if (!entered) return;
     const t = setInterval(() => {
+      cloud.me().then(setAccount).catch(() => undefined);
       api.getPro().then(setPro).catch(() => undefined);
     }, 1500);
     return () => clearInterval(t);
   }, [entered]);
 
-  // Live per-second balance, like Decart. The server meters per second at the live
-  // rate ($0.03/s); we tick the display down each second and re-sync on every poll.
+  // Live per-second balance, like Decart. Sourced from the CLOUD account (in
+  // credit-seconds) so a purchase shows immediately; ticks down while live and
+  // re-syncs on every poll.
   const [secsLeft, setSecsLeft] = useState(0);
-  useEffect(() => { setSecsLeft(Math.round((pro?.minutes_remaining ?? 0) * 60)); }, [pro?.minutes_remaining]);
+  useEffect(() => { setSecsLeft(Math.round(account?.credit_seconds ?? 0)); }, [account?.credit_seconds]);
   useEffect(() => {
     if (!pro?.enabled || !pro?.live) return;   // only counts while Lucy is transforming
     const id = setInterval(() => setSecsLeft((s) => Math.max(0, s - 1)), 1000);
