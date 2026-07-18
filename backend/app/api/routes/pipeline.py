@@ -57,7 +57,7 @@ class PerformanceSettings(BaseModel):
 
 
 class StartRequest(BaseModel):
-    camera_index: int = 0
+    camera_index: int = -1   # -1 = auto-pick the real webcam (skip YouCam/IR/virtual)
 
 
 class Enhance(BaseModel):

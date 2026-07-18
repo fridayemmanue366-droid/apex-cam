@@ -38,6 +38,51 @@ from app.streaming.virtual_camera import VirtualCamera
 
 log = get_logger(__name__)
 
+# Substrings that mark a camera as VIRTUAL or infrared — never a valid AI input.
+# Reading a virtual cam (esp. YouCam, which many customers run as a WhatsApp
+# bridge) feeds our own output back in = a mirror-loop of "both images". IR
+# cameras (Windows Hello) give a washed monochrome frame. Skip them all and pick
+# the real color webcam.
+VIRTUAL_CAM_HINTS = (
+    "youcam", "cyberlink", "perfectcam", "apex cam", "obs", "unity",
+    "virtual", "manycam", "xsplit", "splitcam", "snap camera", "snapcam",
+    "nvidia broadcast", "e2esoft", "vcam", "droidcam", "iriun", "ivcam",
+    "streamlabs", "restream", "wirecast", "infrared", "ir camera",
+)
+
+
+def enumerate_cameras() -> list[tuple[int, str]]:
+    """(index, name) for each DirectShow camera, in OpenCV's index order.
+    Empty list if enumeration is unavailable (we then fall back to index 0)."""
+    try:
+        from pygrabber.dshow_graph import FilterGraph
+        return list(enumerate(FilterGraph().get_input_devices()))
+    except Exception as exc:
+        log.warning("Camera enumeration unavailable: %s", exc)
+        return []
+
+
+def pick_real_camera_index() -> int:
+    """The index of the first REAL (non-virtual, non-IR) color camera. Honors an
+    explicit APEXCAM_CAMERA_INDEX override; falls back to 0 if nothing is named."""
+    env = os.environ.get("APEXCAM_CAMERA_INDEX")
+    if env not in (None, ""):
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    cams = enumerate_cameras()
+    if not cams:
+        return 0
+    for i, name in cams:
+        low = (name or "").lower()
+        if not any(h in low for h in VIRTUAL_CAM_HINTS):
+            log.info("Auto-selected real camera %d: %s", i, name)
+            return i
+    log.warning("Only virtual cameras found (%s); using index %d",
+                [n for _, n in cams], cams[0][0])
+    return cams[0][0]
+
 
 @dataclass
 class EnhanceSettings:
@@ -124,9 +169,13 @@ class Pipeline:
 
     # -- public API ---------------------------------------------------------
 
-    def start(self, camera_index: int = 0) -> PipelineStats:
+    def start(self, camera_index: int = -1) -> PipelineStats:
         if self._thread and self._thread.is_alive():
             return self.stats()
+        # -1 (the default) = auto-pick the real color webcam, skipping YouCam and
+        # any other virtual/IR device. An explicit index from the UI is honored.
+        if camera_index < 0:
+            camera_index = pick_real_camera_index()
         self._stop.clear()
         with self._shared.lock:
             self._shared.stats = PipelineStats(running=True, camera_index=camera_index,
