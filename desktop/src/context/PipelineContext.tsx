@@ -89,7 +89,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       // and reopens on static, but giving Windows ~900ms first avoids it entirely.
       media.setExternalHold(true);
       await new Promise((r) => setTimeout(r, 900));
-      const status = await api.pipelineStart(0);
+      const status = await api.pipelineStart();   // auto-pick the real webcam
       if (status.error) throw new Error(status.error);
 
       const ws = new WebSocket(WS_PREVIEW_URL);

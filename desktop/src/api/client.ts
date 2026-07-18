@@ -250,7 +250,8 @@ export const api = {
   profileImageUrl: (id: string) => `${BASE}/face/profiles/${id}/image`,
 
   pipelineStatus: () => req<PipelineStatus>("/pipeline"),
-  pipelineStart: (cameraIndex = 0) =>
+  // -1 = let the backend auto-pick the real webcam (skip YouCam/virtual/IR).
+  pipelineStart: (cameraIndex = -1) =>
     req<PipelineStatus>("/pipeline/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
