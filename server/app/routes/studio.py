@@ -5,10 +5,9 @@ Modes:
   photo         POST /studio/photo            (sync image edit / face swap)
   video/restyle POST /studio/video/start      (job) -> GET /studio/job/{id}[/content]
   live cam      POST /studio/live/start       -> LiveKit room the client joins direct
-                POST /studio/live/prompt, POST /studio/live/tick, POST /studio/live/stop
-Live is metered by the client's heartbeat (/live/tick): we debit only the seconds
-Lucy is really streaming frames back, and cut the session the moment credit runs
-out — so a customer never pays for connecting/stalls, nor exceeds what they paid.
+                POST /studio/live/prompt, POST /studio/live/stop
+Live is metered by a background task that debits 1 wallet-sec/sec and cuts the
+session the moment credit runs out — so a customer can never exceed what they paid.
 """
 from __future__ import annotations
 
@@ -93,45 +92,19 @@ def job_result(job_id: str, uid: int = Depends(current_user)) -> Response:
 
 
 # --- Live cam ------------------------------------------------------------
-# The customer is billed ONLY while Lucy is really sending transformed frames
-# back — not during the 3-8s of connecting to Decart/LiveKit. The server can't
-# see those frames (they go Decart -> the customer's PC directly), so the PC
-# sends a heartbeat (/live/tick, streaming=true|false) every ~2s and we debit
-# the elapsed streaming time between heartbeats. No heartbeat, no charge.
-TICK_CAP = 5.0        # never bill more than this per heartbeat (covers a lag spike)
-STALL_TIMEOUT = 20.0  # streaming then PC goes silent this long -> reap
-START_TIMEOUT = 90.0  # heartbeating but never a real frame in this long -> give up
-LEGACY_GRACE = 12.0   # no heartbeat AT ALL this long after start -> old build that
-                      # can't heartbeat; fall back to the old wall-clock billing so
-                      # customers on the previous installer keep working.
-
-
 async def _meter_live(session_id: str) -> None:
-    """Watchdog + legacy fallback — normal billing happens in /live/tick.
-    Reaps the session (and stops paying Decart) if the PC goes silent, and if a
-    session NEVER heartbeats (an old installer) it bills the old wall-clock way."""
-    started_at = time.monotonic()
-    legacy = False
-    legacy_last = 0.0
-    while True:
-        await asyncio.sleep(2.0)
-        sess = _live.get(session_id)
-        if not sess or sess["stop"].is_set():
-            return
-        uid = sess["uid"]
+    """Debit 1 wallet-sec/sec while the live session runs; end it at zero."""
+    sess = _live.get(session_id)
+    if not sess:
+        return
+    uid = sess["uid"]
+    last = time.monotonic()
+    while not sess["stop"].is_set():
+        await asyncio.sleep(1.0)
         now = time.monotonic()
-        if legacy:                                 # old build: debit wall-clock
-            if not db.spend(uid, now - legacy_last, "live"):
-                break
-            legacy_last = now
-            continue
-        if not sess["ever_ticked"] and (now - started_at) > LEGACY_GRACE:
-            legacy, legacy_last = True, now        # never heard a beat -> old build
-            continue
-        if sess["started"]:                        # real streaming has begun
-            if now - sess["last_stream"] > STALL_TIMEOUT:   # frames stopped -> reap
-                break
-        elif (now - started_at) > START_TIMEOUT:   # heartbeating but never streamed
+        dt = now - last
+        last = now
+        if not db.spend(uid, dt, "live"):          # out of credit -> cut the session
             break
     await _close_live(session_id)
 
@@ -160,48 +133,11 @@ async def live_start(prompt: str = Form(""), reference: UploadFile | None = File
     except Exception as exc:
         raise HTTPException(502, f"Could not start live: {exc}")
     sid = uuid.uuid4().hex
-    now = time.monotonic()
-    _live[sid] = {"ws": room["ws"], "uid": uid, "stop": asyncio.Event(),
-                  "last_tick": now,      # last heartbeat of ANY kind (watchdog)
-                  "last_bill": now,      # last time we debited (streaming clock)
-                  "last_stream": now,    # last heartbeat that was actually streaming
-                  "started": False,      # has real streaming begun yet?
-                  "streaming": False,    # was the previous heartbeat streaming?
-                  "ever_ticked": False}  # any heartbeat at all? (else old build)
+    _live[sid] = {"ws": room["ws"], "uid": uid, "stop": asyncio.Event()}
     _live[sid]["task"] = asyncio.create_task(_meter_live(sid))
     info = room["info"]
     return {"session_id": sid, "livekit_url": info["livekit_url"],
             "token": info["token"], "room_name": info.get("room_name")}
-
-
-@router.post("/live/tick")
-async def live_tick(session_id: str = Form(...), streaming: bool = Form(True),
-                    uid: int = Depends(current_user)) -> dict:
-    """Heartbeat from the customer's PC (~every 2s). `streaming` is True only while
-    Lucy is really delivering transformed frames. We bill the elapsed streaming
-    time since the last billed heartbeat — so connecting/stalls are never charged."""
-    sess = _live.get(session_id)
-    if not sess or sess["uid"] != uid:
-        raise HTTPException(404, "No such session")
-    now = time.monotonic()
-    sess["ever_ticked"] = True
-    charged = False
-    # Only bill a CONTIGUOUS streaming interval (this tick and the last were both
-    # streaming). The first streaming tick, and any tick resuming after a stall,
-    # starts a fresh interval with no charge.
-    if streaming and sess["streaming"]:
-        dt = min(now - sess["last_bill"], TICK_CAP)
-        if not db.spend(uid, dt, "live"):          # out of credit -> cut the session
-            await _close_live(session_id)
-            return {"ok": False, "stopped": True, "reason": "out_of_credit"}
-        charged = True
-    if streaming:
-        sess["started"] = True
-        sess["last_bill"] = now
-        sess["last_stream"] = now
-    sess["streaming"] = streaming
-    sess["last_tick"] = now
-    return {"ok": True, "charged": charged}
 
 
 @router.post("/live/prompt")

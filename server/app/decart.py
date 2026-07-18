@@ -159,11 +159,9 @@ async def live_room(reference_bytes: bytes | None, prompt: str | None) -> dict:
     ws = await websockets.connect(url, open_timeout=25, max_size=None)
     await ws.send(json.dumps({"type": "livekit_join", "passthrough": False}))
     if ref_b64:
-        # Face swap: become the reference person. enhance_prompt = Decart's own
-        # quality boost for a sharper, cleaner result.
+        # Face swap: become the reference person.
         await ws.send(json.dumps({"type": "set_image", "image_data": ref_b64,
-                                  "prompt": prompt or FACE_PROMPT,
-                                  "enhance_prompt": True}))
+                                  "prompt": prompt or FACE_PROMPT}))
     else:
         # No persona photo — drive Lucy with the text prompt alone. Without ANY
         # instruction Decart has nothing to generate and the output is blank.
