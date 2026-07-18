@@ -22,6 +22,8 @@ RESOLUTION = os.environ.get("APEXCAM_DECART_RESOLUTION", "720p")
 ENHANCE_PROMPT = os.environ.get("APEXCAM_DECART_ENHANCE", "1") not in ("0", "false", "")
 FACE_PROMPT = ("Replace the person with the person in the reference image — exact "
                "same face, hair and identity, photorealistic.")
+# Used when the customer has no persona photo — a prompt-only realtime transform.
+DEFAULT_LIVE_PROMPT = "Photorealistic person, natural face, studio lighting, following their movements."
 
 
 def _key() -> str:
@@ -157,8 +159,15 @@ async def live_room(reference_bytes: bytes | None, prompt: str | None) -> dict:
     ws = await websockets.connect(url, open_timeout=25, max_size=None)
     await ws.send(json.dumps({"type": "livekit_join", "passthrough": False}))
     if ref_b64:
+        # Face swap: become the reference person.
         await ws.send(json.dumps({"type": "set_image", "image_data": ref_b64,
                                   "prompt": prompt or FACE_PROMPT}))
+    else:
+        # No persona photo — drive Lucy with the text prompt alone. Without ANY
+        # instruction Decart has nothing to generate and the output is blank.
+        await ws.send(json.dumps({"type": "prompt",
+                                  "prompt": prompt or DEFAULT_LIVE_PROMPT,
+                                  "enhance_prompt": True}))
     info = None
     for _ in range(10):
         d = json.loads(await asyncio.wait_for(ws.recv(), timeout=8))
