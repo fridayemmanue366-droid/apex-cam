@@ -326,6 +326,16 @@ export const api = {
   },
   getProJob: (jobId: string) => req<{ status: string }>(`/pro/job/${jobId}`),
   proJobContentUrl: (jobId: string) => `${BASE}/pro/job/${jobId}/content`,
+  // Cloud live cam: the CLOUD server does the Decart handshake (key stays there)
+  // and returns a LiveKit room; the local engine just joins it with the token.
+  proReferenceUrl: `${BASE}/pro/reference`,
+  proLiveCloud: (livekit_url: string, token: string) =>
+    req<ProStatus>("/pro/live/cloud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ livekit_url, token }),
+    }),
+  proLiveCloudStop: () => req<ProStatus>("/pro/live/cloud/stop", { method: "POST" }),
   getProVoice: () => req<ProVoice>("/pro/voice"),
   setProVoice: (cfg: { enabled: boolean; voice: string | null }) =>
     req<ProVoice>("/pro/voice", {

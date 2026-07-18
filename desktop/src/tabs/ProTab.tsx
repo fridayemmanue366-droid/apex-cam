@@ -119,14 +119,19 @@ function useVideoJob(onCredit: () => void) {
                refMode: RefMode = "none", reference: File | null = null) => {
     if (!file) { setErr("Upload a video first"); return; }
     setStatus("submitting"); setErr(null); setResult(null);
-    api.startProVideo(file, promptText, mode, mode === "video" ? reference : null, refMode)
+    // Jobs run on the CLOUD server: it holds the Decart key and charges the
+    // cloud wallet (the same one purchases top up).
+    cloud.videoStart(file, promptText, mode, refMode === "face",
+                     mode === "video" ? reference : null)
       .then((r) => {
         setStatus("processing");
-        const poll = () => api.getProJob(r.job_id).then((s) => {
+        const poll = () => cloud.jobStatus(r.job_id).then((s) => {
           if (s.status === "completed") {
-            setResult(api.proJobContentUrl(r.job_id)); setStatus("done"); onCredit();
+            cloud.jobContent(r.job_id)
+              .then((u) => { setResult(u); setStatus("done"); onCredit(); })
+              .catch(() => setTimeout(poll, 4000));
           } else if (s.status === "failed") {
-            setStatus("error"); setErr("The job failed — try again");
+            setStatus("error"); setErr("The job failed — try again"); onCredit();
           } else setTimeout(poll, 3000);
         }).catch(() => setTimeout(poll, 4000));
         poll();
@@ -210,17 +215,51 @@ export function ProTab() {
   const perSec = pricing ? pricing.usd_per_minute / 60 : 0.03;
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-  // GO LIVE / Stop for the Lucy live cam. Going live must drive the SHARED
-  // pipeline: start it (which releases the local preview camera AND switches the
-  // preview to the backend's Lucy output — otherwise you'd keep seeing the raw
-  // local cam), then enable the cloud model. Stopping hands the camera back.
+  // GO LIVE / Stop for the Lucy live cam — fully CLOUD-driven:
+  //   1. cloud.liveStart -> the SERVER does the Decart handshake (its key) and
+  //      meters the cloud wallet per second; it returns a LiveKit room.
+  //   2. the local engine joins that room with just the token (no key on the PC)
+  //      and pumps camera frames through it.
+  // The shared pipeline starts first so the preview shows Lucy, not the raw cam.
+  const [liveSession, setLiveSession] = useState<string | null>(null);
+  const [liveErr, setLiveErr] = useState<string | null>(null);
   const save = async (enabled: boolean, p = prompt) => {
-    if (enabled && !pipeline.active) {
-      await pipeline.start();          // release local cam + show Lucy output
-    }
-    await api.setPro({ enabled, prompt: p }).then(setPro).catch(() => undefined);
-    if (!enabled && pipeline.active) {
-      await pipeline.stop();           // give the camera back to the local preview
+    setLiveErr(null);
+    try {
+      if (enabled && liveSession) {
+        // Already live — this is just a prompt/look update.
+        await cloud.livePrompt(liveSession, p).catch(() => undefined);
+        return;
+      }
+      if (enabled) {
+        if ((account?.credit_seconds ?? 0) <= 0) {
+          setLiveErr("No credit — buy minutes first, then GO LIVE.");
+          return;
+        }
+        if (!pipeline.active) await pipeline.start();   // release local cam
+        // Send the saved persona to the server (it sets the face on Decart).
+        let ref: File | null = null;
+        try {
+          const b = await fetch(api.proReferenceUrl).then((r) => (r.ok ? r.blob() : null));
+          if (b) ref = new File([b], "persona.jpg", { type: "image/jpeg" });
+        } catch { /* no persona yet — Lucy runs prompt-only */ }
+        const r = await cloud.liveStart(p, ref);
+        setLiveSession(r.session_id);
+        await api.proLiveCloud(r.livekit_url, r.token).then(setPro);
+      } else {
+        if (liveSession) cloud.liveStop(liveSession).catch(() => undefined);
+        setLiveSession(null);
+        await api.proLiveCloudStop().then(setPro).catch(() => undefined);
+        if (pipeline.active) await pipeline.stop();     // hand the camera back
+      }
+    } catch (e) {
+      setLiveErr(e instanceof Error ? e.message : "Could not go live — try again");
+      if (liveSession) cloud.liveStop(liveSession).catch(() => undefined);
+      setLiveSession(null);
+      await api.proLiveCloudStop().catch(() => undefined);
+    } finally {
+      api.getPro().then(setPro).catch(() => undefined);
+      refreshCredit();
     }
   };
   const uploadRef = (f: File | undefined) => {
@@ -260,15 +299,16 @@ export function ProTab() {
       setPhotoErr("Upload a reference image to copy its look"); return;
     }
     setPhotoBusy(true); setPhotoErr(null); setPhotoResult(null);
-    api.makeProPhoto(photoInput, promptText, refMode, photoRef)
-      .then((u) => { setPhotoResult(u); api.getPro().then(setPro).catch(() => undefined); })
+    // Photo edits run on the CLOUD server (key + wallet live there).
+    cloud.photo(photoInput, promptText, refMode === "face", photoRef)
+      .then((u) => { setPhotoResult(u); cloud.me().then(setAccount).catch(() => undefined); })
       .catch((e) => setPhotoErr(String(e.message || e)))
       .finally(() => setPhotoBusy(false));
   };
 
   // Video + Restyle jobs (upload clip -> background job -> poll -> result video).
   // Video and Restyle are INDEPENDENT — separate uploads, prompts, jobs, results.
-  const refreshCredit = () => { api.getPro().then(setPro).catch(() => undefined); };
+  const refreshCredit = () => { cloud.me().then(setAccount).catch(() => undefined); };
   const vid = useVideoJob(refreshCredit);   // Video tab (lucy-2.5, face swap + edits)
   const rst = useVideoJob(refreshCredit);   // Restyle tab (lucy-restyle-2, style only)
 
@@ -374,18 +414,19 @@ export function ProTab() {
 
         <div className="pro-page">
           {pro.error && <p className="error">{pro.error}</p>}
+          {liveErr && <p className="error">{liveErr}</p>}
 
           {page === "dashboard" && (
             <>
               <div className="pro-status">
-                <span className="pro-pill">{pro.configured ? "Cloud ready" : "Cloud not funded yet"}</span>
+                <span className="pro-pill">{(account?.credit_seconds ?? 0) > 0 ? "Cloud ready" : "No credit — buy minutes"}</span>
                 {liveBadge}
                 <span className="pro-pill">{pro.model}</span>
                 {pro.enabled ? (
                   <button type="button" className="btn danger" onClick={() => save(false)}>■ Stop</button>
                 ) : (
                   <button type="button" className="pro-goldbtn"
-                          disabled={!pro.configured || !pro.has_credit}
+                          disabled={(account?.credit_seconds ?? 0) <= 0}
                           onClick={() => save(true)}>✦ GO LIVE</button>
                 )}
               </div>
@@ -451,7 +492,7 @@ export function ProTab() {
                   <button type="button" className="btn danger" onClick={() => save(false)}>■ Stop</button>
                 ) : (
                   <button type="button" className="pro-goldbtn"
-                          disabled={!pro.configured || !pro.has_credit}
+                          disabled={(account?.credit_seconds ?? 0) <= 0}
                           onClick={() => save(true)}>✦ GO LIVE</button>
                 )}
               </div>

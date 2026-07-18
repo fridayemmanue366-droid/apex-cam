@@ -113,6 +113,41 @@ def get_reference() -> FileResponse:
     return FileResponse(REFERENCE_IMG)
 
 
+# --- Cloud live cam ---------------------------------------------------------
+class CloudRoom(BaseModel):
+    livekit_url: str
+    token: str
+
+
+@router.post("/live/cloud")
+def live_cloud(r: CloudRoom) -> ProStatus:
+    """Go live via OUR CLOUD SERVER: it did the Decart handshake with ITS key and
+    meters the customer's cloud wallet; this machine just joins the LiveKit room
+    with the token. No provider key, no local billing here."""
+    # Pro and the local swap never run together (and the local face deselects).
+    try:
+        from app.api.routes.face import deactivate_local
+        deactivate_local()
+    except Exception:
+        log.exception("cloud live: could not deactivate local swap")
+    lucy_pro.start_cloud(r.livekit_url, r.token)
+    # One click: camera pipeline on + publish to the virtual camera.
+    try:
+        from app.core.pipeline import pipeline
+        if not pipeline.stats().running:
+            pipeline.start()
+        pipeline.enable_vcam()
+    except Exception:
+        log.exception("cloud live: pipeline/vcam start failed")
+    return _status()
+
+
+@router.post("/live/cloud/stop")
+def live_cloud_stop() -> ProStatus:
+    lucy_pro.stop_cloud()
+    return _status()
+
+
 # --- Studio: Photo mode (image-to-image face swap) -------------------------
 @router.post("/photo")
 async def make_photo(file: UploadFile, reference: UploadFile | None = File(None),

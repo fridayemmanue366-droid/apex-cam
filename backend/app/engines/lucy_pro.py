@@ -81,6 +81,9 @@ class LucyProEngine:
         self._live_flag = False
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        # Cloud mode: (livekit_url, token) issued by OUR server, which did the
+        # Decart handshake with ITS key. The customer's PC never needs the key.
+        self._cloud: tuple[str, str] | None = None
         self._load_config()
 
     # --- persistence ---------------------------------------------------------
@@ -103,7 +106,8 @@ class LucyProEngine:
 
     @property
     def ready(self) -> bool:
-        return self._enabled and self.configured
+        # Ready with a local key (dev) OR a server-issued cloud room (customers).
+        return self._enabled and (self.configured or self._cloud is not None)
 
     @property
     def live(self) -> bool:
@@ -171,6 +175,22 @@ class LucyProEngine:
             out = self._out
         return out if out is not None else frame_bgr
 
+    # --- cloud mode (server-issued room; no key on this machine) --------------
+    def start_cloud(self, livekit_url: str, token: str) -> None:
+        """Join a LiveKit room our CLOUD server created via its Decart handshake.
+        Bypasses the enabled-setter (which requires a local key)."""
+        if self._enabled:
+            self._stop_session()
+        self._cloud = (livekit_url, token)
+        self._last_error = None
+        self._enabled = True
+        self._start_session()
+
+    def stop_cloud(self) -> None:
+        self._cloud = None
+        self._enabled = False
+        self._stop_session()
+
     # --- session (background asyncio thread) --------------------------------
     def _start_session(self) -> None:
         self._stop.clear()
@@ -197,9 +217,14 @@ class LucyProEngine:
     async def _session(self) -> None:
         import asyncio
 
-        import cv2
         import websockets
-        from livekit import rtc
+
+        # Cloud mode: our server already did the Decart handshake (its key) and
+        # set the persona; we just join the room it gave us.
+        if self._cloud is not None:
+            url, token = self._cloud
+            await self._run_room(url, token)
+            return
 
         ref_b64 = base64.b64encode(self._reference).decode() if self._reference else None
         url = f"{WS_BASE}?model={MODEL}&api_key={self.api_key}"
@@ -224,31 +249,39 @@ class LucyProEngine:
             if not info:
                 self._last_error = "no room info from Decart"
                 return
+            await self._run_room(info["livekit_url"], info["token"])
 
-            room = rtc.Room()
+    async def _run_room(self, livekit_url: str, token: str) -> None:
+        """Join the LiveKit room: publish camera frames, receive Lucy's output."""
+        import asyncio
 
-            @room.on("track_subscribed")
-            def _on_track(track, pub, participant):  # noqa: ANN001
-                if track.kind == rtc.TrackKind.KIND_VIDEO:
-                    asyncio.create_task(self._read_output(track))
+        import cv2
+        from livekit import rtc
 
-            await room.connect(info["livekit_url"], info["token"])
-            src = rtc.VideoSource(WIDTH, HEIGHT)
-            local = rtc.LocalVideoTrack.create_video_track("cam", src)
-            await room.local_participant.publish_track(
-                local, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_CAMERA))
-            try:
-                while not self._stop.is_set():
-                    with self._lock:
-                        f = self._in
-                    if f is not None:
-                        img = cv2.resize(f, (WIDTH, HEIGHT))
-                        rgba = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
-                        src.capture_frame(
-                            rtc.VideoFrame(WIDTH, HEIGHT, rtc.VideoBufferType.RGBA, rgba.tobytes()))
-                    await asyncio.sleep(1 / FPS)
-            finally:
-                await room.disconnect()
+        room = rtc.Room()
+
+        @room.on("track_subscribed")
+        def _on_track(track, pub, participant):  # noqa: ANN001
+            if track.kind == rtc.TrackKind.KIND_VIDEO:
+                asyncio.create_task(self._read_output(track))
+
+        await room.connect(livekit_url, token)
+        src = rtc.VideoSource(WIDTH, HEIGHT)
+        local = rtc.LocalVideoTrack.create_video_track("cam", src)
+        await room.local_participant.publish_track(
+            local, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_CAMERA))
+        try:
+            while not self._stop.is_set():
+                with self._lock:
+                    f = self._in
+                if f is not None:
+                    img = cv2.resize(f, (WIDTH, HEIGHT))
+                    rgba = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
+                    src.capture_frame(
+                        rtc.VideoFrame(WIDTH, HEIGHT, rtc.VideoBufferType.RGBA, rgba.tobytes()))
+                await asyncio.sleep(1 / FPS)
+        finally:
+            await room.disconnect()
 
     async def _read_output(self, track) -> None:  # noqa: ANN001
         import cv2

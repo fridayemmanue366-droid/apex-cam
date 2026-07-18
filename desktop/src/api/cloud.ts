@@ -131,6 +131,16 @@ export const cloud = {
   },
   jobStatus: (id: string) => call<{ status: string }>(`/studio/job/${id}`),
   jobUrl: (id: string) => `${CLOUD}/studio/job/${id}/content`,
+  // The content endpoint needs the Bearer token, which a plain <video src> can't
+  // send — fetch it authenticated and hand back an object URL instead.
+  jobContent: async (id: string): Promise<string> => {
+    const token = getToken();
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const res = await fetch(`${CLOUD}/studio/job/${id}/content`, { headers });
+    if (!res.ok) throw new Error("Result not ready");
+    return URL.createObjectURL(await res.blob());
+  },
 
   // --- live cam: server does the Decart handshake, we get a LiveKit room ---
   liveStart: (prompt: string, reference?: File | null) => {
