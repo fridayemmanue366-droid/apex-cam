@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type ProStatus, type RefMode } from "../api/client";
-import { cloud, signedIn, type Account, type Pkg } from "../api/cloud";
+import { cloud, getToken, signedIn, type Account, type Pkg } from "../api/cloud";
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
 import { usePipeline } from "../context/PipelineContext";
@@ -245,7 +245,11 @@ export function ProTab() {
         } catch { /* no persona yet — Lucy runs prompt-only */ }
         const r = await cloud.liveStart(p, ref);
         setLiveSession(r.session_id);
-        await api.proLiveCloud(r.livekit_url, r.token).then(setPro);
+        // Pass the session + cloud auth so the PC heartbeats the meter — the
+        // customer is billed only while Lucy is really streaming, not connecting.
+        await api
+          .proLiveCloud(r.livekit_url, r.token, r.session_id, cloud.url, getToken() ?? undefined)
+          .then(setPro);
       } else {
         if (liveSession) cloud.liveStop(liveSession).catch(() => undefined);
         setLiveSession(null);

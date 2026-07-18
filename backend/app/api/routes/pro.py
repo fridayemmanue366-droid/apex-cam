@@ -5,6 +5,7 @@ activates when an API key is set. Payment/credits are handled separately (later)
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -117,6 +118,38 @@ def get_reference() -> FileResponse:
 class CloudRoom(BaseModel):
     livekit_url: str
     token: str
+    # For fair metering: this PC heartbeats the cloud server ONLY while Lucy is
+    # really streaming frames back, so the customer isn't billed for connecting.
+    session_id: str | None = None
+    cloud_url: str | None = None
+    auth: str | None = None
+
+
+# Heartbeat control for the running cloud session.
+_tick_stop = threading.Event()
+_tick_thread: threading.Thread | None = None
+
+
+def _heartbeat(session_id: str, cloud_url: str, auth: str) -> None:
+    """Ping the cloud meter every ~2s. `streaming` is True only while Lucy is
+    actually delivering transformed frames (lucy_pro.live) — that is what the
+    server bills. Connecting time and stalls report False and cost nothing."""
+    import requests
+
+    url = cloud_url.rstrip("/") + "/studio/live/tick"
+    headers = {"Authorization": f"Bearer {auth}"}
+    while not _tick_stop.wait(2.0):
+        if not lucy_pro.ready:
+            break
+        try:
+            r = requests.post(url, headers=headers, timeout=8,
+                              data={"session_id": session_id,
+                                    "streaming": "true" if lucy_pro.live else "false"})
+            if r.status_code == 200 and r.json().get("stopped"):
+                lucy_pro.stop_cloud()          # server cut us off (out of credit)
+                break
+        except Exception:
+            pass                               # a dropped beat just isn't billed
 
 
 @router.post("/live/cloud")
@@ -124,6 +157,7 @@ def live_cloud(r: CloudRoom) -> ProStatus:
     """Go live via OUR CLOUD SERVER: it did the Decart handshake with ITS key and
     meters the customer's cloud wallet; this machine just joins the LiveKit room
     with the token. No provider key, no local billing here."""
+    global _tick_thread
     # Pro and the local swap never run together (and the local face deselects).
     try:
         from app.api.routes.face import deactivate_local
@@ -139,11 +173,21 @@ def live_cloud(r: CloudRoom) -> ProStatus:
         pipeline.enable_vcam()
     except Exception:
         log.exception("cloud live: pipeline/vcam start failed")
+    # Start heartbeat metering (fair: bills only while frames really flow).
+    if r.session_id and r.cloud_url and r.auth:
+        _tick_stop.set()                       # stop any prior beat
+        if _tick_thread and _tick_thread.is_alive():
+            _tick_thread.join(timeout=3.0)
+        _tick_stop.clear()
+        _tick_thread = threading.Thread(
+            target=_heartbeat, args=(r.session_id, r.cloud_url, r.auth), daemon=True)
+        _tick_thread.start()
     return _status()
 
 
 @router.post("/live/cloud/stop")
 def live_cloud_stop() -> ProStatus:
+    _tick_stop.set()
     lucy_pro.stop_cloud()
     return _status()
 

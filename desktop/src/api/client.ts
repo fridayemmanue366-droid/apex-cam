@@ -329,11 +329,19 @@ export const api = {
   // Cloud live cam: the CLOUD server does the Decart handshake (key stays there)
   // and returns a LiveKit room; the local engine just joins it with the token.
   proReferenceUrl: `${BASE}/pro/reference`,
-  proLiveCloud: (livekit_url: string, token: string) =>
+  proLiveCloud: (
+    livekit_url: string,
+    token: string,
+    session_id?: string,
+    cloud_url?: string,
+    auth?: string,
+  ) =>
     req<ProStatus>("/pro/live/cloud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ livekit_url, token }),
+      // session_id/cloud_url/auth let the PC heartbeat the cloud meter so the
+      // customer is billed only while Lucy is really streaming (not connecting).
+      body: JSON.stringify({ livekit_url, token, session_id, cloud_url, auth }),
     }),
   proLiveCloudStop: () => req<ProStatus>("/pro/live/cloud/stop", { method: "POST" }),
   getProVoice: () => req<ProVoice>("/pro/voice"),

@@ -5,9 +5,10 @@ Modes:
   photo         POST /studio/photo            (sync image edit / face swap)
   video/restyle POST /studio/video/start      (job) -> GET /studio/job/{id}[/content]
   live cam      POST /studio/live/start       -> LiveKit room the client joins direct
-                POST /studio/live/prompt, POST /studio/live/stop
-Live is metered by a background task that debits 1 wallet-sec/sec and cuts the
-session the moment credit runs out — so a customer can never exceed what they paid.
+                POST /studio/live/prompt, POST /studio/live/tick, POST /studio/live/stop
+Live is metered by the client's heartbeat (/live/tick): we debit only the seconds
+Lucy is really streaming frames back, and cut the session the moment credit runs
+out — so a customer never pays for connecting/stalls, nor exceeds what they paid.
 """
 from __future__ import annotations
 
@@ -92,19 +93,30 @@ def job_result(job_id: str, uid: int = Depends(current_user)) -> Response:
 
 
 # --- Live cam ------------------------------------------------------------
+# The customer is billed ONLY while Lucy is really sending transformed frames
+# back — not during the 3-8s of connecting to Decart/LiveKit. The server can't
+# see those frames (they go Decart -> the customer's PC directly), so the PC
+# sends a heartbeat (/live/tick, streaming=true|false) every ~2s and we debit
+# the elapsed streaming time between heartbeats. No heartbeat, no charge.
+TICK_CAP = 5.0        # never bill more than this per heartbeat (covers a lag spike)
+STALL_TIMEOUT = 20.0  # no heartbeat at all for this long -> the PC is gone; reap
+START_TIMEOUT = 90.0  # never even started streaming -> give up and reap
+
+
 async def _meter_live(session_id: str) -> None:
-    """Debit 1 wallet-sec/sec while the live session runs; end it at zero."""
-    sess = _live.get(session_id)
-    if not sess:
-        return
-    uid = sess["uid"]
-    last = time.monotonic()
-    while not sess["stop"].is_set():
-        await asyncio.sleep(1.0)
+    """Watchdog only — billing happens in /live/tick. Closes the session (and
+    stops paying Decart) if the customer's PC stops sending heartbeats."""
+    while True:
+        await asyncio.sleep(3.0)
+        sess = _live.get(session_id)
+        if not sess or sess["stop"].is_set():
+            return
         now = time.monotonic()
-        dt = now - last
-        last = now
-        if not db.spend(uid, dt, "live"):          # out of credit -> cut the session
+        idle = now - sess["last_tick"]
+        if sess["started"]:
+            if idle > STALL_TIMEOUT:               # was streaming, PC went silent
+                break
+        elif idle > START_TIMEOUT:                 # never started -> gave up
             break
     await _close_live(session_id)
 
@@ -133,11 +145,44 @@ async def live_start(prompt: str = Form(""), reference: UploadFile | None = File
     except Exception as exc:
         raise HTTPException(502, f"Could not start live: {exc}")
     sid = uuid.uuid4().hex
-    _live[sid] = {"ws": room["ws"], "uid": uid, "stop": asyncio.Event()}
+    now = time.monotonic()
+    _live[sid] = {"ws": room["ws"], "uid": uid, "stop": asyncio.Event(),
+                  "last_tick": now,      # last heartbeat of ANY kind (watchdog)
+                  "last_bill": now,      # last time we debited (streaming clock)
+                  "started": False,      # has real streaming begun yet?
+                  "streaming": False}    # was the previous heartbeat streaming?
     _live[sid]["task"] = asyncio.create_task(_meter_live(sid))
     info = room["info"]
     return {"session_id": sid, "livekit_url": info["livekit_url"],
             "token": info["token"], "room_name": info.get("room_name")}
+
+
+@router.post("/live/tick")
+async def live_tick(session_id: str = Form(...), streaming: bool = Form(True),
+                    uid: int = Depends(current_user)) -> dict:
+    """Heartbeat from the customer's PC (~every 2s). `streaming` is True only while
+    Lucy is really delivering transformed frames. We bill the elapsed streaming
+    time since the last billed heartbeat — so connecting/stalls are never charged."""
+    sess = _live.get(session_id)
+    if not sess or sess["uid"] != uid:
+        raise HTTPException(404, "No such session")
+    now = time.monotonic()
+    charged = False
+    # Only bill a CONTIGUOUS streaming interval (this tick and the last were both
+    # streaming). The first streaming tick, and any tick resuming after a stall,
+    # starts a fresh interval with no charge.
+    if streaming and sess["streaming"]:
+        dt = min(now - sess["last_bill"], TICK_CAP)
+        if not db.spend(uid, dt, "live"):          # out of credit -> cut the session
+            await _close_live(session_id)
+            return {"ok": False, "stopped": True, "reason": "out_of_credit"}
+        charged = True
+    if streaming:
+        sess["started"] = True
+        sess["last_bill"] = now
+    sess["streaming"] = streaming
+    sess["last_tick"] = now
+    return {"ok": True, "charged": charged}
 
 
 @router.post("/live/prompt")
