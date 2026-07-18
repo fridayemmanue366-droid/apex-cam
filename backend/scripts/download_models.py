@@ -28,22 +28,15 @@ CORE = {
     "inswapper_128_fp16.onnx": (MODELS,
         "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx",
         277, "Faster half-precision swap — better on weak PCs."),
-    "GFPGANv1.4.pth": (MODELS,
-        "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth",
-        333, "Face restorer — sharpens/cleans the swapped face."),
-    # Defaults the swap now relies on for the Deep-Live-Cam look (ONNX, no torch):
+    # The swap relies on the ONNX restorer/parser below (no PyTorch). The old
+    # torch-based GFPGANv1.4.pth / facexlib .pth weights were removed — they were
+    # never used at runtime and only caused a needless (often stalling) download.
     "gfpgan_1.4.onnx": (MODELS,
         "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/gfpgan_1.4.onnx",
         340, "GFPGAN restorer (ONNX) — default sharpness pass after the swap."),
     "bisenet_resnet_34.onnx": (MODELS,
         "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/bisenet_resnet_34.onnx",
         37, "Face parsing — face-shaped mask for a seamless (no-box) swap."),
-    "parsing_parsenet.pth": (GFPGAN_WEIGHTS,
-        "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth",
-        85, "Face parsing — precise full-face mask (fixes edges/coverage)."),
-    "detection_Resnet50_Final.pth": (GFPGAN_WEIGHTS,
-        "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth",
-        109, "Face detector used by GFPGAN."),
 }
 
 # ONNX enhancers/masks — run on onnxruntime (CPU or GPU), NO PyTorch needed.
