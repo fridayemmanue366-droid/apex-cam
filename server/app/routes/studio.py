@@ -99,24 +99,39 @@ def job_result(job_id: str, uid: int = Depends(current_user)) -> Response:
 # sends a heartbeat (/live/tick, streaming=true|false) every ~2s and we debit
 # the elapsed streaming time between heartbeats. No heartbeat, no charge.
 TICK_CAP = 5.0        # never bill more than this per heartbeat (covers a lag spike)
-STALL_TIMEOUT = 20.0  # no heartbeat at all for this long -> the PC is gone; reap
-START_TIMEOUT = 90.0  # never even started streaming -> give up and reap
+STALL_TIMEOUT = 20.0  # streaming then PC goes silent this long -> reap
+START_TIMEOUT = 90.0  # heartbeating but never a real frame in this long -> give up
+LEGACY_GRACE = 12.0   # no heartbeat AT ALL this long after start -> old build that
+                      # can't heartbeat; fall back to the old wall-clock billing so
+                      # customers on the previous installer keep working.
 
 
 async def _meter_live(session_id: str) -> None:
-    """Watchdog only — billing happens in /live/tick. Closes the session (and
-    stops paying Decart) if the customer's PC stops sending heartbeats."""
+    """Watchdog + legacy fallback — normal billing happens in /live/tick.
+    Reaps the session (and stops paying Decart) if the PC goes silent, and if a
+    session NEVER heartbeats (an old installer) it bills the old wall-clock way."""
+    started_at = time.monotonic()
+    legacy = False
+    legacy_last = 0.0
     while True:
-        await asyncio.sleep(3.0)
+        await asyncio.sleep(2.0)
         sess = _live.get(session_id)
         if not sess or sess["stop"].is_set():
             return
+        uid = sess["uid"]
         now = time.monotonic()
-        idle = now - sess["last_tick"]
-        if sess["started"]:
-            if idle > STALL_TIMEOUT:               # was streaming, PC went silent
+        if legacy:                                 # old build: debit wall-clock
+            if not db.spend(uid, now - legacy_last, "live"):
                 break
-        elif idle > START_TIMEOUT:                 # never started -> gave up
+            legacy_last = now
+            continue
+        if not sess["ever_ticked"] and (now - started_at) > LEGACY_GRACE:
+            legacy, legacy_last = True, now        # never heard a beat -> old build
+            continue
+        if sess["started"]:                        # real streaming has begun
+            if now - sess["last_stream"] > STALL_TIMEOUT:   # frames stopped -> reap
+                break
+        elif (now - started_at) > START_TIMEOUT:   # heartbeating but never streamed
             break
     await _close_live(session_id)
 
@@ -149,8 +164,10 @@ async def live_start(prompt: str = Form(""), reference: UploadFile | None = File
     _live[sid] = {"ws": room["ws"], "uid": uid, "stop": asyncio.Event(),
                   "last_tick": now,      # last heartbeat of ANY kind (watchdog)
                   "last_bill": now,      # last time we debited (streaming clock)
+                  "last_stream": now,    # last heartbeat that was actually streaming
                   "started": False,      # has real streaming begun yet?
-                  "streaming": False}    # was the previous heartbeat streaming?
+                  "streaming": False,    # was the previous heartbeat streaming?
+                  "ever_ticked": False}  # any heartbeat at all? (else old build)
     _live[sid]["task"] = asyncio.create_task(_meter_live(sid))
     info = room["info"]
     return {"session_id": sid, "livekit_url": info["livekit_url"],
@@ -167,6 +184,7 @@ async def live_tick(session_id: str = Form(...), streaming: bool = Form(True),
     if not sess or sess["uid"] != uid:
         raise HTTPException(404, "No such session")
     now = time.monotonic()
+    sess["ever_ticked"] = True
     charged = False
     # Only bill a CONTIGUOUS streaming interval (this tick and the last were both
     # streaming). The first streaming tick, and any tick resuming after a stall,
@@ -180,6 +198,7 @@ async def live_tick(session_id: str = Form(...), streaming: bool = Form(True),
     if streaming:
         sess["started"] = True
         sess["last_bill"] = now
+        sess["last_stream"] = now
     sess["streaming"] = streaming
     sess["last_tick"] = now
     return {"ok": True, "charged": charged}
