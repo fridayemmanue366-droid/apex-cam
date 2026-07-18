@@ -15,6 +15,7 @@ back up, so low-end PCs drop resolution instead of dropping frames.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -23,6 +24,10 @@ import cv2
 import numpy as np
 
 from app.core.logging import get_logger
+
+# Light unsharp-mask strength applied to Lucy's cloud output — crisps eyes/mouth/
+# edges without the halo of a heavy pass. Tune with APEXCAM_LUCY_SHARPEN.
+LUCY_SHARPEN = float(os.environ.get("APEXCAM_LUCY_SHARPEN", "0.5"))
 from app.engines.base import FrameEngine
 from app.engines.face import PassthroughFaceEngine
 from app.engines.face.tracker import FaceTracker
@@ -103,12 +108,11 @@ class Pipeline:
         from app.engines.face.liveportrait import liveportrait_available
         self.avatar_available = liveportrait_available()
         log.info("Neural swap available: %s", self.neural_available)
-        # Fast, light capture defaults for CPU; the Performance tab / GPU builds
-        # can raise processing resolution. capture_width=0 means "use the
-        # camera's native default" — forcing a resolution roughly doubles the
-        # DirectShow open time, so we avoid it unless explicitly overridden.
-        self.capture_width = 0
-        self.capture_height = 0
+        # Capture at 720p: the local swap still downscales to proc_width for CPU,
+        # but Lucy (cloud) is fed the FULL frame — a sharp 720p input is what makes
+        # its output crisp instead of the soft 640x360 the webcam defaults to.
+        self.capture_width = int(os.environ.get("APEXCAM_CAPTURE_W", "1280"))
+        self.capture_height = int(os.environ.get("APEXCAM_CAPTURE_H", "720"))
         self.proc_width = 640
         self._frame_i = 0
         self.detect_every = 2  # run face detection every Nth frame, reuse boxes
@@ -395,15 +399,17 @@ class Pipeline:
 
         work = self._apply_enhance(work)
 
-        # Apex Cam Pro (Lucy cloud) — if active, it does the whole transform in
-        # the cloud; skip the local engines and just label the result.
+        # Apex Cam Pro (Lucy cloud) — the transform happens in the cloud. For the
+        # SHARPEST result: feed Lucy the FULL-RES camera frame (not the proc_width
+        # downscale — that softened its input), keep its native output resolution
+        # (no shrink back to the small camera size), and add a light unsharp pass
+        # to crisp the eyes/mouth/edges. Lucy renders at its native size regardless.
         from app.engines.lucy_pro import lucy_pro
         if lucy_pro.ready:
-            work = lucy_pro.process(work)
-            if work.shape[1] != w:
-                work = cv2.resize(work, (w, h), interpolation=cv2.INTER_LINEAR)
-            self._draw_badge(work)   # no-op unless label_output is enabled
-            return work
+            out = lucy_pro.process(frame)
+            out = self._sharpen(out, max(self.sharpen, LUCY_SHARPEN))
+            self._draw_badge(out)   # no-op unless label_output is enabled
+            return out
 
         # Background matting (blur / green-screen / replace) — real-time on CPU.
         from app.engines.background import background
@@ -471,8 +477,16 @@ class Pipeline:
     def _apply_sharpen(self, img: np.ndarray) -> np.ndarray:
         """Fast unsharp-mask sharpening — a crispness boost that runs on CPU
         everywhere. (GFPGAN is the heavier GPU-grade face restorer.)"""
-        blur = cv2.GaussianBlur(img, (0, 0), sigmaX=1.2)
-        return cv2.addWeighted(img, 1 + self.sharpen, blur, -self.sharpen, 0)
+        return self._sharpen(img, self.sharpen)
+
+    @staticmethod
+    def _sharpen(img: np.ndarray, amount: float) -> np.ndarray:
+        """Unsharp mask at a given strength. A fine radius (sigma 1.0) crisps
+        eyes/mouth/edges without the halos a large radius creates."""
+        if amount <= 0.01:
+            return img
+        blur = cv2.GaussianBlur(img, (0, 0), sigmaX=1.0)
+        return cv2.addWeighted(img, 1 + amount, blur, -amount, 0)
 
     def _current_audio_level(self) -> float:
         """Live mic loudness (0..1) for lip-sync — from the virtual-mic pipeline
