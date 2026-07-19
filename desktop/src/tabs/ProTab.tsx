@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ProStatus, type RefMode } from "../api/client";
+import {
+  api,
+  getAiCameraIndex,
+  setAiCameraIndex,
+  type CameraInfo,
+  type ProStatus,
+  type RefMode,
+} from "../api/client";
 import { cloud, getToken, signedIn, type Account, type Pkg } from "../api/cloud";
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
@@ -223,6 +230,23 @@ export function ProTab() {
   // The shared pipeline starts first so the preview shows Lucy, not the raw cam.
   const [liveSession, setLiveSession] = useState<string | null>(null);
   const [liveErr, setLiveErr] = useState<string | null>(null);
+  // AI-engine camera (the real webcam Lucy reads). Available here so Pro users
+  // can pick it WITHOUT the local subscription — the picker is otherwise only in
+  // the (paywalled) Camera tab. Choice is shared via local storage.
+  const [aiCameras, setAiCameras] = useState<CameraInfo[]>([]);
+  const [aiAuto, setAiAuto] = useState(-1);
+  const [aiCam, setAiCam] = useState(getAiCameraIndex());
+  useEffect(() => {
+    api.listCameras().then((r) => {
+      setAiCameras(r.cameras);
+      setAiAuto(r.auto);
+    }).catch(() => undefined);
+  }, []);
+  const autoName = aiCameras.find((c) => c.index === aiAuto)?.name;
+  const changeAiCamera = (index: number) => {
+    setAiCam(index);
+    setAiCameraIndex(index);   // takes effect on the next GO LIVE
+  };
   const save = async (enabled: boolean, p = prompt) => {
     setLiveErr(null);
     try {
@@ -433,6 +457,22 @@ export function ProTab() {
                           disabled={(account?.credit_seconds ?? 0) <= 0}
                           onClick={() => save(true)}>✦ GO LIVE</button>
                 )}
+              </div>
+              <div className="pro-camrow" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "4px 0 12px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="pro-muted">Camera</span>
+                  <select value={aiCam} onChange={(e) => changeAiCamera(Number(e.target.value))}>
+                    <option value={-1}>Auto{autoName ? ` — ${autoName}` : " — real webcam"}</option>
+                    {aiCameras.map((c) => (
+                      <option key={c.index} value={c.index}>
+                        {c.name}{c.virtual ? " (virtual — not recommended)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="pro-muted" style={{ fontSize: 12 }}>
+                  The real webcam Lucy reads — skips YouCam &amp; virtual cams. Applies when you GO LIVE.
+                </span>
               </div>
               <div className="pro-grid3">
                 <div className="pro-card">
