@@ -5,6 +5,7 @@ Run:  uvicorn app.main:app --port 8900
 """
 from __future__ import annotations
 
+import os
 import re
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -47,7 +48,10 @@ def _minutes(seconds: float) -> float:
 # --- routes --------------------------------------------------------------
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    """Also reports WHICH commit is actually running. Render sets RENDER_GIT_COMMIT
+    on every deploy, so comparing this to local HEAD answers "did my change deploy?"
+    without guessing — a silently-stale deploy once cost us an hour."""
+    return {"status": "ok", "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7]}
 
 
 @app.post("/auth/register")
