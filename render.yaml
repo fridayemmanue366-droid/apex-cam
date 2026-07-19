@@ -13,6 +13,11 @@ services:
     plan: starter
     region: frankfurt          # closest Render region to Nigeria
     rootDir: server            # the server code lives in server/
+    autoDeploy: true           # deploy on every push to the default branch.
+                               # If pushes stop deploying, it is almost never this
+                               # flag — check Render's log for a git clone 403,
+                               # which means the GitHub link went stale: Settings ->
+                               # Build & Deploy -> Repository -> disconnect/reconnect.
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
