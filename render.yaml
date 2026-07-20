@@ -32,6 +32,9 @@ services:
         generateValue: true              # Render generates a strong signing secret
       - key: APEXCAM_DECART_KEY
         sync: false                      # paste in the Render dashboard
+      - key: APEXCAM_ADMIN_KEY
+        sync: false                      # owner-only: grant promo/test credit.
+                                         # UNSET = /admin/* returns 404 (disabled).
       - key: FLW_SECRET
         sync: false                      # paste in the dashboard (LIVE Flutterwave)
       - key: APEXCAM_PUBLIC_URL

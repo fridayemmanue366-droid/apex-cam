@@ -83,8 +83,9 @@ def me(uid: int = Depends(current_user)) -> Me:
 
 
 # Payments, subscription, Decart studio, and the auto-update manifest.
-from app.routes import pay, studio, subscription, update  # noqa: E402
+from app.routes import admin, pay, studio, subscription, update  # noqa: E402
 
+app.include_router(admin.router)
 app.include_router(pay.router)
 app.include_router(subscription.router)
 app.include_router(studio.router)
