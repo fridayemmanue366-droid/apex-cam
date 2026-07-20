@@ -64,6 +64,44 @@ def balance(key: str = Form(...), email: str = Form(...)) -> dict:
     return {"email": email, "credit_seconds": secs, "credit_minutes": round(secs / 60.0, 2)}
 
 
+@router.post("/subscription")
+def grant_subscription(key: str = Form(...), email: str = Form(...),
+                       days: float = Form(...), note: str = Form("")) -> dict:
+    """Extend a customer's LOCAL-APP access (the monthly subscription) by hand —
+    for comping, fixing a failed payment, or giving a longer trial."""
+    _require_admin(key)
+    if days <= 0 or days > 400:
+        raise HTTPException(400, "days must be between 0 and 400")
+    user = db.get_user_by_email(email)
+    if not user:
+        raise HTTPException(404, f"No account for {email}")
+    uid = int(user["id"])
+    db.extend_subscription(uid, days, tx_ref=f"admin-{uuid.uuid4().hex}",
+                           detail=note or f"admin grant {days:g} days")
+    return {"email": email, "granted_days": days, "access_until": db.access_until(uid)}
+
+
+@router.post("/overview")
+def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
+    """Everything the owner needs on one screen: totals, accounts, recent activity."""
+    _require_admin(key)
+    return {
+        "totals": db.totals(),
+        "users": [
+            {"email": r["email"], "credit_minutes": round(float(r["credit_seconds"]) / 60.0, 2),
+             "created": float(r["created"]),
+             "access_until": float(r["access_until"] or 0.0)}
+            for r in db.all_users()
+        ],
+        "transactions": [
+            {"email": r["email"], "kind": r["kind"], "seconds": float(r["seconds"]),
+             "detail": r["detail"] or "", "created": float(r["created"]),
+             "comped": bool(r["tx_ref"] and str(r["tx_ref"]).startswith("admin-"))}
+            for r in db.recent_transactions(min(int(limit), 200))
+        ],
+    }
+
+
 # --- Owner's control panel --------------------------------------------------
 # A plain page so the owner can run the business from a phone or laptop instead
 # of needing curl. The page holds NO secret: the admin key is typed by the owner
@@ -72,58 +110,166 @@ def balance(key: str = Form(...), email: str = Form(...)) -> dict:
 PANEL = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Apex Cam — Owner Panel</title><style>
-*{box-sizing:border-box} body{margin:0;padding:20px;background:#0f1115;color:#e8eaed;
-font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-.wrap{max-width:520px;margin:0 auto}
-h1{font-size:20px;margin:0 0 4px} .sub{color:#9aa0a6;font-size:13px;margin:0 0 20px}
-label{display:block;margin:14px 0 6px;font-size:13px;color:#9aa0a6}
-input{width:100%;padding:12px;border-radius:8px;border:1px solid #2a2f3a;
-background:#171a21;color:#e8eaed;font-size:16px}
-.row{display:flex;gap:10px;margin-top:18px} button{flex:1;padding:13px;border:0;
-border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
-.grant{background:#d4af37;color:#1a1a1a} .check{background:#2a2f3a;color:#e8eaed}
-button:disabled{opacity:.5;cursor:default}
-#out{margin-top:18px;padding:14px;border-radius:8px;background:#171a21;
-border:1px solid #2a2f3a;white-space:pre-wrap;font-size:14px;min-height:20px}
-.ok{color:#4ade80} .err{color:#f87171}
+*{box-sizing:border-box}
+body{margin:0;padding:18px;background:#0f1115;color:#e8eaed;
+  font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1200px;margin:0 auto}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+h1{font-size:20px;margin:0}
+.sub{color:#9aa0a6;font-size:13px;margin:0 0 16px}
+.card{background:#171a21;border:1px solid #2a2f3a;border-radius:10px;padding:16px;
+  margin-bottom:16px}
+.card h2{font-size:14px;margin:0 0 12px;color:#9aa0a6;font-weight:600;
+  text-transform:uppercase;letter-spacing:.5px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:#12151b;border:1px solid #2a2f3a;border-radius:8px;padding:12px}
+.stat .n{font-size:22px;font-weight:700} .stat .l{font-size:12px;color:#9aa0a6}
+.gold{color:#d4af37} .green{color:#4ade80} .red{color:#f87171} .blue{color:#60a5fa}
+label{display:block;margin:0 0 6px;font-size:12px;color:#9aa0a6}
+input{width:100%;padding:10px;border-radius:8px;border:1px solid #2a2f3a;
+  background:#12151b;color:#e8eaed;font-size:15px}
+.fields{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;align-items:end}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+button{padding:11px 16px;border:0;border-radius:8px;font-size:14px;font-weight:600;
+  cursor:pointer}
+.grant{background:#d4af37;color:#1a1a1a} .sub2{background:#60a5fa;color:#0f1115}
+.check{background:#2a2f3a;color:#e8eaed} .ghost{background:transparent;
+  border:1px solid #2a2f3a;color:#9aa0a6}
+#out{margin-top:12px;padding:12px;border-radius:8px;background:#12151b;
+  border:1px solid #2a2f3a;white-space:pre-wrap;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:#9aa0a6;font-size:12px;font-weight:600;padding:8px;
+  border-bottom:1px solid #2a2f3a;text-transform:uppercase}
+td{padding:8px;border-bottom:1px solid #1e222b}
+tr:last-child td{border-bottom:0}
+.scroll{overflow-x:auto}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px}
+.p-topup{background:#14532d;color:#4ade80} .p-spend{background:#3f1d1d;color:#f87171}
+.p-refund{background:#1e3a5f;color:#60a5fa} .p-subscription{background:#3f3416;color:#d4af37}
+.muted{color:#6b7280} .right{text-align:right}
+@media(max-width:700px){.fields{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
-<h1>Apex Cam — Owner Panel</h1>
-<p class="sub">Grant credit and check balances. Your key stays in this browser only.</p>
-<label>Admin key</label><input id="k" type="password" placeholder="your APEXCAM_ADMIN_KEY">
-<label>Customer email</label><input id="e" type="email" placeholder="customer@example.com">
-<label>Minutes to grant</label><input id="m" type="number" value="6" min="0.1" step="0.1">
-<div class="row">
-  <button class="check" onclick="go('balance')">Check balance</button>
-  <button class="grant" onclick="go('grant')">Grant credit</button>
+
+<header><h1>Apex Cam — Owner Panel</h1>
+<button class="ghost" onclick="load()">↻ Refresh</button></header>
+<p class="sub">Your key is stored only in this browser. Nothing here is on the server.</p>
+
+<div class="card">
+  <h2>Admin key</h2>
+  <input id="k" type="password" placeholder="APEXCAM_ADMIN_KEY" autocomplete="off">
 </div>
-<div id="out">Enter the key and an email, then choose an action.</div>
+
+<div class="card"><h2>Business at a glance</h2><div class="stats" id="stats">
+  <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
+</div></div>
+
+<div class="card">
+  <h2>Actions</h2>
+  <div class="fields">
+    <div><label>Customer email</label>
+      <input id="e" type="email" placeholder="customer@example.com"></div>
+    <div><label>Minutes</label><input id="m" type="number" value="6" min="0.1" step="0.1"></div>
+    <div><label>Sub days</label><input id="d" type="number" value="30" min="1" step="1"></div>
+  </div>
+  <div class="btns">
+    <button class="check" onclick="go('balance')">Check balance</button>
+    <button class="grant" onclick="go('grant')">Grant credit (minutes)</button>
+    <button class="sub2" onclick="go('subscription')">Extend subscription (days)</button>
+  </div>
+  <div id="out">Enter your key, then pick an action.</div>
+</div>
+
+<div class="card"><h2>Accounts</h2><div class="scroll">
+  <table><thead><tr><th>Email</th><th class="right">Credit</th>
+  <th>App access</th><th>Joined</th></tr></thead>
+  <tbody id="users"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
+</div></div>
+
+<div class="card"><h2>Recent activity</h2><div class="scroll">
+  <table><thead><tr><th>When</th><th>Email</th><th>Type</th>
+  <th class="right">Amount</th><th>Detail</th></tr></thead>
+  <tbody id="tx"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
+</div></div>
+
 </div><script>
 const $=i=>document.getElementById(i), out=$('out');
 $('k').value = localStorage.getItem('apexAdminKey') || '';
-$('k').oninput = e => localStorage.setItem('apexAdminKey', e.target.value.trim());
-async function go(action){
-  const key=$('k').value.trim(), email=$('e').value.trim(), minutes=$('m').value;
-  if(!key||!email){ out.className='err'; out.textContent='Enter the admin key and an email.'; return; }
-  out.className=''; out.textContent='Working…';
-  const f=new FormData(); f.append('key',key); f.append('email',email);
-  if(action==='grant') f.append('minutes',minutes);
-  try{
-    const r=await fetch('/admin/'+action,{method:'POST',body:f});
-    const d=await r.json();
-    if(!r.ok){
-      out.className='err';
-      out.textContent = r.status===403 ? 'Wrong admin key.'
-        : r.status===404 ? (d.detail||'Not found')
-        : (d.detail||('Error '+r.status));
-      return;
-    }
-    out.className='ok';
-    out.textContent = (action==='grant'
-      ? 'Granted '+d.granted_minutes+' min to '+d.email+'\\n'
-      : 'Account: '+d.email+'\\n')
-      + 'Balance now: '+d.credit_minutes+' minutes ('+Math.round(d.credit_seconds)+' seconds)';
-  }catch(err){ out.className='err'; out.textContent='Network error: '+err.message; }
+$('k').oninput = e => { localStorage.setItem('apexAdminKey', e.target.value.trim()); load(); };
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const when = s => s ? new Date(s*1000).toLocaleString() : '—';
+const mins = s => (s/60).toFixed(1);
+
+function stat(n, l, cls){ return '<div class="stat"><div class="n '+(cls||'')+'">'+n+
+  '</div><div class="l">'+l+'</div></div>'; }
+
+async function post(action, extra){
+  const key = $('k').value.trim();
+  if(!key) throw new Error('Enter your admin key first.');
+  const f = new FormData(); f.append('key', key);
+  for(const k in (extra||{})) f.append(k, extra[k]);
+  const r = await fetch('/admin/'+action, {method:'POST', body:f});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(r.status===403 ? 'Wrong admin key.'
+    : (d.detail || ('Error '+r.status)));
+  return d;
 }
+
+async function load(){
+  if(!$('k').value.trim()) return;
+  try{
+    const d = await post('overview', {limit:60});
+    const t = d.totals;
+    $('stats').innerHTML =
+      stat(t.users, 'accounts', 'blue') +
+      stat(t.subscribers, 'active app subs', 'gold') +
+      stat(mins(t.outstanding_seconds), 'minutes owed to customers') +
+      stat(mins(t.paid_seconds), 'minutes sold (paid)', 'green') +
+      stat(mins(t.granted_seconds), 'minutes comped (free)', 'gold') +
+      stat(mins(t.used_seconds), 'minutes used', 'red');
+    const now = Date.now()/1000;
+    $('users').innerHTML = d.users.length ? d.users.map(u =>
+      '<tr><td>'+esc(u.email)+'</td><td class="right">'+u.credit_minutes.toFixed(1)+
+      ' min</td><td>'+(u.access_until>now
+        ? '<span class="pill p-topup">until '+when(u.access_until)+'</span>'
+        : '<span class="muted">expired</span>')+
+      '</td><td class="muted">'+when(u.created)+'</td></tr>').join('')
+      : '<tr><td colspan="4" class="muted">No accounts yet</td></tr>';
+    $('tx').innerHTML = d.transactions.length ? d.transactions.map(x =>
+      '<tr><td class="muted">'+when(x.created)+'</td><td>'+esc(x.email)+
+      '</td><td><span class="pill p-'+esc(x.kind)+'">'+esc(x.kind)+
+      (x.comped?' (free)':'')+'</span></td><td class="right">'+
+      (x.kind==='subscription' ? (x.seconds/86400).toFixed(0)+' days'
+                               : mins(x.seconds)+' min')+
+      '</td><td class="muted">'+esc(x.detail)+'</td></tr>').join('')
+      : '<tr><td colspan="5" class="muted">No activity yet</td></tr>';
+  }catch(err){ out.className=''; out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+
+async function go(action){
+  const email = $('e').value.trim();
+  if(!email){ out.innerHTML='<span class="red">Enter a customer email.</span>'; return; }
+  out.textContent='Working…';
+  try{
+    let d, msg;
+    if(action==='grant'){
+      d = await post('grant', {email, minutes:$('m').value});
+      msg = 'Granted '+d.granted_minutes+' min to '+d.email+
+            ' — balance now '+d.credit_minutes+' minutes.';
+    } else if(action==='subscription'){
+      d = await post('subscription', {email, days:$('d').value});
+      msg = 'Extended '+d.email+' by '+d.granted_days+' days — app access until '+
+            when(d.access_until)+'.';
+    } else {
+      d = await post('balance', {email});
+      msg = d.email+' has '+d.credit_minutes+' minutes ('+
+            Math.round(d.credit_seconds)+' seconds).';
+    }
+    out.innerHTML = '<span class="green">'+esc(msg)+'</span>';
+    load();
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+load();
 </script></body></html>"""
 
 

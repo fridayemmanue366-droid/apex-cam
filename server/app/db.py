@@ -174,3 +174,43 @@ def extend_subscription(uid: int, days: float, tx_ref: str, detail: str = "") ->
         c.execute("UPDATE users SET access_until=? WHERE id=?", (base + days * DAY, uid))
         c.commit()
         return True
+
+
+# --- reporting (owner panel) ---------------------------------------------
+# Read-only views of the business. Sign convention: topup/refund/subscription are
+# positive, spend is negative. Admin grants are topups whose tx_ref starts
+# 'admin-', which is how comped credit is told apart from real revenue.
+def all_users() -> list[sqlite3.Row]:
+    return _connect().execute(
+        "SELECT id,email,credit_seconds,created,access_until FROM users"
+        " ORDER BY created DESC").fetchall()
+
+
+def recent_transactions(limit: int = 60) -> list[sqlite3.Row]:
+    return _connect().execute(
+        "SELECT t.kind,t.seconds,t.detail,t.tx_ref,t.created,u.email"
+        " FROM transactions t LEFT JOIN users u ON u.id=t.user_id"
+        " ORDER BY t.created DESC LIMIT ?", (int(limit),)).fetchall()
+
+
+def totals() -> dict:
+    """Summary of what's been sold, comped, used, and still owed to customers."""
+    c = _connect()
+
+    def one(q: str, *args: object) -> float:
+        r = c.execute(q, args).fetchone()
+        return float(r[0] or 0.0)
+
+    paid = ("SELECT SUM(seconds) FROM transactions WHERE kind='topup'"
+            " AND (tx_ref IS NULL OR tx_ref NOT LIKE 'admin-%')")
+    granted = ("SELECT SUM(seconds) FROM transactions WHERE kind='topup'"
+               " AND tx_ref LIKE 'admin-%'")
+    return {
+        "users": int(one("SELECT COUNT(*) FROM users")),
+        "subscribers": int(one("SELECT COUNT(*) FROM users WHERE access_until > ?",
+                               time.time())),
+        "outstanding_seconds": one("SELECT SUM(credit_seconds) FROM users"),
+        "paid_seconds": one(paid),
+        "granted_seconds": one(granted),
+        "used_seconds": -one("SELECT SUM(seconds) FROM transactions WHERE kind='spend'"),
+    }
