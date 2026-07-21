@@ -55,15 +55,19 @@ def start(b: Buy, uid: int = Depends(current_user)) -> dict:
         raise HTTPException(503, "Payments not configured")
     u = db.get_user(uid)
     tx_ref = f"apex-{uid}-{uuid.uuid4().hex[:12]}"
+    quoted = charge_amount(b.minutes)     # lock the price NOW (rate may drift later)
     body = {
         "tx_ref": tx_ref,
-        "amount": charge_amount(b.minutes),
+        "amount": quoted,
         "currency": CURRENCY,
         "redirect_url": f"{PUBLIC_URL}/pay/callback",
         "customer": {"email": u["email"]},
         "customizations": {"title": "Apex Pro credit",
                            "description": f"{b.minutes} minutes"},
-        "meta": {"user_id": uid, "seconds": float(b.minutes) * 60.0},
+        # `charge` freezes the quoted price into the payment so verification checks
+        # against what the customer was actually shown — immune to the live rate
+        # refreshing between start and completion.
+        "meta": {"user_id": uid, "seconds": float(b.minutes) * 60.0, "charge": quoted},
     }
     resp = _flw("POST", "/payments", body)
     if resp.get("status") != "success":
@@ -97,8 +101,12 @@ def _apply(transaction_id: str) -> bool:
 
     seconds = float(meta.get("seconds", 0))
     minutes = seconds / 60.0
-    # amount + currency must match the package (guard against tampering)
-    if seconds <= 0 or abs(amount - charge_amount(minutes)) > 1.0:
+    # Validate against the price QUOTED at checkout (frozen in meta), so a live-rate
+    # refresh between start and completion can never reject a real payment. Older
+    # payments (no frozen price) fall back to recomputing. Tolerance is small but
+    # scales a touch with size to absorb rounding.
+    expected = float(meta.get("charge", 0)) or charge_amount(minutes)
+    if seconds <= 0 or abs(amount - expected) > max(1.0, expected * 0.02):
         return False
     db.topup(uid, seconds, tx_ref=tx_ref, detail=f"{minutes:g} min")   # idempotent
     return True

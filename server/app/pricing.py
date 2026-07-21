@@ -1,49 +1,176 @@
-"""Apex Cam cloud — shared pricing. The wallet is in 'live seconds' (sold at the
-live rate). Each mode burns its own rate; packages top the wallet up.
+"""Apex Cam cloud — pricing. DYNAMIC: prices follow the live USD->NGN rate and the
+owner's margin, both editable in the admin panel (no redeploy).
 
-Costs (Decart, 1 credit=$0.01) vs our sell — margins baked in:
-  live    cost $0.02/s  sell $0.03/s  ($1.80/min)
-  video   cost $0.04/s  sell $0.06/s  ($3.60/min)   -> 2.0x wallet-sec/real-sec
-  restyle cost $0.01/s  sell $0.02/s  ($1.20/min)   -> 0.667x
-  photo   cost $0.02    sell $0.40                  -> ~13.33 wallet-sec/photo
+Money model
+-----------
+Decart charges us in USD (1 credit = $0.01). The wallet holds "live seconds"; each
+mode burns its own rate. We sell those seconds for: cost x margin, converted to NGN
+at an effective rate that tracks the live dollar with a safety buffer.
+
+  live cost   $0.02/s  ($1.20/min)  <- the FLOOR; never sell below this
+  video cost  $0.04/s     (burns 2.0 wallet-sec/real-sec)
+  restyle     $0.01/s     (burns 0.667x)
+
+  sell price     = cost x margin            (margin default 1.3 -> ~23% profit)
+  effective rate = live_rate x buffer       (buffer default 1.18, covers street gap)
+  charge (NGN)   = sell_usd x effective_rate
+
+Every knob (margin, buffer, rate mode, manual rate) is a DB setting the owner edits
+in /admin/panel; the env vars below are only the first-run fallback.
 """
+from __future__ import annotations
+
+import json
 import os
+import threading
+import time
+import urllib.request
 
-LIVE_USD_PER_SEC = 0.03                      # wallet is priced at the live rate
+from app import db
+
+# --- Decart's cost to us (USD) — the floor we can never sell under -----------
+COST_USD_PER_SEC = {"live": 0.02, "video": 0.04, "restyle": 0.01}
+COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $1.20/min
+
+# --- wallet mechanics (UNCHANGED) -------------------------------------------
+# The wallet is in live-seconds. Each mode burns its own rate; a photo costs a
+# fixed number of wallet-seconds. These define CONSUMPTION, not purchase price.
 MODE_RATE = {"live": 1.0, "video": 2.0, "restyle": 2.0 / 3.0}
-IMAGE_COST_SECONDS = round(0.40 / LIVE_USD_PER_SEC, 2)   # ~13.33 wallet-sec/photo
+IMAGE_COST_SECONDS = 13.33            # a photo = ~13s of live-time from the wallet
 
-# Minute packages the app sells (wallet minutes).
-# The 1-minute entry is the cheapest real package (₦2,880) — handy for verifying
-# the live Flutterwave flow with a small charge. Remove it once payments are proven.
-PACKAGES = [1, 5, 12, 15, 25, 30, 50, 100, 160, 375, 1000]
+# Minute packages the app sells (wallet minutes). The 1-min entry is the cheap
+# tester for the live payment flow.
+PACKAGES = [1, 5, 10, 20, 30, 60, 120, 300, 600]
 
-# Currency: charge NGN (buffered), display USD. Keep in sync with the app.
 CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
-NGN_PER_USD = float(os.environ.get("APEXCAM_NGN_PER_USD", "1600"))
+
+# --- owner-tunable knobs (fallback defaults; live values live in db.settings) -
+DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.3"))        # sell = cost x margin
+DEFAULT_BUFFER = float(os.environ.get("APEXCAM_RATE_BUFFER", "1.18"))  # cushion on live rate
+FALLBACK_RATE = float(os.environ.get("APEXCAM_NGN_PER_USD", "1600"))   # if no live rate yet
+RATE_TTL = 6 * 3600.0                 # refresh the live rate at most every 6h
+
+
+def _sf(key: str, default: float) -> float:
+    try:
+        v = db.get_setting(key, "")
+        return float(v) if v else default
+    except Exception:
+        return default
+
+
+def margin() -> float:
+    return max(1.0, _sf("pricing_margin", DEFAULT_MARGIN))    # never below cost
+
+
+def rate_buffer() -> float:
+    return max(1.0, _sf("rate_buffer", DEFAULT_BUFFER))
+
+
+def rate_mode() -> str:
+    return db.get_setting("rate_mode", "auto") or "auto"
+
+
+def manual_rate() -> float:
+    return _sf("manual_rate", FALLBACK_RATE)
+
+
+# --- live USD->NGN, cached in the DB, refreshed in the background ------------
+_rate_lock = threading.Lock()
+
+
+def _fetch_live_rate() -> float | None:
+    try:
+        req = urllib.request.Request("https://open.er-api.com/v6/latest/USD",
+                                     headers={"User-Agent": "apexcam"})
+        d = json.load(urllib.request.urlopen(req, timeout=8))
+        r = float(d["rates"]["NGN"])
+        return r if 500 < r < 5000 else None      # sanity guard
+    except Exception:
+        return None
+
+
+def _refresh_live_rate() -> None:
+    if not _rate_lock.acquire(blocking=False):
+        return
+    try:
+        r = _fetch_live_rate()
+        if r:
+            db.set_setting("live_rate", str(round(r, 2)))
+            db.set_setting("live_rate_at", str(time.time()))
+    finally:
+        _rate_lock.release()
+
+
+def live_rate() -> float:
+    """Last-known live USD->NGN, refreshed at most every 6h in the BACKGROUND so no
+    request ever blocks on the network. Falls back to the env default until the
+    first fetch lands."""
+    cached = _sf("live_rate", 0.0)
+    if time.time() - _sf("live_rate_at", 0.0) > RATE_TTL:
+        threading.Thread(target=_refresh_live_rate, daemon=True).start()
+    return cached or FALLBACK_RATE
+
+
+def effective_rate() -> float:
+    """The NGN-per-USD actually used to price packages."""
+    if rate_mode() == "manual":
+        return manual_rate()
+    return live_rate() * rate_buffer()
+
+
+# --- prices ------------------------------------------------------------------
+def sell_usd_per_min() -> float:
+    return COST_LIVE_PER_MIN * margin()
 
 
 def usd_price(minutes: float) -> float:
-    return round(minutes * 60 * LIVE_USD_PER_SEC, 2)
+    """Display price in USD (what we sell the minutes for)."""
+    return round(minutes * sell_usd_per_min(), 2)
 
 
 def charge_amount(minutes: float) -> float:
+    """What we charge, in CURRENCY. NGN tracks the live dollar; USD is the raw sell."""
     usd = usd_price(minutes)
-    return float(round(usd * NGN_PER_USD)) if CURRENCY == "NGN" else usd
+    return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
 
 
-# --- Local-app subscription (separate from the pay-per-minute Pro wallet) ---
-# The base price is a flat ₦20,000/month; USD is shown for a premium feel.
+# --- Local-app subscription (flat price, separate from the Pro wallet) -------
 SUB_MONTHLY_NGN = float(os.environ.get("APEXCAM_SUB_NGN", "20000"))
-SUB_DAYS = int(os.environ.get("APEXCAM_SUB_DAYS", "30"))       # a month of access
-TRIAL_DAYS = float(os.environ.get("APEXCAM_TRIAL_DAYS", "1"))  # free on first sign-up
+SUB_DAYS = int(os.environ.get("APEXCAM_SUB_DAYS", "30"))
+TRIAL_DAYS = float(os.environ.get("APEXCAM_TRIAL_DAYS", "1"))
 
 
 def sub_charge_amount() -> float:
-    """What we actually charge, in CURRENCY. NGN is the base; convert if display USD."""
-    return SUB_MONTHLY_NGN if CURRENCY == "NGN" else round(SUB_MONTHLY_NGN / NGN_PER_USD, 2)
+    return SUB_MONTHLY_NGN if CURRENCY == "NGN" else round(SUB_MONTHLY_NGN / effective_rate(), 2)
 
 
 def sub_usd() -> float:
-    """USD equivalent of the monthly price (for display)."""
-    return round(SUB_MONTHLY_NGN / NGN_PER_USD, 2)
+    return round(SUB_MONTHLY_NGN / effective_rate(), 2)
+
+
+# --- reporting for the owner panel ------------------------------------------
+def pricing_snapshot() -> dict:
+    """Everything the pricing card shows: cost, live rate, effective rate, margin,
+    and a per-package preview with the profit on each."""
+    eff = effective_rate()
+    cost_min = COST_LIVE_PER_MIN
+    return {
+        "currency": CURRENCY,
+        "decart_cost_usd_per_min": round(cost_min, 2),
+        "live_rate": round(live_rate(), 2),
+        "rate_mode": rate_mode(),
+        "rate_buffer": round(rate_buffer(), 3),
+        "manual_rate": round(manual_rate(), 2),
+        "effective_rate": round(eff, 2),
+        "margin": round(margin(), 3),
+        "profit_pct": round((1.0 - 1.0 / margin()) * 100, 1),
+        "packages": [
+            {"minutes": m,
+             "ngn": charge_amount(m),
+             "usd": usd_price(m),
+             "cost_ngn": round(m * cost_min * eff),
+             "profit_ngn": round(charge_amount(m) - m * cost_min * eff)}
+            for m in PACKAGES
+        ],
+    }

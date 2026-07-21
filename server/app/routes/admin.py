@@ -94,6 +94,34 @@ def settings(key: str = Form(...), trial_days: float | None = Form(None)) -> dic
     return {"trial_days": db.trial_days()}
 
 
+@router.post("/pricing")
+def pricing_admin(key: str = Form(...),
+                  margin: float | None = Form(None),
+                  rate_buffer: float | None = Form(None),
+                  rate_mode: str | None = Form(None),
+                  manual_rate: float | None = Form(None)) -> dict:
+    """Read or change pricing knobs live — margin, the rate buffer, and whether the
+    dollar rate auto-tracks the live market or is set by hand. Returns a full
+    snapshot (cost, live rate, effective rate, and every package's price + profit)."""
+    _require_admin(key)
+    from app import pricing
+    if margin is not None:
+        if margin < 1.0 or margin > 5.0:
+            raise HTTPException(400, "margin must be between 1.0 and 5.0")
+        db.set_setting("pricing_margin", str(margin))
+    if rate_buffer is not None:
+        if rate_buffer < 1.0 or rate_buffer > 3.0:
+            raise HTTPException(400, "rate_buffer must be between 1.0 and 3.0")
+        db.set_setting("rate_buffer", str(rate_buffer))
+    if rate_mode in ("auto", "manual"):
+        db.set_setting("rate_mode", rate_mode)
+    if manual_rate is not None:
+        if manual_rate < 100 or manual_rate > 10000:
+            raise HTTPException(400, "manual_rate looks wrong (100..10000)")
+        db.set_setting("manual_rate", str(manual_rate))
+    return pricing.pricing_snapshot()
+
+
 @router.post("/overview")
 def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
     """Everything the owner needs on one screen: totals, accounts, recent activity."""
@@ -205,6 +233,35 @@ tr:last-child td{border-bottom:0}
     To give an existing customer more time, use "Extend subscription" above.</p>
 </div>
 
+<div class="card">
+  <h2>Pricing (dollar rate &amp; profit)</h2>
+  <div class="stats" id="pstats">
+    <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
+  </div>
+  <div class="fields" style="margin-top:14px">
+    <div><label>Profit multiplier (sell = Decart cost × this)</label>
+      <input id="margin" type="number" min="1" max="5" step="0.05" placeholder="1.3"></div>
+    <div><label>Rate mode</label>
+      <select id="rmode"><option value="auto">Auto (live rate × buffer)</option>
+        <option value="manual">Manual</option></select></div>
+    <div id="bufwrap"><label>Rate buffer (× live rate)</label>
+      <input id="rbuf" type="number" min="1" max="3" step="0.01" placeholder="1.18"></div>
+  </div>
+  <div class="fields" style="margin-top:12px">
+    <div id="manwrap" style="display:none"><label>Manual rate (₦ per $)</label>
+      <input id="mrate" type="number" min="100" max="10000" step="1" placeholder="1650"></div>
+    <div style="align-self:end"><button class="grant" onclick="savePricing()">Save pricing</button></div>
+    <div></div>
+  </div>
+  <div class="scroll" style="margin-top:14px">
+    <table><thead><tr><th>Package</th><th class="right">Customer pays</th>
+    <th class="right">Decart cost</th><th class="right">Your profit</th></tr></thead>
+    <tbody id="pkgs"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
+  </div>
+  <p class="sub" style="margin:10px 0 0">Prices update instantly for every customer — no reinstall.
+    You can never sell below Decart's cost.</p>
+</div>
+
 <div class="card"><h2>Accounts</h2><div class="scroll">
   <table><thead><tr><th>Email</th><th class="right">Credit</th>
   <th>App access</th><th>Joined</th></tr></thead>
@@ -270,6 +327,7 @@ async function load(){
                                : mins(x.seconds)+' min')+
       '</td><td class="muted">'+esc(x.detail)+'</td></tr>').join('')
       : '<tr><td colspan="5" class="muted">No activity yet</td></tr>';
+    renderPricing(await post('pricing', {}));
   }catch(err){ out.className=''; out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 
@@ -303,6 +361,40 @@ async function saveTrial(){
     const d = await post('settings', {trial_days:$('trial').value});
     out.innerHTML = '<span class="green">New signups now get a '+d.trial_days+
       '-day free trial.</span>';
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+
+const money = n => '₦'+Math.round(n).toLocaleString();
+function renderPricing(p){
+  const active = document.activeElement;
+  if(active!==$('margin')) $('margin').value = p.margin;
+  if(active!==$('rbuf'))   $('rbuf').value   = p.rate_buffer;
+  if(active!==$('mrate'))  $('mrate').value  = p.manual_rate;
+  $('rmode').value = p.rate_mode;
+  $('manwrap').style.display = p.rate_mode==='manual' ? '' : 'none';
+  $('bufwrap').style.display = p.rate_mode==='manual' ? 'none' : '';
+  $('pstats').innerHTML =
+    stat('$'+p.decart_cost_usd_per_min, 'Decart cost / min', 'red') +
+    stat(money(p.live_rate), 'live $ rate', 'blue') +
+    stat(money(p.effective_rate), 'rate used', 'gold') +
+    stat(p.profit_pct+'%', 'your profit', 'green');
+  $('pkgs').innerHTML = p.packages.map(k =>
+    '<tr><td>'+k.minutes+' min</td><td class="right">'+money(k.ngn)+
+    '</td><td class="right muted">'+money(k.cost_ngn)+
+    '</td><td class="right green">'+money(k.profit_ngn)+'</td></tr>').join('');
+}
+$('rmode').onchange = () => {
+  $('manwrap').style.display = $('rmode').value==='manual' ? '' : 'none';
+  $('bufwrap').style.display = $('rmode').value==='manual' ? 'none' : '';
+};
+async function savePricing(){
+  out.textContent='Working…';
+  try{
+    const d = await post('pricing', {margin:$('margin').value, rate_buffer:$('rbuf').value,
+      rate_mode:$('rmode').value, manual_rate:$('mrate').value||1650});
+    renderPricing(d);
+    out.innerHTML = '<span class="green">Pricing saved — live for all customers. '+
+      'Profit '+d.profit_pct+'%, rate used '+money(d.effective_rate)+'/$.</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 load();
