@@ -48,6 +48,10 @@ def _init(c: sqlite3.Connection) -> None:
         );
         CREATE UNIQUE INDEX IF NOT EXISTS ix_tx_ref ON transactions(tx_ref)
             WHERE tx_ref IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,       -- owner-editable knobs (e.g. trial_days)
+            value TEXT NOT NULL
+        );
         """
     )
     # Subscription access (local app): a unix time until which the app is unlocked.
@@ -59,21 +63,47 @@ def _init(c: sqlite3.Connection) -> None:
 
 
 # Local-app subscription: new accounts get a free trial; a payment extends access.
+# The env var is only the FALLBACK — the live value is a setting the owner edits
+# in the admin panel, so changing the trial never needs a redeploy or restart.
 TRIAL_DAYS = float(os.environ.get("APEXCAM_TRIAL_DAYS", "1"))
 DAY = 86400.0
+
+
+# --- settings (owner-editable, stored in the DB) --------------------------
+def get_setting(key: str, default: str = "") -> str:
+    c = _connect()
+    row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("INSERT INTO settings(key,value) VALUES(?,?)"
+                  " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
+        c.commit()
+
+
+def trial_days() -> float:
+    """Free-trial length for NEW signups: the owner's setting, else the env default."""
+    try:
+        return float(get_setting("trial_days", "") or TRIAL_DAYS)
+    except (TypeError, ValueError):
+        return TRIAL_DAYS
 
 
 # --- users ---------------------------------------------------------------
 def create_user(email: str, password_hash: str) -> int:
     """Create an account and start the free trial clock (access_until = now +
-    TRIAL_DAYS). After the trial lapses the app is locked until a payment."""
+    trial_days()). After the trial lapses the app is locked until a payment."""
     now = time.time()
+    trial = trial_days()          # read before taking the lock (it queries too)
     with _lock:
         c = _connect()
         cur = c.execute(
             "INSERT INTO users(email, password_hash, created, access_until)"
             " VALUES(?,?,?,?)",
-            (email.lower(), password_hash, now, now + TRIAL_DAYS * DAY))
+            (email.lower(), password_hash, now, now + trial * DAY))
         c.commit()
         return int(cur.lastrowid)
 
