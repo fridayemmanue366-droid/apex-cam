@@ -81,11 +81,25 @@ def grant_subscription(key: str = Form(...), email: str = Form(...),
     return {"email": email, "granted_days": days, "access_until": db.access_until(uid)}
 
 
+@router.post("/settings")
+def settings(key: str = Form(...), trial_days: float | None = Form(None)) -> dict:
+    """Read or change owner settings. Currently the free-trial length for NEW
+    signups — editable here so it never needs a Render restart. Existing customers
+    are unaffected; extend them individually with the subscription action."""
+    _require_admin(key)
+    if trial_days is not None:
+        if trial_days < 0 or trial_days > 365:
+            raise HTTPException(400, "trial_days must be between 0 and 365")
+        db.set_setting("trial_days", str(trial_days))
+    return {"trial_days": db.trial_days()}
+
+
 @router.post("/overview")
 def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
     """Everything the owner needs on one screen: totals, accounts, recent activity."""
     _require_admin(key)
     return {
+        "trial_days": db.trial_days(),
         "totals": db.totals(),
         "users": [
             {"email": r["email"], "credit_minutes": round(float(r["credit_seconds"]) / 60.0, 2),
@@ -179,6 +193,18 @@ tr:last-child td{border-bottom:0}
   <div id="out">Enter your key, then pick an action.</div>
 </div>
 
+<div class="card">
+  <h2>Settings</h2>
+  <div class="fields">
+    <div><label>Free trial for NEW signups (days)</label>
+      <input id="trial" type="number" min="0" max="365" step="1" placeholder="7"></div>
+    <div style="align-self:end"><button class="sub2" onclick="saveTrial()">Save trial length</button></div>
+    <div></div>
+  </div>
+  <p class="sub" style="margin:10px 0 0">Only affects people who sign up after you save.
+    To give an existing customer more time, use "Extend subscription" above.</p>
+</div>
+
 <div class="card"><h2>Accounts</h2><div class="scroll">
   <table><thead><tr><th>Email</th><th class="right">Credit</th>
   <th>App access</th><th>Joined</th></tr></thead>
@@ -227,6 +253,7 @@ async function load(){
       stat(mins(t.paid_seconds), 'minutes sold (paid)', 'green') +
       stat(mins(t.granted_seconds), 'minutes comped (free)', 'gold') +
       stat(mins(t.used_seconds), 'minutes used', 'red');
+    if(document.activeElement !== $('trial')) $('trial').value = d.trial_days;
     const now = Date.now()/1000;
     $('users').innerHTML = d.users.length ? d.users.map(u =>
       '<tr><td>'+esc(u.email)+'</td><td class="right">'+u.credit_minutes.toFixed(1)+
@@ -267,6 +294,15 @@ async function go(action){
     }
     out.innerHTML = '<span class="green">'+esc(msg)+'</span>';
     load();
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+
+async function saveTrial(){
+  out.textContent='Working…';
+  try{
+    const d = await post('settings', {trial_days:$('trial').value});
+    out.innerHTML = '<span class="green">New signups now get a '+d.trial_days+
+      '-day free trial.</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 load();
