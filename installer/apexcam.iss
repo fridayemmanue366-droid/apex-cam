@@ -73,6 +73,10 @@ Filename: "{app}\vcam\unregister-camera.bat"; Flags: runhidden waituntilterminat
   RunOnceId: "unregvcam"
 
 [UninstallDelete]
-; Remove models/data created after install so uninstall is clean.
+; Remove the downloaded MODELS on uninstall (multi-GB, re-downloadable, and not
+; the customer's own work).
 Type: filesandordirs; Name: "{app}\backend\models"
-Type: filesandordirs; Name: "{app}\backend\data"
+; NOTE: "{app}\backend\data" is deliberately NOT deleted. It holds the customer's
+; OWN face library (data\profiles) - work they cannot get back. Many people
+; uninstall/reinstall as their way of updating; wiping it would destroy their
+; uploads for nothing. It is a few MB, and a fresh install simply reuses it.

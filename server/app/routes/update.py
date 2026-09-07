@@ -39,6 +39,30 @@ def app_bundle() -> FileResponse:
         raise HTTPException(404, "no app bundle published")
     return FileResponse(z, media_type="application/zip", filename="frontend.zip")
 
+
+# Level 3: the PYTHON BACKEND source (~500 KB), same idea as the frontend above.
+# Before this existed, a backend fix could only travel inside the 3 GB installer, so
+# in practice it never reached anyone. The payload is backend/app/** only — never
+# the customer's data/ or the 3 GB models/. The app stages it in the background and
+# swaps it in at the next launch, keeping the old copy to roll back to.
+@router.get("/backend")
+def backend_update() -> dict:
+    """{version, url} for the backend source. version is an integer in
+    app_bundle/backend-version.txt; the app downloads when it is higher than the
+    version recorded in its own install."""
+    vf = APP_DIR / "backend-version.txt"
+    ver = vf.read_text().strip() if vf.exists() else "0"
+    base = os.environ.get("APEXCAM_PUBLIC_URL", "")
+    return {"version": ver, "url": f"{base}/update/backend-bundle"}
+
+
+@router.get("/backend-bundle")
+def backend_bundle() -> FileResponse:
+    z = APP_DIR / "backend.zip"
+    if not z.exists():
+        raise HTTPException(404, "no backend bundle published")
+    return FileResponse(z, media_type="application/zip", filename="backend.zip")
+
 # Optional JSON file so you can publish a release without redeploying the server.
 MANIFEST_FILE = Path(os.environ.get("APEXCAM_MANIFEST", "release.json"))
 

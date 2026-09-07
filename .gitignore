@@ -65,3 +65,6 @@ server/*.db
 server/*.db-wal
 server/*.db-shm
 server/.env
+
+# scratch dir used by publish-update.ps1
+.publish-tmp/

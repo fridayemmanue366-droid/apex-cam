@@ -1,6 +1,9 @@
 import { app, BrowserWindow, session, shell } from "electron";
 import { startUpdateChecks } from "./updater";
 import { resolveFrontend, checkFrontendUpdate } from "./appUpdater";
+import {
+  applyStagedBackendUpdate, checkBackendUpdate, dropBackendBackup, rollbackBackend,
+} from "./backendUpdater";
 import { spawn, ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -12,20 +15,38 @@ let backend: ChildProcess | null = null;
 // Locate the Python + backend to run. In a packaged install we ship a private
 // (bundled) Python next to the app, so the customer never installs Python. In
 // dev we fall back to the project venv, then a system uvicorn.
-function resolveBackend(): { py: string | null; dir: string } {
+function resolveBackend(): { py: string | null; dir: string; bundled: boolean } {
   const exeDir = path.dirname(app.getPath("exe"));
   // 1) Bundled runtime (consumer install): <appRoot>/python + <appRoot>/backend
   const bundledPy = path.join(exeDir, "python", "python.exe");
   const bundledDir = path.join(exeDir, "backend");
   if (existsSync(bundledPy) && existsSync(bundledDir)) {
-    return { py: bundledPy, dir: bundledDir };
+    return { py: bundledPy, dir: bundledDir, bundled: true };
   }
   // 2) Dev venv
   const devDir = path.resolve(__dirname, "../../backend");
   const venvPy = path.join(devDir, ".venv311", "Scripts", "python.exe");
-  if (existsSync(venvPy)) return { py: venvPy, dir: devDir };
+  if (existsSync(venvPy)) return { py: venvPy, dir: devDir, bundled: false };
   // 3) System uvicorn (last resort)
-  return { py: null, dir: devDir };
+  return { py: null, dir: devDir, bundled: false };
+}
+
+/**
+ * After a backend update is applied, make sure it actually starts. If it never
+ * answers /health we put the previous backend back and restart — a bad publish
+ * costs the customer one slow launch, not a broken app.
+ */
+async function verifyBackendOrRollback(dir: string, version: number): Promise<void> {
+  const deadline = Date.now() + 120_000;   // generous: a cold start loads the AI libs
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch("http://127.0.0.1:8790/health");
+      if (res.ok) { dropBackendBackup(dir); return; }    // the new backend is good
+    } catch { /* not up yet — keep waiting */ }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  killBackend();
+  if (rollbackBackend(dir, version)) startBackend();
 }
 
 function startBackend() {
@@ -114,12 +135,15 @@ function createWindow() {
     win.loadFile(resolveFrontend());
   }
 
-  // Keep the app fresh, Chrome-style. Two layers:
-  //  - full installer update (Python/models changes — rare, big)
+  // Keep the app fresh, Chrome-style. Three layers:
+  //  - full installer update (Python runtime/models — rare, big)
   //  - frontend-only update (UI/features/fixes — tiny ~230KB, applies next launch)
+  //  - backend-only update (Python source fixes — ~500KB, applies next launch)
   if (!devUrl) {
     startUpdateChecks(win);
     setTimeout(() => void checkFrontendUpdate(), 8000);
+    const be = resolveBackend();
+    if (be.bundled) setTimeout(() => void checkBackendUpdate(be.dir), 15000);
   }
 }
 
@@ -128,7 +152,12 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === "media");
   });
+  // Swap in a staged backend update BEFORE Python starts — never while it is
+  // running and holding the camera. Almost always a no-op.
+  const be = resolveBackend();
+  const applied = be.bundled ? applyStagedBackendUpdate(be.dir) : null;
   startBackend();
+  if (applied) void verifyBackendOrRollback(be.dir, applied);
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
