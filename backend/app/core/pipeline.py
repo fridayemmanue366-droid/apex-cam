@@ -101,6 +101,7 @@ class EnhanceSettings:
 @dataclass
 class PipelineStats:
     running: bool = False
+    warming: bool = False   # priming AI models (e.g. DirectML shader compile) — not stalled
     fps: float = 0.0
     latency_ms: float = 0.0
     frames: int = 0
@@ -382,6 +383,21 @@ class Pipeline:
         fps_ema = 0.0
         last = time.perf_counter()
         try:
+            # Prime every enabled AI engine once, off the live/published path, so
+            # a slow first inference call (e.g. DirectML's one-time shader
+            # compile — measured up to ~13s on some GPUs) shows as "warming up"
+            # rather than the live camera freezing mid-stream on some later frame.
+            with self._shared.lock:
+                self._shared.stats.warming = True
+            ok, frame = cap.read()
+            if ok and frame is not None and frame.ndim == 3 and frame.size:
+                try:
+                    self._process(frame)
+                except Exception as exc:
+                    log.warning("Pipeline warmup pass failed (continuing): %s", exc)
+            with self._shared.lock:
+                self._shared.stats.warming = False
+
             while not self._stop.is_set():
                 ok, frame = cap.read()
                 if not ok or frame is None or frame.ndim != 3 or not frame.size:

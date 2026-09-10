@@ -96,7 +96,7 @@ def status() -> SetupStatus:
         has_nvidia_gpu=_nvidia_gpu_name() is not None,
         gpu_name=_nvidia_gpu_name(),
         onnx_providers=provs,
-        on_gpu=any("CUDA" in p or "Tensorrt" in p or "ROCM" in p for p in provs),
+        on_gpu=any("CUDA" in p or "Tensorrt" in p or "ROCM" in p or "Dml" in p for p in provs),
         neural_available=neural_swap_available(),
         enhancer_available=bool(enhancer_models_available()) or enhancer_available(),
         installing=_install["running"],
@@ -118,23 +118,65 @@ def _run(cmd: list[str]) -> bool:
         return False
 
 
-def _install_gpu_stack() -> None:
-    """Switch the ONNX runtime to the CUDA build. Because the whole AI stack
-    (inswapper swap + GFPGAN/CodeFormer enhancers) runs on ONNX, this single
-    package GPU-accelerates everything — no PyTorch needed."""
+def _verify_provider(name: str) -> bool:
+    """Confirm the just-installed onnxruntime build actually exposes `name`, in a
+    subprocess so a broken/half-installed package can't crash this server."""
+    out = subprocess.run(
+        [sys.executable, "-c",
+         f"import onnxruntime as ort; import sys; "
+         f"sys.exit(0 if '{name}' in ort.get_available_providers() else 1)"],
+        capture_output=True, text=True, timeout=15,
+    )
+    return out.returncode == 0
+
+
+def _install_directml_stack() -> None:
+    """Switch onnxruntime to the DirectML build — works on any DirectX 12 GPU
+    (NVIDIA, AMD, Intel integrated), which is what most customer laptops have,
+    unlike CUDA which is NVIDIA-only. This is how machines that installed before
+    DirectML support existed can get it, since OTA only ships backend/app source,
+    never the onnxruntime package itself. Verified before committing — rolls
+    back to the plain CPU build rather than leave the install broken."""
     _install.update(running=True, done=False, ok=False,
-                    log=["Enabling GPU acceleration (onnxruntime-gpu)…"])
+                    log=["Enabling DirectML acceleration (onnxruntime-directml)…"])
     py = sys.executable
-    # Replace the CPU runtime with the GPU build.
-    _run([py, "-m", "pip", "uninstall", "-y", "onnxruntime"])
+    _run([py, "-m", "pip", "uninstall", "-y", "onnxruntime", "onnxruntime-gpu"])
+    ok = _run([py, "-m", "pip", "install", "--upgrade", "onnxruntime-directml"])
+    if ok and _verify_provider("DmlExecutionProvider"):
+        _install["log"].append(
+            "Done. Restart the AI engine — the swap, enhancers and voice clone "
+            "now run on your GPU via DirectML."
+        )
+    else:
+        _install["log"].append(
+            "DirectML didn't verify on this machine — rolling back to CPU so the "
+            "app keeps working."
+        )
+        _run([py, "-m", "pip", "uninstall", "-y", "onnxruntime-directml"])
+        ok = _run([py, "-m", "pip", "install", "--upgrade", "onnxruntime"])
+    _install.update(running=False, done=True, ok=ok)
+
+
+def _install_gpu_stack() -> None:
+    """Switch the ONNX runtime to the CUDA build. The shipped app already runs on
+    DirectML by default (works on any DX12 GPU — NVIDIA/AMD/Intel integrated
+    included), so this is only for NVIDIA owners who want the extra headroom
+    TensorRT/CUDA gives over DirectML. Because the whole AI stack (inswapper
+    swap + GFPGAN/CodeFormer enhancers) runs on ONNX, this single package
+    GPU-accelerates everything — no PyTorch needed."""
+    _install.update(running=True, done=False, ok=False,
+                    log=["Enabling NVIDIA GPU acceleration (onnxruntime-gpu)…"])
+    py = sys.executable
+    # Replace the DirectML/CPU runtime with the CUDA build.
+    _run([py, "-m", "pip", "uninstall", "-y", "onnxruntime", "onnxruntime-directml"])
     ok = _run([py, "-m", "pip", "install", "--upgrade", "onnxruntime-gpu"])
     if ok:
         _install["log"].append(
-            "Done. Restart the AI engine — the swap and enhancers now run on your GPU. "
+            "Done. Restart the AI engine — the swap and enhancers now run on CUDA. "
             "Make sure your NVIDIA driver + CUDA are installed (see docs/GPU_SETUP.md)."
         )
     else:
-        _install["log"].append("Setup failed (see log). The app keeps working on CPU.")
+        _install["log"].append("Setup failed (see log). The app keeps working on DirectML/CPU.")
     _install.update(running=False, done=True, ok=ok)
 
 
@@ -143,6 +185,16 @@ def install_gpu() -> dict:
     if _install["running"]:
         return {"started": False, "reason": "already running"}
     threading.Thread(target=_install_gpu_stack, daemon=True).start()
+    return {"started": True}
+
+
+@router.post("/directml")
+def install_directml() -> dict:
+    """For installs from before DirectML support existed — pulls the machine off
+    plain CPU onnxruntime without needing a new installer download."""
+    if _install["running"]:
+        return {"started": False, "reason": "already running"}
+    threading.Thread(target=_install_directml_stack, daemon=True).start()
     return {"started": True}
 
 

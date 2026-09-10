@@ -107,9 +107,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($gpu) {
-  Say "Installing GPU acceleration (onnxruntime-gpu)"
+  Say "Installing NVIDIA GPU acceleration (onnxruntime-gpu)"
   & $venv -m pip install onnxruntime-gpu
 } else {
+  # Plain CPU is still the safe default: DirectML is real (works on any DX12
+  # GPU) but measured on an older integrated GPU here at parity with CPU on
+  # steady-state speed, plus a one-time ~13s shader-compile stall on first use.
+  # It's offered as an in-app opt-in (Settings -> GPU setup) with verify +
+  # automatic rollback, not forced on unverified hardware. See
+  # backend/app/api/routes/setup.py:_install_directml_stack.
   & $venv -m pip install onnxruntime
 }
 if ($LASTEXITCODE -ne 0) { Die "onnxruntime failed to install." }

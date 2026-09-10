@@ -77,11 +77,27 @@ def _gpu_stats() -> tuple[float, float]:
 
 
 def _detect_gpu() -> dict[str, object]:
+    """Report whichever GPU path is actually active. torch.cuda only covers the
+    optional GFPGAN/CodeFormer torch stack; the core swap/enhancer/voice engines
+    run on onnxruntime, which is also how DirectML (Intel/AMD/NVIDIA integrated
+    or discrete) gets picked up — torch alone would miss that entirely."""
+    name = None
     try:
         import torch  # type: ignore
 
-        available = bool(torch.cuda.is_available())
-        name = torch.cuda.get_device_name(0) if available else None
-        return {"available": available, "name": name}
+        if torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0)
     except Exception:
-        return {"available": False, "name": None}
+        pass
+
+    from app.core.onnx_providers import get_providers, on_gpu
+
+    providers = get_providers()
+    available = on_gpu(providers)
+    if available and name is None:
+        name = {
+            "TensorrtExecutionProvider": "NVIDIA GPU (TensorRT)",
+            "CUDAExecutionProvider": "NVIDIA GPU (CUDA)",
+            "DmlExecutionProvider": "GPU (DirectML)",
+        }.get(providers[0])
+    return {"available": available, "name": name}

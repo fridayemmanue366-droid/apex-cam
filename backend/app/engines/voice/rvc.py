@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from app.core.logging import get_logger
+from app.core.onnx_providers import get_providers as _providers
 
 log = get_logger(__name__)
 
@@ -48,18 +49,6 @@ def list_voices() -> list[str]:
 def rvc_available() -> bool:
     """True only when the shared models AND at least one voice model exist."""
     return base_models_present() and len(list_voices()) > 0
-
-
-def _providers() -> list[str]:
-    try:
-        import onnxruntime as ort
-        avail = ort.get_available_providers()
-    except Exception:
-        return ["CPUExecutionProvider"]
-    for gpu in ("CUDAExecutionProvider", "TensorrtExecutionProvider"):
-        if gpu in avail:
-            return [gpu, "CPUExecutionProvider"]
-    return ["CPUExecutionProvider"]
 
 
 class RVCVoiceEngine:

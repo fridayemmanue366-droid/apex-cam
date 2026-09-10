@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from app.core.logging import get_logger
+from app.core.onnx_providers import get_providers as _providers
 
 log = get_logger(__name__)
 
@@ -42,13 +43,10 @@ INSWAPPER_URL = os.environ.get(
 
 
 def gpu_available() -> bool:
-    """True if an ONNX Runtime CUDA provider is present."""
-    try:
-        import onnxruntime as ort
+    """True if ONNX Runtime has a real GPU provider (CUDA/TensorRT/DirectML)."""
+    from app.core.onnx_providers import on_gpu
 
-        return "CUDAExecutionProvider" in ort.get_available_providers()
-    except Exception:
-        return False
+    return on_gpu(_providers())
 
 
 def neural_swap_available() -> bool:
@@ -72,17 +70,6 @@ def enhancer_available() -> bool:
     except Exception:
         return False
     return GFPGAN_FILE.exists()
-
-
-def _providers() -> list[str]:
-    try:
-        import onnxruntime as ort
-
-        avail = ort.get_available_providers()
-    except Exception:
-        return ["CPUExecutionProvider"]
-    order = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
-    return [p for p in order if p in avail] or ["CPUExecutionProvider"]
 
 
 # --- Head/hair transfer alignment ---------------------------------------------
@@ -162,8 +149,10 @@ class NeuralFaceSwapEngine:
             from insightface.app import FaceAnalysis
             from insightface.model_zoo import get_model
 
+            from app.core.onnx_providers import on_gpu as _on_gpu
+
             providers = _providers()
-            on_gpu = any("CUDA" in p or "Tensorrt" in p for p in providers)
+            on_gpu = _on_gpu(providers)
             ctx_id = 0 if on_gpu else -1
             # Bigger detector on GPU (quality); smaller on CPU (speed).
             det = (640, 640) if on_gpu else (320, 320)

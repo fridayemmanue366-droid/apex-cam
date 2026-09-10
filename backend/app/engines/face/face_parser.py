@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from app.core.logging import get_logger
+from app.core.onnx_providers import get_providers as _providers
 
 log = get_logger(__name__)
 
@@ -33,18 +34,6 @@ _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 def parser_available() -> bool:
     return PARSER_FILE.exists() and PARSER_FILE.stat().st_size > 1_000_000
-
-
-def _providers() -> list[str]:
-    try:
-        import onnxruntime as ort
-        avail = ort.get_available_providers()
-    except Exception:
-        return ["CPUExecutionProvider"]
-    for gpu in ("CUDAExecutionProvider", "TensorrtExecutionProvider"):
-        if gpu in avail:
-            return [gpu, "CPUExecutionProvider"]
-    return ["CPUExecutionProvider"]
 
 
 class FaceParser:

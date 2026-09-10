@@ -103,7 +103,10 @@ if (-not (Test-Path (Join-Path $pyOut "python.exe"))) { Die "Python extraction f
 Write-Host "Copying AI libraries into the bundle (~850 MB)..."
 robocopy $venvSP (Join-Path $pyOut "Lib\site-packages") /E /NFL /NDL /NJH /NJS /NP /MT:16 /R:0 /W:0 | Out-Null
 if ($Gpu) {
-  Say "Adding GPU runtime (onnxruntime-gpu)"
+  # NVIDIA owners who want CUDA/TensorRT over the DirectML default - uninstall
+  # first since both packages ship a top-level onnxruntime/ folder.
+  Say "Swapping in NVIDIA GPU runtime (onnxruntime-gpu)"
+  & (Join-Path $pyOut "python.exe") -m pip uninstall -y onnxruntime onnxruntime-directml
   & (Join-Path $pyOut "python.exe") -m pip install --no-warn-script-location onnxruntime-gpu
 }
 

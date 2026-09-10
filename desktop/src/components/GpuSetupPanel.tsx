@@ -15,8 +15,11 @@ export function GpuSetupPanel() {
     return () => window.clearInterval(timer.current);
   }, []);
 
+  // NVIDIA gets CUDA (fastest); everyone else gets DirectML, which runs on any
+  // DirectX 12 GPU (AMD/Intel integrated included) instead of leaving them CPU-only.
   const install = async () => {
-    await api.installGpu().catch(() => undefined);
+    const call = s?.has_nvidia_gpu ? api.installGpu : api.installDirectml;
+    await call().catch(() => undefined);
     // Poll faster while installing.
     window.clearInterval(timer.current);
     timer.current = window.setInterval(poll, 1500);
@@ -57,7 +60,13 @@ export function GpuSetupPanel() {
           disabled={s.installing}
           onClick={() => void install()}
         >
-          {s.installing ? "Installing…" : "⤓ Set up realistic GPU mode"}
+          {s.installing
+            ? "Installing…"
+            : s.on_gpu
+              ? "⤓ Re-run GPU setup"
+              : s.has_nvidia_gpu
+                ? "⤓ Set up realistic GPU mode (CUDA)"
+                : "⤓ Speed up on this GPU (DirectML)"}
         </button>
         {s.install_done && (
           <span className={s.install_ok ? "pill ok" : "pill"}>
@@ -71,9 +80,10 @@ export function GpuSetupPanel() {
       )}
 
       <p className="muted">
-        This downloads and installs the realistic-swap GPU components into this machine
-        (~2–3 GB). Best on an NVIDIA GPU with CUDA — on this laptop the realistic swap runs but
-        slowly. See docs/GPU_SETUP.md. After setup completes, restart the AI engine.
+        {s.has_nvidia_gpu
+          ? "This installs the CUDA GPU runtime into this machine (~2–3 GB) — fastest on your NVIDIA card. See docs/GPU_SETUP.md."
+          : "This installs DirectML, which runs the swap, enhancer and voice clone on this machine's GPU (works on Intel/AMD integrated graphics too, not just NVIDIA) instead of the slower CPU path."}
+        {" "}After setup completes, restart the AI engine.
       </p>
     </section>
   );

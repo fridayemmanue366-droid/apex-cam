@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 
 from app.core.logging import get_logger
+from app.core.onnx_providers import get_providers as _providers
 
 log = get_logger(__name__)
 
@@ -39,18 +40,6 @@ MODEL_FILES = {
 
 def enhancer_models_available() -> list[str]:
     return [k for k, p in MODEL_FILES.items() if p.exists() and p.stat().st_size > 1_000_000]
-
-
-def _providers() -> list[str]:
-    try:
-        import onnxruntime as ort
-        avail = ort.get_available_providers()
-    except Exception:
-        return ["CPUExecutionProvider"]
-    for gpu in ("CUDAExecutionProvider", "TensorrtExecutionProvider"):
-        if gpu in avail:
-            return [gpu, "CPUExecutionProvider"]
-    return ["CPUExecutionProvider"]
 
 
 class FaceEnhancer:

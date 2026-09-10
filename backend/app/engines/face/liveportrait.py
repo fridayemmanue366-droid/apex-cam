@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 from app.core.logging import get_logger
+from app.core.onnx_providers import get_providers as _providers
 
 log = get_logger(__name__)
 
@@ -34,18 +35,6 @@ FILES = {
 
 def liveportrait_available() -> bool:
     return all(p.exists() and p.stat().st_size > 100_000 for p in FILES.values())
-
-
-def _providers() -> list[str]:
-    try:
-        import onnxruntime as ort
-        avail = ort.get_available_providers()
-    except Exception:
-        return ["CPUExecutionProvider"]
-    for gpu in ("CUDAExecutionProvider", "TensorrtExecutionProvider"):
-        if gpu in avail:
-            return [gpu, "CPUExecutionProvider"]
-    return ["CPUExecutionProvider"]
 
 
 def _rotation(pitch: float, yaw: float, roll: float) -> np.ndarray:

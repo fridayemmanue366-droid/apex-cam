@@ -253,6 +253,7 @@ export const api = {
 
   setupStatus: () => req<SetupStatus>("/setup"),
   installGpu: () => req<{ started: boolean }>("/setup/gpu", { method: "POST" }),
+  installDirectml: () => req<{ started: boolean }>("/setup/directml", { method: "POST" }),
   getEnhancers: () => req<{ available: string[] }>("/setup/enhancers"),
   setEnhancer: (kind: string) =>
     req<{ kind: string; active: string; available: string[] }>("/setup/enhancer", {
