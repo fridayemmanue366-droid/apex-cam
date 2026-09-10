@@ -247,12 +247,20 @@ export function ProTab() {
     setAiCam(index);
     setAiCameraIndex(index);   // takes effect on the next GO LIVE
   };
+  const [liveProvider, setLiveProvider] = useState<"fal" | "decart" | null>(null);
   const save = async (enabled: boolean, p = prompt) => {
     setLiveErr(null);
     try {
       if (enabled && liveSession) {
         // Already live — this is just a prompt/look update.
-        await cloud.livePrompt(liveSession, p).catch(() => undefined);
+        if (liveProvider === "fal") {
+          // fal's session lives entirely on this PC (see engines/fal_pro.py) —
+          // update the local engine directly; it sends the new look itself on
+          // its own already-open connection. The server has nothing to relay into.
+          await api.setPro({ enabled: true, prompt: p }).catch(() => undefined);
+        } else {
+          await cloud.livePrompt(liveSession, p).catch(() => undefined);
+        }
         return;
       }
       if (enabled) {
@@ -269,14 +277,25 @@ export function ProTab() {
         } catch { /* no persona yet — Lucy runs prompt-only */ }
         const r = await cloud.liveStart(p, ref);
         setLiveSession(r.session_id);
+        setLiveProvider(r.provider);
         // Pass the session + cloud auth so the PC heartbeats the meter — the
         // customer is billed only while Lucy is really streaming, not connecting.
         await api
-          .proLiveCloud(r.livekit_url, r.token, r.session_id, cloud.url, getToken() ?? undefined)
+          .proLiveCloud({
+            provider: r.provider,
+            livekit_url: r.livekit_url,
+            token: r.token,
+            jwt: r.jwt,
+            model: r.model,
+            session_id: r.session_id,
+            cloud_url: cloud.url,
+            auth: getToken() ?? undefined,
+          })
           .then(setPro);
       } else {
         if (liveSession) cloud.liveStop(liveSession).catch(() => undefined);
         setLiveSession(null);
+        setLiveProvider(null);
         await api.proLiveCloudStop().then(setPro).catch(() => undefined);
         if (pipeline.active) await pipeline.stop();     // hand the camera back
       }
@@ -284,6 +303,7 @@ export function ProTab() {
       setLiveErr(e instanceof Error ? e.message : "Could not go live — try again");
       if (liveSession) cloud.liveStop(liveSession).catch(() => undefined);
       setLiveSession(null);
+      setLiveProvider(null);
       await api.proLiveCloudStop().catch(() => undefined);
     } finally {
       api.getPro().then(setPro).catch(() => undefined);

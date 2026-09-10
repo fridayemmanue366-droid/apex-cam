@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from app.core.logging import get_logger
-from app.engines.lucy_pro import lucy_pro
+from app.engines.pro_engine import lucy_pro
 
 log = get_logger(__name__)
 
@@ -116,8 +116,13 @@ def get_reference() -> FileResponse:
 
 # --- Cloud live cam ---------------------------------------------------------
 class CloudRoom(BaseModel):
-    livekit_url: str
-    token: str
+    provider: str = "decart"
+    # decart shape:
+    livekit_url: str | None = None
+    token: str | None = None
+    # fal shape:
+    jwt: str | None = None
+    model: str | None = None
     # For fair metering: this PC heartbeats the cloud server ONLY while Lucy is
     # really streaming frames back, so the customer isn't billed for connecting.
     session_id: str | None = None
@@ -154,9 +159,9 @@ def _heartbeat(session_id: str, cloud_url: str, auth: str) -> None:
 
 @router.post("/live/cloud")
 def live_cloud(r: CloudRoom) -> ProStatus:
-    """Go live via OUR CLOUD SERVER: it did the Decart handshake with ITS key and
-    meters the customer's cloud wallet; this machine just joins the LiveKit room
-    with the token. No provider key, no local billing here."""
+    """Go live via OUR CLOUD SERVER: it minted credentials with ITS key (Decart
+    handshake, or a fal JWT) and meters the customer's cloud wallet; this machine
+    just uses what it was handed. No provider key, no local billing here."""
     global _tick_thread
     # Pro and the local swap never run together (and the local face deselects).
     try:
@@ -164,7 +169,14 @@ def live_cloud(r: CloudRoom) -> ProStatus:
         deactivate_local()
     except Exception:
         log.exception("cloud live: could not deactivate local swap")
-    lucy_pro.start_cloud(r.livekit_url, r.token)
+    if r.provider == "fal":
+        if not r.jwt or not r.model:
+            raise HTTPException(400, "Missing jwt/model for fal provider")
+        lucy_pro.start_cloud(r.jwt, r.model)
+    else:
+        if not r.livekit_url or not r.token:
+            raise HTTPException(400, "Missing livekit_url/token for decart provider")
+        lucy_pro.start_cloud(r.livekit_url, r.token)
     # One click: camera pipeline on + publish to the virtual camera.
     try:
         from app.core.pipeline import pipeline

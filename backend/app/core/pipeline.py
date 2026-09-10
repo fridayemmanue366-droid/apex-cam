@@ -474,7 +474,7 @@ class Pipeline:
         # downscale — that softened its input), keep its native output resolution
         # (no shrink back to the small camera size), and add a light unsharp pass
         # to crisp the eyes/mouth/edges. Lucy renders at its native size regardless.
-        from app.engines.lucy_pro import lucy_pro
+        from app.engines.pro_engine import lucy_pro
         if lucy_pro.ready:
             out = lucy_pro.process(frame)
             out = self._sharpen(out, max(self.sharpen, LUCY_SHARPEN))

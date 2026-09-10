@@ -37,8 +37,10 @@ _SR = 16000  # audio is resampled to 16k for the cloud call
 
 
 def _key() -> str | None:
-    # Reuse the Lucy loader so both share one fal key (env or .lucy_key.local).
-    from app.engines.lucy_pro import _load_local_key
+    # Reuse the fal Lucy loader so both share one fal key (env or .lucy_key.local).
+    # (Was pointed at lucy_pro.py, the Decart engine, which has no such function —
+    # this import has been broken since the Decart switch; voice was silently dead.)
+    from app.engines.fal_pro import _load_local_key
     return _load_local_key()
 
 

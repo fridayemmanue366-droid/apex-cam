@@ -142,14 +142,24 @@ export const cloud = {
     return URL.createObjectURL(await res.blob());
   },
 
-  // --- live cam: server does the Decart handshake, we get a LiveKit room ---
+  // --- live cam: server mints credentials for whichever provider is active ---
+  // (APEXCAM_PRO_PROVIDER) — "decart" returns a LiveKit room, "fal" returns a
+  // short-lived JWT. Check `provider` in the response to know which fields you got.
   liveStart: (prompt: string, reference?: File | null) => {
     const f = new FormData();
     f.append("prompt", prompt);
     if (reference) f.append("reference", reference);
-    return call<{ session_id: string; livekit_url: string; token: string }>(
-      "/studio/live/start", { method: "POST", body: f });
+    return call<{
+      session_id: string;
+      provider: "fal" | "decart";
+      livekit_url?: string;
+      token?: string;
+      jwt?: string;
+      model?: string;
+    }>("/studio/live/start", { method: "POST", body: f });
   },
+  // decart only — fal sessions update their look locally (api.setPro), never
+  // through the server, since fal holds no session open here to relay into.
   livePrompt: (sessionId: string, prompt: string) => {
     const f = new FormData();
     f.append("session_id", sessionId);
