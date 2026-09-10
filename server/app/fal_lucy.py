@@ -13,7 +13,9 @@ import json
 import os
 import urllib.request
 
-FAL_KEY = os.environ.get("APEXCAM_LUCY_KEY", "")
+# .strip(): a trailing newline from a pasted env var makes an HTTP header
+# invalid ("Invalid header value b'Key ...\\n'") and every mint fails.
+FAL_KEY = os.environ.get("APEXCAM_LUCY_KEY", "").strip()
 TOKENS_URL = os.environ.get("APEXCAM_FAL_TOKENS_URL", "https://rest.fal.ai/tokens/")
 # Keep in sync with backend/app/engines/fal_pro.py's default.
 LIVE_MODEL = os.environ.get("APEXCAM_LUCY_MODEL", "decart/lucy-2-5")

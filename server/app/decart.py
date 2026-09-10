@@ -30,7 +30,9 @@ DEFAULT_LIVE_PROMPT = "Photorealistic person, natural face, studio lighting, fol
 
 
 def _key() -> str:
-    k = os.environ.get("APEXCAM_DECART_KEY")
+    # .strip(): a trailing newline from a pasted env var makes an HTTP header
+    # invalid — same class of bug found (and fixed) in fal_lucy.py.
+    k = (os.environ.get("APEXCAM_DECART_KEY") or "").strip()
     if not k:
         raise RuntimeError("APEXCAM_DECART_KEY not set on the server")
     return k

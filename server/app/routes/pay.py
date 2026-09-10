@@ -24,7 +24,7 @@ from app.pricing import (CURRENCY, PACKAGES, charge_amount, sub_charge_amount,
 router = APIRouter(prefix="/pay", tags=["pay"])
 
 FLW_BASE = "https://api.flutterwave.com/v3"
-FLW_SECRET = os.environ.get("FLW_SECRET", "")
+FLW_SECRET = os.environ.get("FLW_SECRET", "").strip()
 # Where Flutterwave redirects after payment (this server's public URL).
 PUBLIC_URL = os.environ.get("APEXCAM_PUBLIC_URL", "http://127.0.0.1:8900")
 
