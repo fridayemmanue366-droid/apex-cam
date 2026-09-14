@@ -374,7 +374,7 @@ function renderPricing(p){
   $('manwrap').style.display = p.rate_mode==='manual' ? '' : 'none';
   $('bufwrap').style.display = p.rate_mode==='manual' ? 'none' : '';
   $('pstats').innerHTML =
-    stat('$'+p.decart_cost_usd_per_min, 'Decart cost / min', 'red') +
+    stat('$'+p.live_cost_usd_per_min, 'Live (fal) cost / min', 'red') +
     stat(money(p.live_rate), 'live $ rate', 'blue') +
     stat(money(p.effective_rate), 'rate used', 'gold') +
     stat(p.profit_pct+'%', 'your profit', 'green');

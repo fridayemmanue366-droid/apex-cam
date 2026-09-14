@@ -9,7 +9,6 @@ import { PerformanceTab } from "./PerformanceTab";
 import { RecordingTab } from "./RecordingTab";
 import { StreamingTab } from "./StreamingTab";
 import { SettingsTab } from "./SettingsTab";
-import { ProTab } from "./ProTab";
 
 export const TABS = [
   "Home",
@@ -41,6 +40,11 @@ export const TAB_SUMMARY: Record<TabName, string> = {
   Settings: "Appearance, language, and responsible-use status.",
 };
 
+// "Apex Pro" is rendered separately in App.tsx (it takes an onExit prop and
+// needs the local sidebar hidden), so it maps to a never-rendered placeholder
+// here just to satisfy the Record type.
+const ProPlaceholder: ComponentType = () => null;
+
 export const TAB_COMPONENTS: Record<TabName, ComponentType> = {
   Home: HomeTab,
   Face: FaceTab,
@@ -51,6 +55,6 @@ export const TAB_COMPONENTS: Record<TabName, ComponentType> = {
   Performance: PerformanceTab,
   Recording: RecordingTab,
   Streaming: StreamingTab,
-  "Apex Pro": ProTab,
+  "Apex Pro": ProPlaceholder,
   Settings: SettingsTab,
 };

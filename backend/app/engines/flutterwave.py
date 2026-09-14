@@ -12,7 +12,13 @@ Flow (Flutterwave "Standard"):
   4. GET /v3/transactions/{id}/verify (secret key) -> confirm amount+status, then
      credit the minutes. Verifying server-side is what makes it tamper-proof.
 
-Prices are in USD (fal bills USD): amount = minutes x 60s x $0.03.
+Prices are in USD (fal bills USD): amount = minutes x 60s x $0.05.
+
+NOTE: this local copy only drives the local /pro/pricing fallback (e.g. the
+per-second label shown during a live session). The real purchase flow and the
+owner-tunable margin/rate live server-side in server/app/pricing.py — keep
+RATE_PER_SEC here in sync with that file's cost x margin (currently $0.04 x
+1.25 = $0.05/s) by hand; they are not shared code.
 """
 from __future__ import annotations
 
@@ -27,7 +33,7 @@ from app.core.logging import get_logger
 log = get_logger(__name__)
 
 FLW_BASE = "https://api.flutterwave.com/v3"
-RATE_PER_SEC = 0.03           # our price per second in USD (cost $0.02, keep $0.01)
+RATE_PER_SEC = 0.05           # our price per second in USD (fal costs $0.04, keep $0.01)
 CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
 # We collect Naira but pay fal in USD, so charge at a rate with a BUFFER over the
 # market (covers FX swings + the cost of buying USD + processor fees). Adjust as

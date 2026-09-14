@@ -3,15 +3,17 @@ owner's margin, both editable in the admin panel (no redeploy).
 
 Money model
 -----------
-Decart charges us in USD (1 credit = $0.01). The wallet holds "live seconds"; each
-mode burns its own rate. We sell those seconds for: cost x margin, converted to NGN
-at an effective rate that tracks the live dollar with a safety buffer.
+The wallet holds "live seconds"; each mode burns its own rate. We sell those
+seconds for: cost x margin, converted to NGN at an effective rate that tracks
+the live dollar with a safety buffer.
 
-  live cost   $0.02/s  ($1.20/min)  <- the FLOOR; never sell below this
-  video cost  $0.04/s     (burns 2.0 wallet-sec/real-sec)
-  restyle     $0.01/s     (burns 0.667x)
+  live cost   $0.04/s  ($2.40/min)  <- fal's cost for realtime Lucy (the FLOOR;
+                                        never sell below this). Was $0.02/s on
+                                        direct Decart before the fal switch.
+  video cost  $0.04/s     (Decart, unmigrated — burns 2.0 wallet-sec/real-sec)
+  restyle     $0.01/s     (Decart, unmigrated — burns 0.667x)
 
-  sell price     = cost x margin            (margin default 1.3 -> ~23% profit)
+  sell price     = cost x margin            (margin default 1.25 -> $0.05/s)
   effective rate = live_rate x buffer       (buffer default 1.18, covers street gap)
   charge (NGN)   = sell_usd x effective_rate
 
@@ -28,9 +30,11 @@ import urllib.request
 
 from app import db
 
-# --- Decart's cost to us (USD) — the floor we can never sell under -----------
-COST_USD_PER_SEC = {"live": 0.02, "video": 0.04, "restyle": 0.01}
-COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $1.20/min
+# --- Our cost to run each mode (USD) — the floor we can never sell under -----
+# "live" (realtime) runs on fal now; video/restyle are still direct Decart,
+# untouched by the fal migration.
+COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01}
+COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 
 # --- wallet mechanics (UNCHANGED) -------------------------------------------
 # The wallet is in live-seconds. Each mode burns its own rate; a photo costs a
@@ -45,7 +49,7 @@ PACKAGES = [1, 5, 10, 20, 30, 60, 120, 300, 600]
 CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
 
 # --- owner-tunable knobs (fallback defaults; live values live in db.settings) -
-DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.3"))        # sell = cost x margin
+DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.25"))       # sell = cost x margin
 DEFAULT_BUFFER = float(os.environ.get("APEXCAM_RATE_BUFFER", "1.18"))  # cushion on live rate
 FALLBACK_RATE = float(os.environ.get("APEXCAM_NGN_PER_USD", "1600"))   # if no live rate yet
 RATE_TTL = 6 * 3600.0                 # refresh the live rate at most every 6h
@@ -157,7 +161,7 @@ def pricing_snapshot() -> dict:
     cost_min = COST_LIVE_PER_MIN
     return {
         "currency": CURRENCY,
-        "decart_cost_usd_per_min": round(cost_min, 2),
+        "live_cost_usd_per_min": round(cost_min, 2),   # fal's cost for realtime Lucy
         "live_rate": round(live_rate(), 2),
         "rate_mode": rate_mode(),
         "rate_buffer": round(rate_buffer(), 3),
