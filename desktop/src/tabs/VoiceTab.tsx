@@ -1,22 +1,22 @@
 import { useEffect, useState } from "react";
-import { api, type VoiceState } from "../api/client";
+import { api, type VoiceParams } from "../api/client";
 import { MicMeter } from "../components/MicMeter";
 import { useMedia } from "../context/MediaContext";
 
 export function VoiceTab() {
-  const [state, setState] = useState<VoiceState | null>(null);
+  const [state, setState] = useState<VoiceParams | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { running, start } = useMedia();
 
   useEffect(() => {
-    api.getVoice().then(setState).catch((e) => setErr(String(e)));
+    api.getVoiceParams().then(setState).catch((e) => setErr(String(e)));
   }, []);
 
-  const update = (patch: Partial<VoiceState>) => {
+  const update = (patch: Partial<VoiceParams>) => {
     if (!state) return;
     const next = { ...state, ...patch };
     setState(next);
-    api.setVoice(next).catch((e) => setErr(String(e)));
+    api.setVoiceParams(next).catch((e) => setErr(String(e)));
   };
 
   return (
@@ -63,15 +63,9 @@ export function VoiceTab() {
                 onChange={(e) => update({ pitch: Number(e.target.value) })}
               />
             </label>
-            <label className="row">
-              Model
-              <select value={state.model} onChange={(e) => update({ model: e.target.value })}>
-                <option value="passthrough">Passthrough (Phase 1)</option>
-              </select>
-            </label>
             <p className="muted">
-              Controls are wired to the backend now; audible voice cloning/conversion
-              (OpenVoice, XTTS, Fish Speech) arrives in Phase 8.
+              Real-time pitch shift, running locally — no cloud, no GPU needed, works on any
+              machine.
             </p>
           </>
         ) : (

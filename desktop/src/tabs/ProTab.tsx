@@ -37,12 +37,14 @@ const LOOKS = [
   "Fashion model, editorial lighting",
 ];
 
+// Real, working presets — a live pitch shift on the same local engine the
+// Voice tab uses (no cloud call, no missing model, works on any machine).
+// Labeled by what the tech actually does, not a specific cloned identity.
 const VOICES = [
-  { id: "deep-male", name: "Deep Male", tag: "narrator" },
-  { id: "warm-female", name: "Warm Female", tag: "soft" },
-  { id: "young-male", name: "Young Male", tag: "casual" },
-  { id: "bright-female", name: "Bright Female", tag: "energetic" },
-  { id: "robotic", name: "Robotic", tag: "fx" },
+  { name: "Slightly Deeper", semitones: -2 },
+  { name: "Deeper", semitones: -5 },
+  { name: "Slightly Higher", semitones: 2 },
+  { name: "Higher", semitones: 5 },
 ];
 
 const SUB_PAGES: { id: SubPage; label: string }[] = [
@@ -58,7 +60,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const [modelId, setModelId] = useState<string>(MODELS[0].id);
   const [sub, setSub] = useState<SubPage>("playground");
   const [prompt, setPrompt] = useState("");
-  const [voice, setVoice] = useState<string>("");
+  const [voice, setVoice] = useState<number>(0);
   const [pricing, setPricing] = useState<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
@@ -89,6 +91,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     }).catch(() => setPro(null));
     api.getProPricing().then(setPricing).catch(() => undefined);
     cloud.packages().then(setPkgs).catch(() => undefined);
+    api.getVoiceParams().then((p) => setVoice(p.pitch)).catch(() => undefined);
   }, []);
 
   const usdLabel = (min: number) =>
@@ -213,9 +216,13 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const uploadRef = (f: File | undefined) => {
     if (f) api.uploadProReference(f).then(setPro).catch(() => undefined);
   };
-  const pickVoice = (v: string) => {
-    setVoice(v);
-    api.setProVoice({ enabled: v !== "", voice: v || null }).catch(() => undefined);
+  // Real local pitch shift (same engine + endpoint the Voice tab uses under
+  // the hood) — not the old fake cloud picker, which never worked.
+  const pickVoice = (semitones: number) => {
+    setVoice(semitones);
+    api.getVoiceParams()
+      .then((p) => api.setVoiceParams({ ...p, enabled: true, pitch: semitones }))
+      .catch(() => undefined);
   };
 
   const [buyErr, setBuyErr] = useState<string | null>(null);
@@ -392,8 +399,8 @@ function LucyRealtimePlayground(props: {
   save: (enabled: boolean, p?: string) => void;
   refFile: React.RefObject<HTMLInputElement>;
   uploadRef: (f: File | undefined) => void;
-  voice: string;
-  pickVoice: (v: string) => void;
+  voice: number;
+  pickVoice: (semitones: number) => void;
   aiCameras: CameraInfo[];
   aiCam: number;
   autoName: string | undefined;
@@ -482,16 +489,16 @@ function LucyRealtimePlayground(props: {
       <div className="pro-card">
         <h3>Voice</h3>
         <p className="pro-muted">
-          Changes your voice in the cloud to match your persona — separate from the local voice
-          changer. Pick a voice, or leave it off to keep your natural voice.
+          Real-time pitch shift, applied live — runs locally on this machine (not the cloud), so
+          it works on any hardware with no extra setup.
         </p>
         <div className="row preset-row" style={{ marginTop: 10 }}>
-          <button type="button" className={`pro-chip${voice === "" ? " on" : ""}`}
-                  onClick={() => pickVoice("")}>Natural (off)</button>
+          <button type="button" className={`pro-chip${voice === 0 ? " on" : ""}`}
+                  onClick={() => pickVoice(0)}>Natural (off)</button>
           {VOICES.map((v) => (
-            <button key={v.id} type="button"
-                    className={`pro-chip${voice === v.name ? " on" : ""}`}
-                    onClick={() => pickVoice(v.name)}>{v.name}</button>
+            <button key={v.name} type="button"
+                    className={`pro-chip${voice === v.semitones ? " on" : ""}`}
+                    onClick={() => pickVoice(v.semitones)}>{v.name}</button>
           ))}
         </div>
       </div>

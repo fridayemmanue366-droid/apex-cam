@@ -29,14 +29,6 @@ export interface FaceState {
   profile_id: string | null;
 }
 
-export interface VoiceState {
-  enabled: boolean;
-  model: string;
-  pitch: number;
-  noise_reduction: boolean;
-  profile_id: string | null;
-}
-
 export interface SetupStatus {
   python: string;
   has_nvidia_gpu: boolean;
@@ -191,13 +183,6 @@ export interface Credits {
  *  none  = ignore any reference; the prompt alone drives the edit */
 export type RefMode = "face" | "style" | "none";
 
-export interface ProVoice {
-  enabled: boolean;
-  voice: string | null;
-  configured: boolean;
-  model: string;
-}
-
 export interface ModelInfo {
   id: string;
   name: string;
@@ -261,8 +246,6 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind }),
     }),
-  getVoice: () => req<VoiceState>("/voice"),
-  setVoice: (s: VoiceState) => put<VoiceState>("/voice", s),
   models: () => req<ModelInfo[]>("/models"),
 
   listProfiles: () => req<FaceProfile[]>("/face/profiles"),
@@ -376,13 +359,6 @@ export const api = {
       body: JSON.stringify(room),
     }),
   proLiveCloudStop: () => req<ProStatus>("/pro/live/cloud/stop", { method: "POST" }),
-  getProVoice: () => req<ProVoice>("/pro/voice"),
-  setProVoice: (cfg: { enabled: boolean; voice: string | null }) =>
-    req<ProVoice>("/pro/voice", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cfg),
-    }),
 
   audioDevices: () => req<AudioDevices>("/audio/devices"),
   audioStatus: () => req<AudioStatus>("/audio"),

@@ -43,11 +43,10 @@ class ProConfig(BaseModel):
 
 
 def _stop_pro_call() -> None:
-    """Meter callback: balance hit zero -> kill the Pro call (video + voice)."""
-    from app.engines.fal_voice import fal_voice
-
+    """Meter callback: balance hit zero -> kill the paid Lucy call. Voice is the
+    free local pitch-shifter (shared with the Voice tab), not a paid Pro
+    feature, so it isn't touched here."""
     lucy_pro.enabled = False
-    fal_voice.enabled = False
 
 
 def _status() -> ProStatus:
@@ -93,6 +92,12 @@ def set_pro(cfg: ProConfig) -> ProStatus:
                 pipeline.enable_vcam()
             except Exception:
                 log.exception("Pro GO LIVE: pipeline/vcam start failed")
+            try:
+                from app.core.audio_pipeline import audio_pipeline
+                if not audio_pipeline.stats().running:
+                    audio_pipeline.start()
+            except Exception:
+                log.exception("Pro GO LIVE: audio pipeline start failed")
         else:
             lucy_pro.enabled = False
     else:
@@ -185,6 +190,16 @@ def live_cloud(r: CloudRoom) -> ProStatus:
         pipeline.enable_vcam()
     except Exception:
         log.exception("cloud live: pipeline/vcam start failed")
+    # Voice: start the same local audio pipeline the Voice tab uses (pitch
+    # shift and/or RVC), so Apex Pro's mic feed actually reaches the virtual
+    # mic. This was previously never started during GO LIVE — Pro's voice
+    # picker looked live but nothing was ever published.
+    try:
+        from app.core.audio_pipeline import audio_pipeline
+        if not audio_pipeline.stats().running:
+            audio_pipeline.start()
+    except Exception:
+        log.exception("cloud live: audio pipeline start failed")
     # Start heartbeat metering (fair: bills only while frames really flow).
     if r.session_id and r.cloud_url and r.auth:
         _tick_stop.set()                       # stop any prior beat
@@ -407,26 +422,3 @@ def pay_callback(status: str = "", tx_ref: str = "",
         f"text-align:center;padding:60px'>{body}</body></html>")
 
 
-class ProVoice(BaseModel):
-    enabled: bool = False
-    voice: str | None = None
-    configured: bool = False
-    model: str = ""
-
-
-@router.get("/voice")
-def get_voice() -> ProVoice:
-    from app.engines.fal_voice import fal_voice
-
-    s = fal_voice.status()
-    return ProVoice(enabled=s["enabled"], voice=s["voice"],
-                    configured=s["configured"], model=s["model"])
-
-
-@router.put("/voice")
-def set_voice(v: ProVoice) -> ProVoice:
-    from app.engines.fal_voice import fal_voice
-
-    fal_voice.set_voice(v.voice)
-    fal_voice.enabled = v.enabled and fal_voice.configured
-    return get_voice()
