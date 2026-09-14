@@ -36,11 +36,13 @@ from app import db
 COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01}
 COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 
+# Lucy Image (720p) — Decart's real cost, flat per image, not per second.
+IMAGE_COST_USD = 0.02
+
 # --- wallet mechanics (UNCHANGED) -------------------------------------------
 # The wallet is in live-seconds. Each mode burns its own rate; a photo costs a
 # fixed number of wallet-seconds. These define CONSUMPTION, not purchase price.
 MODE_RATE = {"live": 1.0, "video": 2.0, "restyle": 2.0 / 3.0}
-IMAGE_COST_SECONDS = 13.33            # a photo = ~13s of live-time from the wallet
 
 # Minute packages the app sells (wallet minutes). The 1-min entry is the cheap
 # tester for the live payment flow.
@@ -50,6 +52,10 @@ CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
 
 # --- owner-tunable knobs (fallback defaults; live values live in db.settings) -
 DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.25"))       # sell = cost x margin
+# Image margin defaults to land on $0.035/image at today's $0.02 cost
+# (0.035 / 0.02 = 1.75) — a separate knob from the live margin so the owner
+# can tune image pricing without touching live-minute pricing, and vice versa.
+DEFAULT_IMAGE_MARGIN = float(os.environ.get("APEXCAM_IMAGE_MARGIN", "1.75"))
 DEFAULT_BUFFER = float(os.environ.get("APEXCAM_RATE_BUFFER", "1.18"))  # cushion on live rate
 FALLBACK_RATE = float(os.environ.get("APEXCAM_NGN_PER_USD", "1600"))   # if no live rate yet
 RATE_TTL = 6 * 3600.0                 # refresh the live rate at most every 6h
@@ -65,6 +71,10 @@ def _sf(key: str, default: float) -> float:
 
 def margin() -> float:
     return max(1.0, _sf("pricing_margin", DEFAULT_MARGIN))    # never below cost
+
+
+def image_margin() -> float:
+    return max(1.0, _sf("image_margin", DEFAULT_IMAGE_MARGIN))    # never below cost
 
 
 def rate_buffer() -> float:
@@ -139,6 +149,29 @@ def charge_amount(minutes: float) -> float:
     return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
 
 
+# --- Lucy Image (flat per-image charge, own margin, own cost) ----------------
+def image_sell_usd() -> float:
+    """What we sell one 720p image edit for, in USD."""
+    return round(IMAGE_COST_USD * image_margin(), 4)
+
+
+def image_charge_amount() -> float:
+    """What we charge for one image, in CURRENCY."""
+    usd = image_sell_usd()
+    return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
+
+
+def image_cost_wallet_seconds() -> float:
+    """The wallet is one ledger, denominated in live-equivalent seconds — an
+    image is billed by converting its USD sell price into however many
+    live-seconds that same money buys AT THE CURRENT live rate, not a fixed
+    number. So the ledger stays internally consistent (a customer's minutes
+    balance always means the same thing) even as either price is retuned in
+    the admin panel independently."""
+    per_sec = sell_usd_per_min() / 60.0
+    return round(image_sell_usd() / per_sec, 2) if per_sec > 0 else 0.0
+
+
 # --- Local-app subscription (flat price, separate from the Pro wallet) -------
 SUB_MONTHLY_NGN = float(os.environ.get("APEXCAM_SUB_NGN", "20000"))
 SUB_DAYS = int(os.environ.get("APEXCAM_SUB_DAYS", "30"))
@@ -169,6 +202,11 @@ def pricing_snapshot() -> dict:
         "effective_rate": round(eff, 2),
         "margin": round(margin(), 3),
         "profit_pct": round((1.0 - 1.0 / margin()) * 100, 1),
+        "image_cost_usd": IMAGE_COST_USD,
+        "image_margin": round(image_margin(), 3),
+        "image_sell_usd": image_sell_usd(),
+        "image_charge": image_charge_amount(),
+        "image_profit_pct": round((1.0 - 1.0 / image_margin()) * 100, 1),
         "packages": [
             {"minutes": m,
              "ngn": charge_amount(m),

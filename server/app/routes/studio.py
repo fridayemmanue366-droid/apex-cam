@@ -19,9 +19,9 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app import db, decart, fal_lucy
+from app import db, decart, fal_lucy, pricing
 from app.deps import current_user
-from app.pricing import IMAGE_COST_SECONDS, MODE_RATE
+from app.pricing import MODE_RATE
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
@@ -36,20 +36,37 @@ _jobs: dict[str, int] = {}
 _live: dict[str, dict] = {}
 
 
-# --- Photo ---------------------------------------------------------------
+@router.get("/image/pricing")
+def image_pricing() -> dict:
+    """What Lucy Image currently costs — live from the admin panel's margin,
+    never hardcoded in the client. Shown on the Image Studio's About tab."""
+    return {
+        "currency": pricing.CURRENCY,
+        "usd": pricing.image_sell_usd(),
+        "charge": pricing.image_charge_amount(),
+    }
+
+
+# --- Photo (Lucy Image) ---------------------------------------------------
 @router.post("/photo")
 async def photo(file: UploadFile, reference: UploadFile | None = File(None),
                 prompt: str = Form(""), face_swap: bool = Form(False),
                 uid: int = Depends(current_user)) -> Response:
-    if not db.spend(uid, IMAGE_COST_SECONDS, "photo"):
+    # Recomputed on every call, never cached — reflects the owner's current
+    # image margin from the admin panel immediately, no redeploy needed.
+    cost = pricing.image_cost_wallet_seconds()
+    if not db.spend(uid, cost, "image"):
         raise HTTPException(402, "Not enough credit — top up first")
     ref = await reference.read() if reference else None
     try:
+        # No prompt filtering/limiting here on purpose — the whole point of
+        # Lucy Image is natural-language editing ("swap this face", "make
+        # them hold X"); Decart's own model is what interprets it.
         out = decart.generate_photo(await file.read(), prompt or None,
                                     ref if (ref or face_swap) else None)
     except Exception:
-        db.refund(uid, IMAGE_COST_SECONDS, "photo failed")
-        raise HTTPException(502, "Could not generate the photo")
+        db.refund(uid, cost, "image failed")
+        raise HTTPException(502, "Could not generate the image")
     return Response(content=out, media_type="image/png")
 
 

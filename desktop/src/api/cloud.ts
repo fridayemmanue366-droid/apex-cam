@@ -110,6 +110,8 @@ export const cloud = {
     }),
 
   // --- studio (metered server-side) ---
+  // Live, admin-panel-driven — never hardcode this in the UI.
+  imagePricing: () => call<{ currency: string; usd: number; charge: number }>("/studio/image/pricing"),
   photo: (file: File, prompt: string, faceSwap: boolean, reference?: File | null) => {
     const f = new FormData();
     f.append("file", file);

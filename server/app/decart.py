@@ -38,6 +38,16 @@ def _key() -> str:
     return k
 
 
+def _image_key() -> str:
+    """Image editing uses its OWN Decart account/key — separate from the one
+    (still) used for the video/restyle jobs and the legacy realtime fallback,
+    so either can be swapped independently without touching the other. Falls
+    back to the shared key if a dedicated one isn't set, so this doesn't
+    break anything before the new key is added on Render."""
+    k = (os.environ.get("APEXCAM_DECART_IMAGE_KEY") or "").strip()
+    return k or _key()
+
+
 def generate_photo(input_bytes: bytes, prompt: str | None, reference_bytes: bytes | None) -> bytes:
     import requests
 
@@ -48,7 +58,7 @@ def generate_photo(input_bytes: bytes, prompt: str | None, reference_bytes: byte
     else:
         text = prompt or "Enhance this photo, sharp and clean."
     r = requests.post(f"{API_BASE}/v1/generate/{IMAGE_MODEL}",
-                      headers={"X-API-KEY": _key()}, files=files,
+                      headers={"X-API-KEY": _image_key()}, files=files,
                       data={"prompt": text, "resolution": RESOLUTION,
                             "enhance_prompt": "true" if ENHANCE_PROMPT else "false"},
                       timeout=(15, 300))

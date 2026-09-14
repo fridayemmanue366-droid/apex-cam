@@ -27,6 +27,8 @@ interface ModelDef {
 const MODELS: ModelDef[] = [
   { id: "lucy-realtime", name: "Lucy Realtime", icon: "🎥",
     tag: "Live face, body & scene", status: "available" },
+  { id: "lucy-image", name: "Lucy Image", icon: "🖼️",
+    tag: "Edit or create any photo", status: "available" },
 ];
 
 const LOOKS = [
@@ -47,6 +49,26 @@ const VOICES = [
   { name: "Higher", semitones: 5 },
 ];
 
+// Click-to-fill examples — proof the prompt box isn't a fixed menu, shown as
+// real instructions rather than described in prose.
+const IMAGE_PRESETS = [
+  "Swap this face for the reference photo",
+  "Make them hold a red umbrella",
+  "Change the background to a beach at sunset",
+  "Remove the person on the left",
+  "Give her a short black bob",
+  "Add sunglasses and a leather jacket",
+  "Make it look like a rainy night in Tokyo",
+  "Turn this into a professional studio headshot",
+];
+
+// Spec-sheet tags for the About page — a capability list, not a paragraph.
+const IMAGE_CAPS = [
+  "Face swap", "Object add / remove / replace", "Background change",
+  "Hair & clothing restyle", "Lighting & weather", "Color grade",
+  "Style transfer", "Upscale / cleanup",
+];
+
 const SUB_PAGES: { id: SubPage; label: string }[] = [
   { id: "playground", label: "Playground" },
   { id: "about", label: "About" },
@@ -62,6 +84,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [voice, setVoice] = useState<number>(0);
   const [pricing, setPricing] = useState<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number } | null>(null);
+  const [imgPricing, setImgPricing] = useState<{ currency: string; usd: number; charge: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
   // Cloud account — credits live on our server, tied to this login (so they
@@ -90,6 +113,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
       if (p.enabled) setEntered(true);
     }).catch(() => setPro(null));
     api.getProPricing().then(setPricing).catch(() => undefined);
+    cloud.imagePricing().then(setImgPricing).catch(() => undefined);
     cloud.packages().then(setPkgs).catch(() => undefined);
     api.getVoiceParams().then((p) => setVoice(p.pitch)).catch(() => undefined);
   }, []);
@@ -121,6 +145,11 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     return () => clearInterval(id);
   }, [pro?.enabled, pro?.live]);
   const perSec = pricing ? pricing.usd_per_minute / 60 : 0.05;
+  // Compact — used in the model-head pill and the image spec sheet, not a paragraph.
+  const imageCost = imgPricing
+    ? (imgPricing.currency === "USD" ? `$${imgPricing.usd.toFixed(3)}`
+                                      : `₦${Math.round(imgPricing.charge).toLocaleString()}`)
+    : "…";
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   // GO LIVE / Stop — server mints credentials for whichever provider is active
@@ -367,9 +396,15 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                   </div>
                 </div>
                 <span className="pro-pill ok">Available now</span>
-                <span className="pro-pill" title="Charged per second while actually streaming">
-                  ${perSec.toFixed(2)}/sec · ${(perSec * 60).toFixed(2)}/min
-                </span>
+                {model.id === "lucy-realtime" ? (
+                  <span className="pro-pill" title="Charged per second while actually streaming">
+                    ${perSec.toFixed(2)}/sec · ${(perSec * 60).toFixed(2)}/min
+                  </span>
+                ) : (
+                  <span className="pro-pill" title="Charged once per successful generation">
+                    {imageCost} / image
+                  </span>
+                )}
               </div>
               <div className="pro-subtabs">
                 {SUB_PAGES.map((s) => (
@@ -379,19 +414,32 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                 ))}
               </div>
 
-              {sub === "playground" && (
-                <LucyRealtimePlayground
-                  pro={pro} liveBadge={liveBadge} account={account}
-                  prompt={prompt} setPrompt={setPrompt} save={save}
-                  refFile={refFile} uploadRef={uploadRef}
-                  voice={voice} pickVoice={pickVoice}
-                  voiceOn={voiceOn} toggleVoice={toggleVoice}
-                  aiCameras={aiCameras} aiCam={aiCam} autoName={autoName}
-                  changeAiCamera={changeAiCamera}
-                />
+              {model.id === "lucy-realtime" ? (
+                <>
+                  {sub === "playground" && (
+                    <LucyRealtimePlayground
+                      pro={pro} liveBadge={liveBadge} account={account}
+                      prompt={prompt} setPrompt={setPrompt} save={save}
+                      refFile={refFile} uploadRef={uploadRef}
+                      voice={voice} pickVoice={pickVoice}
+                      voiceOn={voiceOn} toggleVoice={toggleVoice}
+                      aiCameras={aiCameras} aiCam={aiCam} autoName={autoName}
+                      changeAiCamera={changeAiCamera}
+                    />
+                  )}
+                  {sub === "about" && <LucyRealtimeAbout perSec={perSec} />}
+                  {sub === "privacy" && <LucyRealtimePrivacy />}
+                </>
+              ) : (
+                <>
+                  {sub === "playground" && (
+                    <LucyImagePlayground account={account} imageCost={imageCost}
+                      refreshAccount={() => cloud.me().then(setAccount).catch(() => undefined)} />
+                  )}
+                  {sub === "about" && <LucyImageAbout imageCost={imageCost} />}
+                  {sub === "privacy" && <LucyImagePrivacy />}
+                </>
               )}
-              {sub === "about" && <LucyRealtimeAbout perSec={perSec} />}
-              {sub === "privacy" && <LucyRealtimePrivacy />}
             </>
           )}
         </div>
@@ -599,6 +647,195 @@ function LucyRealtimePrivacy() {
         A convincing live persona swap makes impersonation more believable, not less risky. You
         are responsible for how you use the output, including the terms of whatever platform
         (video call, stream, recording) you use it on.
+      </p>
+    </div>
+  );
+}
+
+// --- Lucy Image: a real editing tool, not a landing page. Upload, instruct,
+// generate, download — left panel is input, right panel is output, same
+// shape as Decart's own playground. -----------------------------------------
+function LucyImagePlayground(props: {
+  account: Account;
+  imageCost: string;
+  refreshAccount: () => void;
+}) {
+  const { account, imageCost, refreshAccount } = props;
+  const mainInput = useRef<HTMLInputElement>(null);
+  const refInput = useRef<HTMLInputElement>(null);
+  const [mainFile, setMainFile] = useState<File | null>(null);
+  const [refFile, setRefFile] = useState<File | null>(null);
+  const [mainPreview, setMainPreview] = useState<string | null>(null);
+  const [refPreview, setRefPreview] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [usedAsLive, setUsedAsLive] = useState(false);
+
+  const pickMain = (f: File | undefined) => {
+    if (!f) return;
+    setMainFile(f);
+    setMainPreview(URL.createObjectURL(f));
+    setResultUrl(null);
+  };
+  const pickRef = (f: File | undefined) => {
+    if (!f) return;
+    setRefFile(f);
+    setRefPreview(URL.createObjectURL(f));
+  };
+  const clearRef = () => { setRefFile(null); setRefPreview(null); };
+
+  const generate = async () => {
+    if (!mainFile || !prompt.trim() || busy) return;
+    setErr(null);
+    setBusy(true);
+    setUsedAsLive(false);
+    try {
+      const url = await cloud.photo(mainFile, prompt.trim(), false, refFile);
+      setResultUrl(url);
+      refreshAccount();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not generate the image");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const useAsLiveCharacter = async () => {
+    if (!resultUrl) return;
+    try {
+      const blob = await fetch(resultUrl).then((r) => r.blob());
+      await api.uploadProReference(new File([blob], "persona.jpg", { type: "image/jpeg" }));
+      setUsedAsLive(true);
+    } catch {
+      setErr("Could not set this as your Live Character");
+    }
+  };
+
+  const noCredit = (account.credit_seconds ?? 0) <= 0;
+
+  return (
+    <div className="pro-card">
+      <div className="pro-editor">
+        <div className="pro-editor-inputs">
+          <div className="pro-uploads">
+            <div>
+              <div className="pro-uplabel">Input</div>
+              <div className="pro-photo-slot" onClick={() => mainInput.current?.click()}>
+                {mainPreview ? <img src={mainPreview} alt="" /> : <span className="pro-muted">+ Upload photo</span>}
+              </div>
+            </div>
+            <div>
+              <div className="pro-uplabel">Reference · optional</div>
+              {refPreview ? (
+                <div className="pro-slot-wrap">
+                  <div className="pro-photo-slot small" onClick={() => refInput.current?.click()}>
+                    <img src={refPreview} alt="" />
+                  </div>
+                  <button type="button" className="pro-slot-x" onClick={clearRef}>✕</button>
+                </div>
+              ) : (
+                <div className="pro-photo-slot small" onClick={() => refInput.current?.click()}>
+                  <span className="pro-muted">+ Face / style</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <input ref={mainInput} type="file" accept="image/*" hidden
+                 onChange={(e) => pickMain(e.target.files?.[0])} />
+          <input ref={refInput} type="file" accept="image/*" hidden
+                 onChange={(e) => pickRef(e.target.files?.[0])} />
+
+          <div className="pro-uplabel" style={{ marginTop: 4 }}>Instruction</div>
+          <textarea className="pro-input pro-photo-prompt" rows={3} value={prompt}
+                    placeholder='Type exactly what to change — "swap this face for the reference photo"…'
+                    onChange={(e) => setPrompt(e.target.value)} />
+          <div className="row preset-row pro-photo-presets">
+            {IMAGE_PRESETS.map((p) => (
+              <button key={p} type="button" className="pro-chip" onClick={() => setPrompt(p)}>{p}</button>
+            ))}
+          </div>
+
+          {err && <p className="error">{err}</p>}
+          <button type="button" className="pro-goldbtn"
+                  disabled={!mainFile || !prompt.trim() || busy || noCredit}
+                  onClick={generate}>
+            {busy ? "Generating…" : `✦ Generate — ${imageCost}`}
+          </button>
+          {noCredit && <p className="pro-muted pro-note">No credit — buy minutes on the Credits tab.</p>}
+        </div>
+
+        <div>
+          <div className="pro-uplabel">Output</div>
+          <div className="pro-result-slot">
+            {busy ? <span className="pro-muted">Generating…</span>
+             : resultUrl ? <img src={resultUrl} alt="Result" />
+             : <span className="pro-muted">Result appears here</span>}
+          </div>
+          {resultUrl && (
+            <div className="row preset-row" style={{ marginTop: 10 }}>
+              <a className="pro-chip pro-dl" href={resultUrl} download="apex-lucy-image.png">⬇ Download</a>
+              <button type="button" className="pro-chip" onClick={useAsLiveCharacter} disabled={usedAsLive}>
+                {usedAsLive ? "✓ Set as Live Character" : "→ Use as Live Character"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- About: a spec sheet — capabilities, inputs/outputs, price. No prose. --
+function LucyImageAbout({ imageCost }: { imageCost: string }) {
+  return (
+    <div className="pro-card narrow">
+      <h3>Capabilities</h3>
+      <div className="row preset-row">
+        {IMAGE_CAPS.map((c) => <span key={c} className="pro-chip">{c}</span>)}
+      </div>
+
+      <h3 style={{ marginTop: 18 }}>Spec</h3>
+      <div className="pro-grid3">
+        <div><div className="pro-uplabel">Input</div><p className="pro-muted">1 photo + optional reference</p></div>
+        <div><div className="pro-uplabel">Instruction</div><p className="pro-muted">Free-text, no fixed menu</p></div>
+        <div><div className="pro-uplabel">Output</div><p className="pro-muted">1 edited photo, 720p</p></div>
+        <div><div className="pro-uplabel">Provider</div><p className="pro-muted">Decart Lucy Image</p></div>
+        <div><div className="pro-uplabel">Speed</div><p className="pro-muted">Seconds, not a live stream</p></div>
+        <div><div className="pro-uplabel">Price</div><p className="pro-muted">{imageCost} / image, on success only</p></div>
+      </div>
+
+      <h3 style={{ marginTop: 18 }}>Bridge to Lucy Realtime</h3>
+      <p className="pro-muted">
+        "Use as Live Character" on a result sends it straight to Lucy Realtime's persona slot —
+        no re-upload.
+      </p>
+    </div>
+  );
+}
+
+// --- Privacy: honest, model-specific data/consent/risk policy. -------------
+function LucyImagePrivacy() {
+  return (
+    <div className="pro-card narrow">
+      <h3>Where your data goes</h3>
+      <p className="pro-muted">
+        Your uploaded photo and any reference photo go to our cloud processing provider (Decart)
+        for editing — that's inherent to how a cloud model works. Apex Cam does not itself store
+        your uploaded or generated photos beyond what's needed to return the result to you.
+      </p>
+      <h3 style={{ marginTop: 18 }}>Consent</h3>
+      <p className="pro-muted">
+        <strong>Only use your own likeness, or one you have explicit permission to use.</strong>{" "}
+        Using someone else's photo to deceive, defraud, harass, or misrepresent them is prohibited
+        here and may be illegal in your jurisdiction. Accounts can be restricted over confirmed
+        misuse.
+      </p>
+      <h3 style={{ marginTop: 18 }}>Labeling</h3>
+      <p className="pro-muted">
+        Edited/generated photos are labeled AI-generated. You may not remove or misrepresent that
+        labeling — same policy that covers Lucy Realtime and local face swapping.
       </p>
     </div>
   );
