@@ -216,6 +216,18 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const uploadRef = (f: File | undefined) => {
     if (f) api.uploadProReference(f).then(setPro).catch(() => undefined);
   };
+  // Voice is free and local — it must NOT require GO LIVE (which spends paid
+  // Lucy video credits). Its own on/off starts the same audio pipeline the
+  // Audio tab uses, independent of the video session and its billing.
+  const [voiceOn, setVoiceOn] = useState(false);
+  useEffect(() => {
+    api.audioStatus().then((s) => setVoiceOn(s.running)).catch(() => undefined);
+  }, []);
+  const toggleVoice = () => {
+    (voiceOn ? api.audioStop() : api.audioStart(null, null))
+      .then((s) => setVoiceOn(s.running))
+      .catch(() => undefined);
+  };
   // Real local pitch shift (same engine + endpoint the Voice tab uses under
   // the hood) — not the old fake cloud picker, which never worked.
   const pickVoice = (semitones: number) => {
@@ -373,6 +385,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                   prompt={prompt} setPrompt={setPrompt} save={save}
                   refFile={refFile} uploadRef={uploadRef}
                   voice={voice} pickVoice={pickVoice}
+                  voiceOn={voiceOn} toggleVoice={toggleVoice}
                   aiCameras={aiCameras} aiCam={aiCam} autoName={autoName}
                   changeAiCamera={changeAiCamera}
                 />
@@ -401,13 +414,16 @@ function LucyRealtimePlayground(props: {
   uploadRef: (f: File | undefined) => void;
   voice: number;
   pickVoice: (semitones: number) => void;
+  voiceOn: boolean;
+  toggleVoice: () => void;
   aiCameras: CameraInfo[];
   aiCam: number;
   autoName: string | undefined;
   changeAiCamera: (i: number) => void;
 }) {
   const { pro, liveBadge, account, prompt, setPrompt, save, refFile, uploadRef,
-          voice, pickVoice, aiCameras, aiCam, autoName, changeAiCamera } = props;
+          voice, pickVoice, voiceOn, toggleVoice,
+          aiCameras, aiCam, autoName, changeAiCamera } = props;
   return (
     <>
       <div className="pro-status">
@@ -490,8 +506,15 @@ function LucyRealtimePlayground(props: {
         <h3>Voice</h3>
         <p className="pro-muted">
           Real-time pitch shift, applied live — runs locally on this machine (not the cloud), so
-          it works on any hardware with no extra setup.
+          it works on any hardware with no extra setup. <strong>Free</strong> — independent of
+          GO LIVE and your Lucy minutes; turn it on any time, with or without video running.
         </p>
+        <div className="pro-status" style={{ marginBottom: 4 }}>
+          <span className={`pro-pill${voiceOn ? " live" : ""}`}>{voiceOn ? "● Voice on" : "Voice off"}</span>
+          <button type="button" className="pro-chip" onClick={toggleVoice}>
+            {voiceOn ? "Turn off" : "Turn on"}
+          </button>
+        </div>
         <div className="row preset-row" style={{ marginTop: 10 }}>
           <button type="button" className={`pro-chip${voice === 0 ? " on" : ""}`}
                   onClick={() => pickVoice(0)}>Natural (off)</button>
