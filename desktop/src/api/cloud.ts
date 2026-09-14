@@ -43,6 +43,13 @@ async function callBlob(path: string, body: FormData): Promise<string> {
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const res = await fetch(`${CLOUD}${path}`, { method: "POST", body, headers });
+  // Same handling as call(): a stale/expired token must be cleared here too,
+  // otherwise the UI keeps showing a cached "signed in" account while every
+  // photo/video call keeps failing silently underneath it.
+  if (res.status === 401) {
+    setToken(null);
+    throw new Error("Your session expired — sign out and sign in again");
+  }
   if (!res.ok) {
     const j = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(j.detail || "Request failed");
@@ -110,8 +117,10 @@ export const cloud = {
     }),
 
   // --- studio (metered server-side) ---
-  // Live, admin-panel-driven — never hardcode this in the UI.
-  imagePricing: () => call<{ currency: string; usd: number; charge: number }>("/studio/image/pricing"),
+  // Live, admin-panel-driven — never hardcode this in the UI. `credits` is what
+  // the customer sees; currency/usd are for reference only, not shown to them.
+  imagePricing: () =>
+    call<{ credits: number; currency: string; usd: number; charge: number }>("/studio/image/pricing"),
   photo: (file: File, prompt: string, faceSwap: boolean, reference?: File | null) => {
     const f = new FormData();
     f.append("file", file);

@@ -38,9 +38,11 @@ _live: dict[str, dict] = {}
 
 @router.get("/image/pricing")
 def image_pricing() -> dict:
-    """What Lucy Image currently costs — live from the admin panel's margin,
-    never hardcoded in the client. Shown on the Image Studio's About tab."""
+    """What Lucy Image currently costs, in CREDITS — the customer-facing unit.
+    The client shows "N credit(s)", never a raw $/₦ amount; the dollar/NGN
+    values here are for the admin panel's own display, not the playground."""
     return {
+        "credits": pricing.IMAGE_CREDITS,
         "currency": pricing.CURRENCY,
         "usd": pricing.image_sell_usd(),
         "charge": pricing.image_charge_amount(),

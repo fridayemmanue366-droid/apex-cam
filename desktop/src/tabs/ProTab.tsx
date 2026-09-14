@@ -84,7 +84,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [voice, setVoice] = useState<number>(0);
   const [pricing, setPricing] = useState<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number } | null>(null);
-  const [imgPricing, setImgPricing] = useState<{ currency: string; usd: number; charge: number } | null>(null);
+  const [imgPricing, setImgPricing] = useState<{ credits: number; currency: string; usd: number; charge: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
   // Cloud account — credits live on our server, tied to this login (so they
@@ -126,11 +126,15 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     return `${sym}${Math.round(min * pricing.charge_per_minute).toLocaleString()}`;
   };
 
-  // Poll the balance + engine status while inside the universe.
+  // Poll the balance + engine status while inside the universe. A 401 here
+  // means the token just went stale (call() already cleared it) — drop
+  // `account` too, so the UI falls back to the sign-in gate immediately
+  // instead of showing a cached balance while every real request underneath
+  // silently fails with "Not signed in".
   useEffect(() => {
     if (!entered) return;
     const t = setInterval(() => {
-      cloud.me().then(setAccount).catch(() => undefined);
+      cloud.me().then(setAccount).catch(() => { if (!signedIn()) setAccount(null); });
       api.getPro().then(setPro).catch(() => undefined);
     }, 1500);
     return () => clearInterval(t);
@@ -145,10 +149,10 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     return () => clearInterval(id);
   }, [pro?.enabled, pro?.live]);
   const perSec = pricing ? pricing.usd_per_minute / 60 : 0.05;
-  // Compact — used in the model-head pill and the image spec sheet, not a paragraph.
-  const imageCost = imgPricing
-    ? (imgPricing.currency === "USD" ? `$${imgPricing.usd.toFixed(3)}`
-                                      : `₦${Math.round(imgPricing.charge).toLocaleString()}`)
+  // Customer-facing unit for Lucy Image: credits, never a raw $/₦ amount.
+  // The count comes live from the server (today always 1) so this never hardcodes it.
+  const imageCredits = imgPricing
+    ? `${imgPricing.credits} credit${imgPricing.credits === 1 ? "" : "s"}`
     : "…";
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
@@ -402,7 +406,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                   </span>
                 ) : (
                   <span className="pro-pill" title="Charged once per successful generation">
-                    {imageCost} / image
+                    {imageCredits} / image
                   </span>
                 )}
               </div>
@@ -433,10 +437,10 @@ export function ProTab({ onExit }: { onExit: () => void }) {
               ) : (
                 <>
                   {sub === "playground" && (
-                    <LucyImagePlayground account={account} imageCost={imageCost}
+                    <LucyImagePlayground account={account} imageCredits={imageCredits}
                       refreshAccount={() => cloud.me().then(setAccount).catch(() => undefined)} />
                   )}
-                  {sub === "about" && <LucyImageAbout imageCost={imageCost} />}
+                  {sub === "about" && <LucyImageAbout imageCredits={imageCredits} />}
                   {sub === "privacy" && <LucyImagePrivacy />}
                 </>
               )}
@@ -657,10 +661,10 @@ function LucyRealtimePrivacy() {
 // shape as Decart's own playground. -----------------------------------------
 function LucyImagePlayground(props: {
   account: Account;
-  imageCost: string;
+  imageCredits: string;
   refreshAccount: () => void;
 }) {
-  const { account, imageCost, refreshAccount } = props;
+  const { account, imageCredits, refreshAccount } = props;
   const mainInput = useRef<HTMLInputElement>(null);
   const refInput = useRef<HTMLInputElement>(null);
   const [mainFile, setMainFile] = useState<File | null>(null);
@@ -761,7 +765,7 @@ function LucyImagePlayground(props: {
           <button type="button" className="pro-goldbtn"
                   disabled={!mainFile || !prompt.trim() || busy || noCredit}
                   onClick={generate}>
-            {busy ? "Generating…" : `✦ Generate — ${imageCost}`}
+            {busy ? "Generating…" : `✦ Generate — ${imageCredits}`}
           </button>
           {noCredit && <p className="pro-muted pro-note">No credit — buy minutes on the Credits tab.</p>}
         </div>
@@ -788,7 +792,7 @@ function LucyImagePlayground(props: {
 }
 
 // --- About: a spec sheet — capabilities, inputs/outputs, price. No prose. --
-function LucyImageAbout({ imageCost }: { imageCost: string }) {
+function LucyImageAbout({ imageCredits }: { imageCredits: string }) {
   return (
     <div className="pro-card narrow">
       <h3>Capabilities</h3>
@@ -803,7 +807,7 @@ function LucyImageAbout({ imageCost }: { imageCost: string }) {
         <div><div className="pro-uplabel">Output</div><p className="pro-muted">1 edited photo, 720p</p></div>
         <div><div className="pro-uplabel">Provider</div><p className="pro-muted">Decart Lucy Image</p></div>
         <div><div className="pro-uplabel">Speed</div><p className="pro-muted">Seconds, not a live stream</p></div>
-        <div><div className="pro-uplabel">Price</div><p className="pro-muted">{imageCost} / image, on success only</p></div>
+        <div><div className="pro-uplabel">Cost</div><p className="pro-muted">{imageCredits} / image, on success only</p></div>
       </div>
 
       <h3 style={{ marginTop: 18 }}>Bridge to Lucy Realtime</h3>

@@ -52,10 +52,12 @@ CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
 
 # --- owner-tunable knobs (fallback defaults; live values live in db.settings) -
 DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.25"))       # sell = cost x margin
-# Image margin defaults to land on $0.035/image at today's $0.02 cost
-# (0.035 / 0.02 = 1.75) — a separate knob from the live margin so the owner
-# can tune image pricing without touching live-minute pricing, and vice versa.
-DEFAULT_IMAGE_MARGIN = float(os.environ.get("APEXCAM_IMAGE_MARGIN", "1.75"))
+# Credits — the customer-facing unit for one-off spends (Lucy Image today,
+# more later). A flat $ price, NOT a multiple of the live per-minute margin,
+# so retuning live pricing never silently changes what a credit costs. The
+# owner tunes this separately in the panel; it can't be set below our cost.
+DEFAULT_CREDIT_USD = float(os.environ.get("APEXCAM_CREDIT_USD", "0.05"))
+IMAGE_CREDITS = 1   # one Lucy Image generation = one credit, flat
 DEFAULT_BUFFER = float(os.environ.get("APEXCAM_RATE_BUFFER", "1.18"))  # cushion on live rate
 FALLBACK_RATE = float(os.environ.get("APEXCAM_NGN_PER_USD", "1600"))   # if no live rate yet
 RATE_TTL = 6 * 3600.0                 # refresh the live rate at most every 6h
@@ -73,8 +75,8 @@ def margin() -> float:
     return max(1.0, _sf("pricing_margin", DEFAULT_MARGIN))    # never below cost
 
 
-def image_margin() -> float:
-    return max(1.0, _sf("image_margin", DEFAULT_IMAGE_MARGIN))    # never below cost
+def credit_usd() -> float:
+    return max(IMAGE_COST_USD, _sf("credit_usd", DEFAULT_CREDIT_USD))    # never below cost
 
 
 def rate_buffer() -> float:
@@ -149,10 +151,10 @@ def charge_amount(minutes: float) -> float:
     return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
 
 
-# --- Lucy Image (flat per-image charge, own margin, own cost) ----------------
+# --- Lucy Image (flat per-image charge, priced in credits) -------------------
 def image_sell_usd() -> float:
-    """What we sell one 720p image edit for, in USD."""
-    return round(IMAGE_COST_USD * image_margin(), 4)
+    """What we sell one 720p image edit for, in USD — IMAGE_CREDITS x one credit."""
+    return round(credit_usd() * IMAGE_CREDITS, 4)
 
 
 def image_charge_amount() -> float:
@@ -203,10 +205,12 @@ def pricing_snapshot() -> dict:
         "margin": round(margin(), 3),
         "profit_pct": round((1.0 - 1.0 / margin()) * 100, 1),
         "image_cost_usd": IMAGE_COST_USD,
-        "image_margin": round(image_margin(), 3),
+        "credit_usd": round(credit_usd(), 4),
+        "image_credits": IMAGE_CREDITS,
         "image_sell_usd": image_sell_usd(),
         "image_charge": image_charge_amount(),
-        "image_profit_pct": round((1.0 - 1.0 / image_margin()) * 100, 1),
+        "image_profit_pct": round((1.0 - IMAGE_COST_USD / image_sell_usd()) * 100, 1)
+                             if image_sell_usd() > 0 else 0.0,
         "packages": [
             {"minutes": m,
              "ngn": charge_amount(m),

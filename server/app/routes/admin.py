@@ -97,7 +97,7 @@ def settings(key: str = Form(...), trial_days: float | None = Form(None)) -> dic
 @router.post("/pricing")
 def pricing_admin(key: str = Form(...),
                   margin: float | None = Form(None),
-                  image_margin: float | None = Form(None),
+                  credit_usd: float | None = Form(None),
                   rate_buffer: float | None = Form(None),
                   rate_mode: str | None = Form(None),
                   manual_rate: float | None = Form(None)) -> dict:
@@ -110,10 +110,10 @@ def pricing_admin(key: str = Form(...),
         if margin < 1.0 or margin > 5.0:
             raise HTTPException(400, "margin must be between 1.0 and 5.0")
         db.set_setting("pricing_margin", str(margin))
-    if image_margin is not None:
-        if image_margin < 1.0 or image_margin > 10.0:
-            raise HTTPException(400, "image_margin must be between 1.0 and 10.0")
-        db.set_setting("image_margin", str(image_margin))
+    if credit_usd is not None:
+        if credit_usd < 0.01 or credit_usd > 5.0:
+            raise HTTPException(400, "credit_usd must be between 0.01 and 5.0")
+        db.set_setting("credit_usd", str(credit_usd))
     if rate_buffer is not None:
         if rate_buffer < 1.0 or rate_buffer > 3.0:
             raise HTTPException(400, "rate_buffer must be between 1.0 and 3.0")
@@ -268,18 +268,20 @@ tr:last-child td{border-bottom:0}
 </div>
 
 <div class="card">
-  <h2>Lucy Image pricing (per-image, separate from live-minute pricing)</h2>
+  <h2>Credits (Lucy Image — 1 generation = 1 credit)</h2>
   <div class="stats" id="imgstats">
     <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
   </div>
   <div class="fields" style="margin-top:14px">
-    <div><label>Profit multiplier (sell = image cost × this)</label>
-      <input id="imgmargin" type="number" min="1" max="10" step="0.05" placeholder="1.75"></div>
-    <div style="align-self:end"><button class="grant" onclick="saveImagePricing()">Save image pricing</button></div>
+    <div><label>Price per credit (USD)</label>
+      <input id="creditusd" type="number" min="0.01" max="5" step="0.01" placeholder="0.05"></div>
+    <div style="align-self:end"><button class="grant" onclick="saveImagePricing()">Save credit price</button></div>
     <div></div>
   </div>
-  <p class="sub" style="margin:10px 0 0">Deducted from the same credit balance as live minutes —
-    each image just converts to however many minutes that price is worth right now.</p>
+  <p class="sub" style="margin:10px 0 0">Customers see "1 credit" — never a raw $ or ₦ amount — for a
+    Lucy Image generation. Deducted from the same balance as live minutes, converted at whatever the
+    live rate is worth right now. Fixed in dollars, independent of the live-minute margin above, so
+    tuning one never silently moves the other.</p>
 </div>
 
 <div class="card"><h2>Accounts</h2><div class="scroll">
@@ -403,11 +405,11 @@ function renderPricing(p){
     '</td><td class="right muted">'+money(k.cost_ngn)+
     '</td><td class="right green">'+money(k.profit_ngn)+'</td></tr>').join('');
   const activeImg = document.activeElement;
-  if(activeImg!==$('imgmargin')) $('imgmargin').value = p.image_margin;
+  if(activeImg!==$('creditusd')) $('creditusd').value = p.credit_usd;
   $('imgstats').innerHTML =
     stat('$'+p.image_cost_usd, 'Decart cost / image', 'red') +
-    stat('$'+p.image_sell_usd, 'sell / image', 'gold') +
-    stat(money(p.image_charge), 'customer pays', 'blue') +
+    stat('$'+p.credit_usd, '1 credit', 'gold') +
+    stat(money(p.image_charge), 'customer pays (1 image)', 'blue') +
     stat(p.image_profit_pct+'%', 'your profit', 'green');
 }
 $('rmode').onchange = () => {
@@ -427,10 +429,10 @@ async function savePricing(){
 async function saveImagePricing(){
   out.textContent='Working…';
   try{
-    const d = await post('pricing', {image_margin:$('imgmargin').value});
+    const d = await post('pricing', {credit_usd:$('creditusd').value});
     renderPricing(d);
-    out.innerHTML = '<span class="green">Image pricing saved — $'+d.image_sell_usd+
-      '/image ('+money(d.image_charge)+'), profit '+d.image_profit_pct+'%.</span>';
+    out.innerHTML = '<span class="green">Credit price saved — $'+d.credit_usd+
+      '/credit ('+money(d.image_charge)+' per image), profit '+d.image_profit_pct+'%.</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 load();
