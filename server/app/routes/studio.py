@@ -2,12 +2,20 @@
 the user's server credits. The Decart key stays on the server.
 
 Modes:
-  photo         POST /studio/photo            (sync image edit / face swap)
+  photo         POST /studio/photo/start      (job) -> GET /studio/photo/{id}[/content]
   video/restyle POST /studio/video/start      (job) -> GET /studio/job/{id}[/content]
   live cam      POST /studio/live/start       -> LiveKit room the client joins direct
                 POST /studio/live/prompt, POST /studio/live/stop
 Live is metered by a background task that debits 1 wallet-sec/sec and cuts the
 session the moment credit runs out — so a customer can never exceed what they paid.
+
+Photo is a JOB, not a plain synchronous POST, even though Decart's own image
+endpoint has no async variant to delegate to (video/restyle do). A real photo
+can take Decart 30–90+ seconds, and holding one client HTTP connection open
+that whole time behind Render's reverse proxy is fragile — a dropped
+connection loses nothing here (the job keeps running server-side; the client
+just polls the same job id again), and it stops one slow generation from
+blocking FastAPI's event loop for every other request in flight.
 """
 from __future__ import annotations
 
@@ -34,6 +42,10 @@ LIVE_PROVIDER = os.environ.get("APEXCAM_PRO_PROVIDER", "fal").strip().lower()
 _jobs: dict[str, int] = {}
 # session_id -> {uid, provider, stop, ...provider-specific state}
 _live: dict[str, dict] = {}
+# photo job_id -> {uid, status, data?, created} — held in memory, since unlike
+# video/restyle Decart has nowhere of its own to park the result for us.
+_photos: dict[str, dict] = {}
+PHOTO_JOB_TTL_S = 15 * 60   # an unfetched result older than this is dropped
 
 
 @router.get("/image/pricing")
@@ -50,26 +62,61 @@ def image_pricing() -> dict:
 
 
 # --- Photo (Lucy Image) ---------------------------------------------------
-@router.post("/photo")
-async def photo(file: UploadFile, reference: UploadFile | None = File(None),
-                prompt: str = Form(""), face_swap: bool = Form(False),
-                uid: int = Depends(current_user)) -> Response:
+def _drop_stale_photo_jobs() -> None:
+    now = time.time()
+    for jid in [j for j, v in _photos.items() if now - v["created"] > PHOTO_JOB_TTL_S]:
+        _photos.pop(jid, None)
+
+
+@router.post("/photo/start")
+async def photo_start(file: UploadFile, reference: UploadFile | None = File(None),
+                      prompt: str = Form(""), face_swap: bool = Form(False),
+                      uid: int = Depends(current_user)) -> dict:
     # Recomputed on every call, never cached — reflects the owner's current
-    # image margin from the admin panel immediately, no redeploy needed.
+    # credit price from the admin panel immediately, no redeploy needed.
     cost = pricing.image_cost_wallet_seconds()
     if not db.spend(uid, cost, "image"):
         raise HTTPException(402, "Not enough credit — top up first")
+    img = await file.read()
     ref = await reference.read() if reference else None
-    try:
-        # No prompt filtering/limiting here on purpose — the whole point of
-        # Lucy Image is natural-language editing ("swap this face", "make
-        # them hold X"); Decart's own model is what interprets it.
-        out = decart.generate_photo(await file.read(), prompt or None,
-                                    ref if (ref or face_swap) else None)
-    except Exception:
-        db.refund(uid, cost, "image failed")
-        raise HTTPException(502, "Could not generate the image")
-    return Response(content=out, media_type="image/png")
+    _drop_stale_photo_jobs()
+    jid = uuid.uuid4().hex
+    _photos[jid] = {"uid": uid, "status": "processing", "created": time.time()}
+
+    async def run() -> None:
+        try:
+            # No prompt filtering/limiting here on purpose — the whole point of
+            # Lucy Image is natural-language editing ("swap this face", "make
+            # them hold X"); Decart's own model is what interprets it. Runs off
+            # the event loop thread — Decart's client here is synchronous
+            # requests, and this can take well over a minute for a big photo.
+            out = await asyncio.to_thread(decart.generate_photo, img, prompt or None,
+                                          ref if (ref or face_swap) else None)
+            _photos[jid] = {"uid": uid, "status": "done", "data": out, "created": time.time()}
+        except Exception:
+            db.refund(uid, cost, "image failed")
+            _photos[jid] = {"uid": uid, "status": "error", "created": time.time()}
+
+    asyncio.create_task(run())
+    return {"job_id": jid}
+
+
+@router.get("/photo/{job_id}")
+def photo_status(job_id: str, uid: int = Depends(current_user)) -> dict:
+    j = _photos.get(job_id)
+    if not j or j["uid"] != uid:
+        raise HTTPException(404, "Not found")
+    return {"status": j["status"]}
+
+
+@router.get("/photo/{job_id}/content")
+def photo_content(job_id: str, uid: int = Depends(current_user)) -> Response:
+    j = _photos.get(job_id)
+    if not j or j["uid"] != uid:
+        raise HTTPException(404, "Not found")
+    if j["status"] != "done":
+        raise HTTPException(404, "Not ready")
+    return Response(content=_photos.pop(job_id)["data"], media_type="image/png")
 
 
 # --- Video / Restyle jobs -----------------------------------------------

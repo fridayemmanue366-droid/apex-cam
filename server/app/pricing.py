@@ -57,7 +57,7 @@ DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.25"))       # sell = 
 # so retuning live pricing never silently changes what a credit costs. The
 # owner tunes this separately in the panel; it can't be set below our cost.
 DEFAULT_CREDIT_USD = float(os.environ.get("APEXCAM_CREDIT_USD", "0.05"))
-IMAGE_CREDITS = 1   # one Lucy Image generation = one credit, flat
+IMAGE_CREDITS = 10   # one Lucy Image generation = 10 credits ($0.50 at the default price)
 DEFAULT_BUFFER = float(os.environ.get("APEXCAM_RATE_BUFFER", "1.18"))  # cushion on live rate
 FALLBACK_RATE = float(os.environ.get("APEXCAM_NGN_PER_USD", "1600"))   # if no live rate yet
 RATE_TTL = 6 * 3600.0                 # refresh the live rate at most every 6h

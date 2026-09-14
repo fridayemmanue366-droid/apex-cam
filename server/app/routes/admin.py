@@ -268,7 +268,7 @@ tr:last-child td{border-bottom:0}
 </div>
 
 <div class="card">
-  <h2>Credits (Lucy Image — 1 generation = 1 credit)</h2>
+  <h2>Credits (Lucy Image)</h2>
   <div class="stats" id="imgstats">
     <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
   </div>
@@ -278,10 +278,11 @@ tr:last-child td{border-bottom:0}
     <div style="align-self:end"><button class="grant" onclick="saveImagePricing()">Save credit price</button></div>
     <div></div>
   </div>
-  <p class="sub" style="margin:10px 0 0">Customers see "1 credit" — never a raw $ or ₦ amount — for a
-    Lucy Image generation. Deducted from the same balance as live minutes, converted at whatever the
-    live rate is worth right now. Fixed in dollars, independent of the live-minute margin above, so
-    tuning one never silently moves the other.</p>
+  <p class="sub" style="margin:10px 0 0">Customers see "N credits" — never a raw $ or ₦ amount — for a
+    Lucy Image generation (today: <span id="imgcredits">—</span> credits/image, set in code). Deducted
+    from the same balance as live minutes, converted at whatever the live rate is worth right now.
+    The price per credit is fixed in dollars, independent of the live-minute margin above, so tuning
+    one never silently moves the other.</p>
 </div>
 
 <div class="card"><h2>Accounts</h2><div class="scroll">
@@ -406,10 +407,12 @@ function renderPricing(p){
     '</td><td class="right green">'+money(k.profit_ngn)+'</td></tr>').join('');
   const activeImg = document.activeElement;
   if(activeImg!==$('creditusd')) $('creditusd').value = p.credit_usd;
+  $('imgcredits').textContent = p.image_credits;
   $('imgstats').innerHTML =
     stat('$'+p.image_cost_usd, 'Decart cost / image', 'red') +
     stat('$'+p.credit_usd, '1 credit', 'gold') +
-    stat(money(p.image_charge), 'customer pays (1 image)', 'blue') +
+    stat(p.image_credits+' credits', 'per image', 'blue') +
+    stat(money(p.image_charge), 'customer pays', 'blue') +
     stat(p.image_profit_pct+'%', 'your profit', 'green');
 }
 $('rmode').onchange = () => {

@@ -38,22 +38,21 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function callBlob(path: string, body: FormData): Promise<string> {
+// GET an authenticated binary result (a finished photo/video job) and hand
+// back an object URL — a plain <img>/<video src> can't attach a Bearer token,
+// so this fetches it manually. Same 401 handling as call(): a stale token
+// gets cleared here too, so a dead session shows as "signed out", not a
+// cached balance with every real request quietly failing underneath it.
+async function fetchBlob(path: string): Promise<string> {
   const token = getToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${CLOUD}${path}`, { method: "POST", body, headers });
-  // Same handling as call(): a stale/expired token must be cleared here too,
-  // otherwise the UI keeps showing a cached "signed in" account while every
-  // photo/video call keeps failing silently underneath it.
+  const res = await fetch(`${CLOUD}${path}`, { headers });
   if (res.status === 401) {
     setToken(null);
     throw new Error("Your session expired — sign out and sign in again");
   }
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(j.detail || "Request failed");
-  }
+  if (!res.ok) throw new Error("Result not ready");
   return URL.createObjectURL(await res.blob());
 }
 
@@ -121,14 +120,23 @@ export const cloud = {
   // the customer sees; currency/usd are for reference only, not shown to them.
   imagePricing: () =>
     call<{ credits: number; currency: string; usd: number; charge: number }>("/studio/image/pricing"),
-  photo: (file: File, prompt: string, faceSwap: boolean, reference?: File | null) => {
+  // Lucy Image runs as a background job — Decart's own endpoint is synchronous
+  // and a real photo can take it 30-90+ seconds, too long to hold one client
+  // HTTP connection open behind Render's reverse proxy. photoStart returns
+  // instantly with a job id; poll photoStatus, then fetch photoContent once
+  // it's done. A dropped connection mid-generation loses nothing — the job
+  // keeps running server-side and the client just polls the same id again.
+  photoStart: (file: File, prompt: string, faceSwap: boolean, reference?: File | null) => {
     const f = new FormData();
     f.append("file", file);
     f.append("prompt", prompt);
     f.append("face_swap", String(faceSwap));
     if (reference) f.append("reference", reference);
-    return callBlob("/studio/photo", f);
+    return call<{ job_id: string }>("/studio/photo/start", { method: "POST", body: f });
   },
+  photoStatus: (id: string) =>
+    call<{ status: "processing" | "done" | "error" }>(`/studio/photo/${id}`),
+  photoContent: (id: string) => fetchBlob(`/studio/photo/${id}/content`),
   videoStart: (file: File, prompt: string, mode: "video" | "restyle",
                faceSwap: boolean, reference?: File | null) => {
     const f = new FormData();
@@ -144,14 +152,7 @@ export const cloud = {
   jobUrl: (id: string) => `${CLOUD}/studio/job/${id}/content`,
   // The content endpoint needs the Bearer token, which a plain <video src> can't
   // send — fetch it authenticated and hand back an object URL instead.
-  jobContent: async (id: string): Promise<string> => {
-    const token = getToken();
-    const headers = new Headers();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-    const res = await fetch(`${CLOUD}/studio/job/${id}/content`, { headers });
-    if (!res.ok) throw new Error("Result not ready");
-    return URL.createObjectURL(await res.blob());
-  },
+  jobContent: (id: string) => fetchBlob(`/studio/job/${id}/content`),
 
   // --- live cam: server mints credentials for whichever provider is active ---
   // (APEXCAM_PRO_PROVIDER) — "decart" returns a LiveKit room, "fal" returns a

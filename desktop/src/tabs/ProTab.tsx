@@ -11,6 +11,8 @@ import { usePipeline } from "../context/PipelineContext";
 // Privacy pages — only models that are actually built and verified are listed;
 // nothing here is a stub for something half-working.
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 type SubPage = "playground" | "about" | "privacy";
 
 interface ModelDef {
@@ -696,8 +698,19 @@ function LucyImagePlayground(props: {
     setBusy(true);
     setUsedAsLive(false);
     try {
-      const url = await cloud.photo(mainFile, prompt.trim(), false, refFile);
-      setResultUrl(url);
+      // A real photo can take Decart 30-90+ seconds — this is a background job,
+      // not one long-held request, so a network blip while waiting doesn't lose
+      // the result: the job keeps running server-side and polling just resumes.
+      const { job_id } = await cloud.photoStart(mainFile, prompt.trim(), false, refFile);
+      const deadline = Date.now() + 3 * 60 * 1000;
+      let status: "processing" | "done" | "error" = "processing";
+      while (status === "processing") {
+        if (Date.now() > deadline) throw new Error("Taking too long — try again");
+        await sleep(2000);
+        status = (await cloud.photoStatus(job_id)).status;
+      }
+      if (status === "error") throw new Error("Could not generate the image");
+      setResultUrl(await cloud.photoContent(job_id));
       refreshAccount();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not generate the image");
@@ -773,7 +786,7 @@ function LucyImagePlayground(props: {
         <div>
           <div className="pro-uplabel">Output</div>
           <div className="pro-result-slot">
-            {busy ? <span className="pro-muted">Generating…</span>
+            {busy ? <span className="pro-muted">Generating… can take up to a minute or two</span>
              : resultUrl ? <img src={resultUrl} alt="Result" />
              : <span className="pro-muted">Result appears here</span>}
           </div>
