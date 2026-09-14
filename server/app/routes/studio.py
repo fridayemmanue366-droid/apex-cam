@@ -20,9 +20,11 @@ blocking FastAPI's event loop for every other request in flight.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -42,10 +44,57 @@ LIVE_PROVIDER = os.environ.get("APEXCAM_PRO_PROVIDER", "fal").strip().lower()
 _jobs: dict[str, int] = {}
 # session_id -> {uid, provider, stop, ...provider-specific state}
 _live: dict[str, dict] = {}
-# photo job_id -> {uid, status, data?, created} — held in memory, since unlike
-# video/restyle Decart has nowhere of its own to park the result for us.
-_photos: dict[str, dict] = {}
-PHOTO_JOB_TTL_S = 15 * 60   # an unfetched result older than this is dropped
+
+# Photo jobs live on the SAME persistent disk as the database (db.DB_PATH),
+# not in memory — a job started right before a deploy/restart (which happens
+# routinely: every push redeploys the service) would otherwise vanish mid-air,
+# surfacing as a 404 "Not found" to a client that's still polling the id it
+# was given. Unlike video/restyle, Decart itself has no async job store to
+# fall back to for a photo edit, so WE are the only place the result exists —
+# it has to survive a restart on our own.
+PHOTO_DIR = db.DB_PATH.parent / "photo_jobs"
+PHOTO_JOB_TTL_S = 15 * 60      # an unfetched result older than this is dropped
+PHOTO_STUCK_S = 4 * 60         # a "processing" job stuck this long self-heals to "error"
+
+
+def _photo_meta_path(job_id: str) -> Path:
+    return PHOTO_DIR / f"{job_id}.json"
+
+
+def _photo_data_path(job_id: str) -> Path:
+    return PHOTO_DIR / f"{job_id}.png"
+
+
+def _write_photo_meta(job_id: str, uid: int, status: str, cost: float) -> None:
+    PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    _photo_meta_path(job_id).write_text(json.dumps(
+        {"uid": uid, "status": status, "cost": cost, "created": time.time()}))
+
+
+def _read_photo_meta(job_id: str) -> dict | None:
+    try:
+        return json.loads(_photo_meta_path(job_id).read_text())
+    except Exception:
+        return None
+
+
+def _drop_photo_job(job_id: str) -> None:
+    _photo_meta_path(job_id).unlink(missing_ok=True)
+    _photo_data_path(job_id).unlink(missing_ok=True)
+
+
+def _drop_stale_photo_jobs() -> None:
+    if not PHOTO_DIR.exists():
+        return
+    now = time.time()
+    for p in PHOTO_DIR.glob("*.json"):
+        meta = None
+        try:
+            meta = json.loads(p.read_text())
+        except Exception:
+            pass
+        if not meta or now - meta.get("created", 0) > PHOTO_JOB_TTL_S:
+            _drop_photo_job(p.stem)
 
 
 @router.get("/image/pricing")
@@ -62,12 +111,6 @@ def image_pricing() -> dict:
 
 
 # --- Photo (Lucy Image) ---------------------------------------------------
-def _drop_stale_photo_jobs() -> None:
-    now = time.time()
-    for jid in [j for j, v in _photos.items() if now - v["created"] > PHOTO_JOB_TTL_S]:
-        _photos.pop(jid, None)
-
-
 @router.post("/photo/start")
 async def photo_start(file: UploadFile, reference: UploadFile | None = File(None),
                       prompt: str = Form(""), face_swap: bool = Form(False),
@@ -81,7 +124,7 @@ async def photo_start(file: UploadFile, reference: UploadFile | None = File(None
     ref = await reference.read() if reference else None
     _drop_stale_photo_jobs()
     jid = uuid.uuid4().hex
-    _photos[jid] = {"uid": uid, "status": "processing", "created": time.time()}
+    _write_photo_meta(jid, uid, "processing", cost)
 
     async def run() -> None:
         try:
@@ -92,10 +135,11 @@ async def photo_start(file: UploadFile, reference: UploadFile | None = File(None
             # requests, and this can take well over a minute for a big photo.
             out = await asyncio.to_thread(decart.generate_photo, img, prompt or None,
                                           ref if (ref or face_swap) else None)
-            _photos[jid] = {"uid": uid, "status": "done", "data": out, "created": time.time()}
+            _photo_data_path(jid).write_bytes(out)
+            _write_photo_meta(jid, uid, "done", cost)
         except Exception:
             db.refund(uid, cost, "image failed")
-            _photos[jid] = {"uid": uid, "status": "error", "created": time.time()}
+            _write_photo_meta(jid, uid, "error", cost)
 
     asyncio.create_task(run())
     return {"job_id": jid}
@@ -103,20 +147,33 @@ async def photo_start(file: UploadFile, reference: UploadFile | None = File(None
 
 @router.get("/photo/{job_id}")
 def photo_status(job_id: str, uid: int = Depends(current_user)) -> dict:
-    j = _photos.get(job_id)
-    if not j or j["uid"] != uid:
+    meta = _read_photo_meta(job_id)
+    if not meta or meta["uid"] != uid:
         raise HTTPException(404, "Not found")
-    return {"status": j["status"]}
+    # Self-heal: the ONLY way a job can stay "processing" forever is if the
+    # server restarted mid-generation (a deploy lands while Decart is still
+    # working) — the in-flight asyncio task is gone with it. Refund rather
+    # than leave the customer's credit stuck on a job that will never finish.
+    if meta["status"] == "processing" and time.time() - meta["created"] > PHOTO_STUCK_S:
+        db.refund(uid, meta["cost"], "image job lost in a restart")
+        meta["status"] = "error"
+        _write_photo_meta(job_id, uid, "error", meta["cost"])
+    return {"status": meta["status"]}
 
 
 @router.get("/photo/{job_id}/content")
 def photo_content(job_id: str, uid: int = Depends(current_user)) -> Response:
-    j = _photos.get(job_id)
-    if not j or j["uid"] != uid:
+    meta = _read_photo_meta(job_id)
+    if not meta or meta["uid"] != uid:
         raise HTTPException(404, "Not found")
-    if j["status"] != "done":
+    if meta["status"] != "done":
         raise HTTPException(404, "Not ready")
-    return Response(content=_photos.pop(job_id)["data"], media_type="image/png")
+    try:
+        data = _photo_data_path(job_id).read_bytes()
+    except Exception:
+        raise HTTPException(404, "Not ready")
+    _drop_photo_job(job_id)
+    return Response(content=data, media_type="image/png")
 
 
 # --- Video / Restyle jobs -----------------------------------------------

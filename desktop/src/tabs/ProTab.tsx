@@ -702,7 +702,11 @@ function LucyImagePlayground(props: {
       // not one long-held request, so a network blip while waiting doesn't lose
       // the result: the job keeps running server-side and polling just resumes.
       const { job_id } = await cloud.photoStart(mainFile, prompt.trim(), false, refFile);
-      const deadline = Date.now() + 3 * 60 * 1000;
+      // Longer than the server's own stuck-job self-heal window (4 min), so a
+      // genuinely orphaned job (a deploy landing mid-generation) reaches
+      // "error" — and gets refunded server-side — before the client gives up,
+      // instead of abandoning the poll with the charge stuck in limbo.
+      const deadline = Date.now() + 5 * 60 * 1000;
       let status: "processing" | "done" | "error" = "processing";
       while (status === "processing") {
         if (Date.now() > deadline) throw new Error("Taking too long — try again");
