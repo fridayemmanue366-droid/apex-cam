@@ -38,8 +38,11 @@ from app import db
 COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01, "vton": 0.04}
 COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 
-# Lucy Image (720p) — Decart's real cost, flat per image, not per second.
-IMAGE_COST_USD = 0.02
+# Lucy Image — the ACTIVE provider's real cost, flat per image, not per
+# second. fal's Nano Banana 2 at 1K is $0.08/image (confirmed on fal's
+# pricing page) — update this if routes/studio.py's IMAGE_PROVIDER ever
+# changes, so the admin panel's profit math stays honest.
+IMAGE_COST_USD = 0.08
 
 # --- wallet mechanics (UNCHANGED) -------------------------------------------
 # The wallet is in live-seconds. Each mode burns its own rate; a photo costs a
@@ -78,7 +81,12 @@ def margin() -> float:
 
 
 def credit_usd() -> float:
-    return max(IMAGE_COST_USD, _sf("credit_usd", DEFAULT_CREDIT_USD))    # never below cost
+    # Floor is cost PER CREDIT (an image costs IMAGE_CREDITS of them), not the
+    # whole image's cost — bugged as the latter until caught: once the real
+    # provider cost rose above the $0.05 default credit price, that wrongly
+    # clamped every credit up to the FULL image cost instead of its 1/10 share.
+    floor = IMAGE_COST_USD / IMAGE_CREDITS if IMAGE_CREDITS else IMAGE_COST_USD
+    return max(floor, _sf("credit_usd", DEFAULT_CREDIT_USD))
 
 
 def rate_buffer() -> float:

@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app import db, decart, fal_lucy, pricing
+from app import db, decart, fal_image, fal_lucy, pricing
 from app.deps import current_user
 from app.pricing import MODE_RATE
 
@@ -39,6 +39,10 @@ router = APIRouter(prefix="/studio", tags=["studio"])
 # default (backend/app/engines/pro_engine.py) or a customer gets credentials
 # for a provider their local app isn't configured to use.
 LIVE_PROVIDER = os.environ.get("APEXCAM_PRO_PROVIDER", "fal").strip().lower()
+# Which engine Lucy Image runs on. "fal" (Nano Banana 2 — better instruction-
+# following and identity-preserving face swap) is the default; "decart" stays
+# a one-env-var rollback if fal ever needs to be pulled.
+IMAGE_PROVIDER = os.environ.get("APEXCAM_IMAGE_PROVIDER", "fal").strip().lower()
 
 # job_id -> user_id (so only the owner can fetch a result)
 _jobs: dict[str, int] = {}
@@ -130,10 +134,11 @@ async def photo_start(file: UploadFile, reference: UploadFile | None = File(None
         try:
             # No prompt filtering/limiting here on purpose — the whole point of
             # Lucy Image is natural-language editing ("swap this face", "make
-            # them hold X"); Decart's own model is what interprets it. Runs off
-            # the event loop thread — Decart's client here is synchronous
-            # requests, and this can take well over a minute for a big photo.
-            out = await asyncio.to_thread(decart.generate_photo, img, prompt or None,
+            # them hold X"); the provider's own model is what interprets it.
+            # Runs off the event loop thread — both providers' clients here are
+            # synchronous, and this can take well over a minute for a big photo.
+            engine = fal_image if IMAGE_PROVIDER == "fal" else decart
+            out = await asyncio.to_thread(engine.generate_photo, img, prompt or None,
                                           ref if (ref or face_swap) else None)
             _photo_data_path(jid).write_bytes(out)
             _write_photo_meta(jid, uid, "done", cost)

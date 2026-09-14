@@ -4,3 +4,4 @@ python-multipart
 requests
 opencv-python-headless
 websockets
+fal-client
