@@ -1,24 +1,30 @@
-"""Apex Cam cloud — pricing. DYNAMIC: prices follow the live USD->NGN rate and the
-owner's margin, both editable in the admin panel (no redeploy).
+"""Apex Cam cloud — pricing. DYNAMIC: prices follow the live USD->NGN rate and
+per-model margins, all editable in the admin panel (no redeploy).
 
 Money model
 -----------
-The wallet holds "live seconds"; each mode burns its own rate. We sell those
-seconds for: cost x margin, converted to NGN at an effective rate that tracks
-the live dollar with a safety buffer.
+The wallet holds "live seconds" — ONE ledger, shared by every model. Each
+model (live, video, restyle, vton, image) has its OWN cost floor and its OWN
+tunable margin, priced independently: sell = cost x that model's margin. A
+non-live model converts into wallet-seconds at whatever its own dollar price
+is worth against live's CURRENT price (mode_rate()) — so the ledger stays
+internally consistent even as any one model's margin is retuned without
+touching the others.
 
-  live cost   $0.04/s  ($2.40/min)  <- fal's cost for realtime Lucy (the FLOOR;
-                                        never sell below this). Was $0.02/s on
-                                        direct Decart before the fal switch.
-  video cost  $0.04/s     (Decart, unmigrated — burns 2.0 wallet-sec/real-sec)
-  restyle     $0.01/s     (Decart, unmigrated — burns 0.667x)
+  live     $0.04/s  ($2.40/min)  <- fal's cost for realtime Lucy (was $0.02/s
+                                     on direct Decart before the fal switch)
+  video    $0.04/s     (Decart)
+  restyle  $0.01/s     (Decart)
+  vton     $0.04/s     (Decart — Decart bills VTON at the same rate as video)
+  image    $0.08/image (fal Nano Banana 2 at 1K — see IMAGE_COST_USD)
 
-  sell price     = cost x margin            (margin default 1.25 -> $0.05/s)
-  effective rate = live_rate x buffer       (buffer default 1.18, covers street gap)
-  charge (NGN)   = sell_usd x effective_rate
+  sell price (per mode) = cost x that mode's margin
+  effective rate         = live_rate x buffer   (buffer default 1.18, covers street gap)
+  charge (NGN)            = sell_usd x effective_rate
 
-Every knob (margin, buffer, rate mode, manual rate) is a DB setting the owner edits
-in /admin/panel; the env vars below are only the first-run fallback.
+Every knob (each mode's margin, the credit price, the rate buffer, rate mode,
+manual rate) is a DB setting the owner edits in /admin/panel; the env vars
+below are only the first-run fallback.
 """
 from __future__ import annotations
 
@@ -44,10 +50,14 @@ COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 # changes, so the admin panel's profit math stays honest.
 IMAGE_COST_USD = 0.08
 
-# --- wallet mechanics (UNCHANGED) -------------------------------------------
-# The wallet is in live-seconds. Each mode burns its own rate; a photo costs a
-# fixed number of wallet-seconds. These define CONSUMPTION, not purchase price.
-MODE_RATE = {"live": 1.0, "video": 2.0, "restyle": 2.0 / 3.0, "vton": 2.0}
+# Video/restyle/vton USED to sell at a fixed RATIO of live's price (2x, 0.667x,
+# 2x) — meaning retuning live's margin silently moved all three with it, and
+# there was no way to price one independently. Each now has its own margin
+# (mode_margin()), defaulting to whatever preserves TODAY's actual sell price
+# at live's current 1.63x margin, so this change doesn't silently cut or hike
+# anyone's price on deploy — from here, the owner can move any one of them
+# independently in the panel.
+DEFAULT_MODE_MARGIN = {"video": 3.26, "restyle": 4.35, "vton": 3.26}
 
 # Minute packages the app sells (wallet minutes). The 1-min entry is the cheap
 # tester for the live payment flow.
@@ -78,6 +88,32 @@ def _sf(key: str, default: float) -> float:
 
 def margin() -> float:
     return max(1.0, _sf("pricing_margin", DEFAULT_MARGIN))    # never below cost
+
+
+def mode_margin(mode: str) -> float:
+    """Video/restyle/vton's OWN margin — independent of live's, unlike the old
+    fixed-ratio system. "live" routes to margin() so callers don't need to
+    special-case it."""
+    if mode == "live":
+        return margin()
+    return max(1.0, _sf(f"margin_{mode}", DEFAULT_MODE_MARGIN.get(mode, 1.25)))
+
+
+def mode_sell_usd_per_sec(mode: str) -> float:
+    """What we sell one second of `mode` for, in USD."""
+    return round(COST_USD_PER_SEC[mode] * mode_margin(mode), 4)
+
+
+def mode_rate(mode: str) -> float:
+    """Wallet-seconds (live-equivalent) burned per real second of `mode` — the
+    wallet is ONE ledger in live-seconds, so a mode priced differently from
+    live converts into however many live-seconds its OWN dollar price is
+    worth right now. Replaces the old static MODE_RATE dict: this recomputes
+    live from each mode's own tunable margin instead of a fixed ratio."""
+    if mode == "live":
+        return 1.0
+    live_per_sec = mode_sell_usd_per_sec("live")
+    return round(mode_sell_usd_per_sec(mode) / live_per_sec, 4) if live_per_sec > 0 else 0.0
 
 
 def credit_usd() -> float:
@@ -221,6 +257,15 @@ def pricing_snapshot() -> dict:
         "image_charge": image_charge_amount(),
         "image_profit_pct": round((1.0 - IMAGE_COST_USD / image_sell_usd()) * 100, 1)
                              if image_sell_usd() > 0 else 0.0,
+        "modes": {
+            m: {
+                "cost_usd_per_sec": COST_USD_PER_SEC[m],
+                "margin": round(mode_margin(m), 3),
+                "sell_usd_per_sec": mode_sell_usd_per_sec(m),
+                "profit_pct": round((1.0 - 1.0 / mode_margin(m)) * 100, 1),
+            }
+            for m in ("video", "restyle", "vton")
+        },
         "packages": [
             {"minutes": m,
              "ngn": charge_amount(m),

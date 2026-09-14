@@ -97,19 +97,28 @@ def settings(key: str = Form(...), trial_days: float | None = Form(None)) -> dic
 @router.post("/pricing")
 def pricing_admin(key: str = Form(...),
                   margin: float | None = Form(None),
+                  margin_video: float | None = Form(None),
+                  margin_restyle: float | None = Form(None),
+                  margin_vton: float | None = Form(None),
                   credit_usd: float | None = Form(None),
                   rate_buffer: float | None = Form(None),
                   rate_mode: str | None = Form(None),
                   manual_rate: float | None = Form(None)) -> dict:
-    """Read or change pricing knobs live — margin, the rate buffer, and whether the
-    dollar rate auto-tracks the live market or is set by hand. Returns a full
-    snapshot (cost, live rate, effective rate, and every package's price + profit)."""
+    """Read or change pricing knobs live — each model's own margin, the rate
+    buffer, and whether the dollar rate auto-tracks the live market or is set
+    by hand. Returns a full snapshot (cost, live rate, effective rate, every
+    model's price + profit, and every package's price + profit)."""
     _require_admin(key)
     from app import pricing
     if margin is not None:
         if margin < 1.0 or margin > 5.0:
             raise HTTPException(400, "margin must be between 1.0 and 5.0")
         db.set_setting("pricing_margin", str(margin))
+    for mode, val in (("video", margin_video), ("restyle", margin_restyle), ("vton", margin_vton)):
+        if val is not None:
+            if val < 1.0 or val > 10.0:
+                raise HTTPException(400, f"margin_{mode} must be between 1.0 and 10.0")
+            db.set_setting(f"margin_{mode}", str(val))
     if credit_usd is not None:
         if credit_usd < 0.01 or credit_usd > 5.0:
             raise HTTPException(400, "credit_usd must be between 0.01 and 5.0")
@@ -285,6 +294,19 @@ tr:last-child td{border-bottom:0}
     one never silently moves the other.</p>
 </div>
 
+<div class="card">
+  <h2>Per-model pricing (video jobs)</h2>
+  <div class="scroll">
+    <table><thead><tr><th>Model</th><th class="right">Decart cost/sec</th>
+    <th class="right">Margin</th><th class="right">Sell/sec</th>
+    <th class="right">Profit</th><th></th></tr></thead>
+    <tbody id="modeRows"><tr><td colspan="6" class="muted">—</td></tr></tbody></table>
+  </div>
+  <p class="sub" style="margin:10px 0 0">Each model — Lucy Video, Lucy Restyle, Lucy VTON — has its
+    OWN margin, priced independently of Lucy Realtime above. A restyle/VTON job's final charge is
+    its video length x this rate, billed from the same minutes balance as everything else.</p>
+</div>
+
 <div class="card"><h2>Accounts</h2><div class="scroll">
   <table><thead><tr><th>Email</th><th class="right">Credit</th>
   <th>App access</th><th>Joined</th></tr></thead>
@@ -388,6 +410,7 @@ async function saveTrial(){
 }
 
 const money = n => '₦'+Math.round(n).toLocaleString();
+const MODE_LABELS = {video:'Lucy Video', restyle:'Lucy Restyle', vton:'Lucy VTON'};
 function renderPricing(p){
   const active = document.activeElement;
   if(active!==$('margin')) $('margin').value = p.margin;
@@ -414,6 +437,15 @@ function renderPricing(p){
     stat(p.image_credits+' credits', 'per image', 'blue') +
     stat(money(p.image_charge), 'customer pays', 'blue') +
     stat(p.image_profit_pct+'%', 'your profit', 'green');
+  $('modeRows').innerHTML = ['video','restyle','vton'].map(m => {
+    const d = p.modes[m], id = 'margin_'+m;
+    return '<tr><td>'+MODE_LABELS[m]+'</td><td class="right muted">$'+d.cost_usd_per_sec+'</td>'+
+      '<td class="right"><input id="'+id+'" type="number" min="1" max="10" step="0.05" '+
+      'value="'+d.margin+'" style="width:70px"></td>'+
+      '<td class="right">$'+d.sell_usd_per_sec+'/s</td>'+
+      '<td class="right green">'+d.profit_pct+'%</td>'+
+      '<td><button class="grant" onclick="saveModeMargin(\''+m+'\')">Save</button></td></tr>';
+  }).join('');
 }
 $('rmode').onchange = () => {
   $('manwrap').style.display = $('rmode').value==='manual' ? '' : 'none';
@@ -436,6 +468,17 @@ async function saveImagePricing(){
     renderPricing(d);
     out.innerHTML = '<span class="green">Credit price saved — $'+d.credit_usd+
       '/credit ('+money(d.image_charge)+' per image), profit '+d.image_profit_pct+'%.</span>';
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+async function saveModeMargin(mode){
+  out.textContent='Working…';
+  try{
+    const extra = {}; extra['margin_'+mode] = $('margin_'+mode).value;
+    const d = await post('pricing', extra);
+    renderPricing(d);
+    const md = d.modes[mode];
+    out.innerHTML = '<span class="green">'+MODE_LABELS[mode]+' saved — $'+md.sell_usd_per_sec+
+      '/sec, profit '+md.profit_pct+'%.</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 load();

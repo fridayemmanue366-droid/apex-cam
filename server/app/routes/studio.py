@@ -31,7 +31,6 @@ from fastapi.responses import Response
 
 from app import db, decart, fal_image, fal_lucy, pricing
 from app.deps import current_user
-from app.pricing import MODE_RATE
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
@@ -99,6 +98,21 @@ def _drop_stale_photo_jobs() -> None:
             pass
         if not meta or now - meta.get("created", 0) > PHOTO_JOB_TTL_S:
             _drop_photo_job(p.stem)
+
+
+@router.get("/pricing")
+def studio_pricing() -> dict:
+    """Live per-second sell rate for every metered mode — the client reads
+    THIS instead of hardcoding a ratio to the live rate (video/restyle/vton
+    each have their own independent, admin-tunable margin now, not a fixed
+    multiple of live's)."""
+    return {
+        "currency": pricing.CURRENCY,
+        "live_usd_per_sec": pricing.mode_sell_usd_per_sec("live"),
+        "video_usd_per_sec": pricing.mode_sell_usd_per_sec("video"),
+        "restyle_usd_per_sec": pricing.mode_sell_usd_per_sec("restyle"),
+        "vton_usd_per_sec": pricing.mode_sell_usd_per_sec("vton"),
+    }
 
 
 @router.get("/image/pricing")
@@ -191,7 +205,7 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
         raise HTTPException(400, "Unknown mode")
     video_bytes = await file.read()
     dur = decart.video_duration(video_bytes)
-    cost = dur * MODE_RATE[mode]
+    cost = dur * pricing.mode_rate(mode)
     if not db.spend(uid, cost, f"{mode} {dur:.0f}s"):
         raise HTTPException(402, "Not enough credit — top up first")
     # video: reference is a face (only meaningful when actually swapping).

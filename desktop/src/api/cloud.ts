@@ -116,6 +116,12 @@ export const cloud = {
     }),
 
   // --- studio (metered server-side) ---
+  // Per-second sell rate for every metered mode, live from the admin panel —
+  // each of video/restyle/vton has its own independent margin now, not a
+  // fixed ratio of live's rate, so this must be fetched, never hardcoded.
+  studioPricing: () =>
+    call<{ currency: string; live_usd_per_sec: number; video_usd_per_sec: number;
+           restyle_usd_per_sec: number; vton_usd_per_sec: number }>("/studio/pricing"),
   // Live, admin-panel-driven — never hardcode this in the UI. `credits` is what
   // the customer sees; currency/usd are for reference only, not shown to them.
   imagePricing: () =>

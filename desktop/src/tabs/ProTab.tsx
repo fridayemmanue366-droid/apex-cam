@@ -110,6 +110,15 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const [voice, setVoice] = useState<number>(0);
   const [pricing, setPricing] = useState<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number } | null>(null);
   const [imgPricing, setImgPricing] = useState<{ credits: number; currency: string; usd: number; charge: number } | null>(null);
+  // Live per-second sell rate for every metered mode, straight from the cloud
+  // server — NOT the local /pro/pricing fallback above, which is a hand-
+  // maintained constant that drifts from the real, admin-tunable rate (it
+  // was showing $0.05/sec while the real rate was $0.0652/sec at the time
+  // this was fixed). video/restyle/vton each have their own independent
+  // margin now, not a fixed ratio of live's, so this can't be computed
+  // client-side either — it has to be fetched.
+  const [rates, setRates] = useState<{ live_usd_per_sec: number; video_usd_per_sec: number;
+    restyle_usd_per_sec: number; vton_usd_per_sec: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
   // Cloud account — credits live on our server, tied to this login (so they
@@ -139,6 +148,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     }).catch(() => setPro(null));
     api.getProPricing().then(setPricing).catch(() => undefined);
     cloud.imagePricing().then(setImgPricing).catch(() => undefined);
+    cloud.studioPricing().then(setRates).catch(() => undefined);
     cloud.packages().then(setPkgs).catch(() => undefined);
     api.getVoiceParams().then((p) => setVoice(p.pitch)).catch(() => undefined);
   }, []);
@@ -173,19 +183,18 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     const id = setInterval(() => setSecsLeft((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, [pro?.enabled, pro?.live]);
-  const perSec = pricing ? pricing.usd_per_minute / 60 : 0.05;
+  const perSec = rates ? rates.live_usd_per_sec : (pricing ? pricing.usd_per_minute / 60 : 0.05);
   // Customer-facing unit for Lucy Image: credits, never a raw $/₦ amount.
   // The count comes live from the server (today always 1) so this never hardcodes it.
   const imageCredits = imgPricing
     ? `${imgPricing.credits} credit${imgPricing.credits === 1 ? "" : "s"}`
     : "…";
-  // Video jobs (restyle/VTON) burn wallet-minutes like Lucy Realtime, at a
-  // fixed multiple of the live per-second rate — not flat credits, since the
-  // charge scales with the source video's length. Multipliers match the
-  // server's MODE_RATE exactly (server/app/pricing.py) and aren't owner-tunable
-  // separately, same as today.
-  const restylePerSec = perSec * (2 / 3);
-  const vtonPerSec = perSec * 2;
+  // Video jobs (restyle/VTON) burn wallet-minutes like Lucy Realtime, but each
+  // has its OWN independent, admin-tunable margin now — not a fixed multiple
+  // of live's rate — so these come straight from the server, never computed
+  // client-side.
+  const restylePerSec = rates ? rates.restyle_usd_per_sec : perSec * (2 / 3);
+  const vtonPerSec = rates ? rates.vton_usd_per_sec : perSec * 2;
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   // GO LIVE / Stop — server mints credentials for whichever provider is active
