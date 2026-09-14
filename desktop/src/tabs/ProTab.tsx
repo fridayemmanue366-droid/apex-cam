@@ -132,6 +132,18 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     api.listCameras().then((r) => {
       setAiCameras(r.cameras);
       setAiAuto(r.auto);
+      // A previously-saved pick that turns out to be a virtual camera (YouCam,
+      // OBS, Apex Cam's own output) is worse than useless here — it's a
+      // feedback loop with no real signal. Snap back to Auto rather than
+      // leave the customer stuck on a dead feed with no idea why.
+      setAiCam((cur) => {
+        const picked = r.cameras.find((c) => c.index === cur);
+        if (cur !== -1 && (!picked || picked.virtual)) {
+          setAiCameraIndex(-1);
+          return -1;
+        }
+        return cur;
+      });
     }).catch(() => undefined);
   }, []);
   const autoName = aiCameras.find((c) => c.index === aiAuto)?.name;
