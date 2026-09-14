@@ -137,7 +137,7 @@ export const cloud = {
   photoStatus: (id: string) =>
     call<{ status: "processing" | "done" | "error" }>(`/studio/photo/${id}`),
   photoContent: (id: string) => fetchBlob(`/studio/photo/${id}/content`),
-  videoStart: (file: File, prompt: string, mode: "video" | "restyle",
+  videoStart: (file: File, prompt: string, mode: "video" | "restyle" | "vton",
                faceSwap: boolean, reference?: File | null) => {
     const f = new FormData();
     f.append("file", file);

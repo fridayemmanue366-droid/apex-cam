@@ -176,24 +176,29 @@ def photo_content(job_id: str, uid: int = Depends(current_user)) -> Response:
     return Response(content=data, media_type="image/png")
 
 
-# --- Video / Restyle jobs -----------------------------------------------
+# --- Video / Restyle / VTON jobs -----------------------------------------
 @router.post("/video/start")
 async def video_start(file: UploadFile, reference: UploadFile | None = File(None),
                       prompt: str = Form(""), mode: str = Form("video"),
                       face_swap: bool = Form(False),
                       uid: int = Depends(current_user)) -> dict:
+    if mode not in ("video", "restyle", "vton"):
+        raise HTTPException(400, "Unknown mode")
     video_bytes = await file.read()
     dur = decart.video_duration(video_bytes)
-    is_restyle = mode == "restyle"
-    cost = dur * MODE_RATE["restyle" if is_restyle else "video"]
+    cost = dur * MODE_RATE[mode]
     if not db.spend(uid, cost, f"{mode} {dur:.0f}s"):
         raise HTTPException(402, "Not enough credit — top up first")
+    # video: reference is a face (only meaningful when actually swapping).
+    # restyle: a style source. vton: a garment. All three legitimately use it,
+    # unlike before, where restyle's reference upload was silently dropped.
     ref = None
-    if not is_restyle and (reference or face_swap):
-        ref = await reference.read() if reference else None
+    if reference and (mode in ("restyle", "vton") or face_swap):
+        ref = await reference.read()
+    model = {"video": decart.VIDEO_MODEL, "restyle": decart.RESTYLE_MODEL,
+             "vton": decart.VTON_MODEL}[mode]
     try:
-        jid = decart.submit_job(decart.RESTYLE_MODEL if is_restyle else decart.VIDEO_MODEL,
-                                video_bytes, prompt or None, ref,
+        jid = decart.submit_job(model, video_bytes, prompt or None, ref,
                                 filename=file.filename or "in.mp4",
                                 content_type=file.content_type or "video/mp4")
     except Exception as exc:

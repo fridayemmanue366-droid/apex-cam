@@ -31,9 +31,11 @@ import urllib.request
 from app import db
 
 # --- Our cost to run each mode (USD) — the floor we can never sell under -----
-# "live" (realtime) runs on fal now; video/restyle are still direct Decart,
-# untouched by the fal migration.
-COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01}
+# "live" (realtime) runs on fal now; video/restyle/vton are still direct
+# Decart, untouched by the fal migration. VTON's video mode is priced the
+# same as plain Lucy video by Decart ($0.04/sec — confirmed on their pricing
+# page), so it shares that cost tier rather than needing its own.
+COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01, "vton": 0.04}
 COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 
 # Lucy Image (720p) — Decart's real cost, flat per image, not per second.
@@ -42,7 +44,7 @@ IMAGE_COST_USD = 0.02
 # --- wallet mechanics (UNCHANGED) -------------------------------------------
 # The wallet is in live-seconds. Each mode burns its own rate; a photo costs a
 # fixed number of wallet-seconds. These define CONSUMPTION, not purchase price.
-MODE_RATE = {"live": 1.0, "video": 2.0, "restyle": 2.0 / 3.0}
+MODE_RATE = {"live": 1.0, "video": 2.0, "restyle": 2.0 / 3.0, "vton": 2.0}
 
 # Minute packages the app sells (wallet minutes). The 1-min entry is the cheap
 # tester for the live payment flow.

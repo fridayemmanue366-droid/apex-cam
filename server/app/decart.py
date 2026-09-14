@@ -1,7 +1,7 @@
 """Server-side Decart calls — the API key lives HERE (env APEXCAM_DECART_KEY),
 never in the shipped app. Proven recipe (see the desktop engine): photo is sync;
-video/restyle are jobs (submit -> poll -> /content); live cam does a WS handshake
-that returns a LiveKit room the client joins directly.
+video/restyle/vton are jobs (submit -> poll -> /content); live cam does a WS
+handshake that returns a LiveKit room the client joins directly.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ WS_BASE = os.environ.get("APEXCAM_DECART_WS", "wss://api3.decart.ai/v1/stream")
 IMAGE_MODEL = os.environ.get("APEXCAM_DECART_IMAGE_MODEL", "lucy-image-2")
 VIDEO_MODEL = os.environ.get("APEXCAM_DECART_VIDEO_MODEL", "lucy-2.5")
 RESTYLE_MODEL = os.environ.get("APEXCAM_DECART_RESTYLE_MODEL", "lucy-restyle-2")
+VTON_MODEL = os.environ.get("APEXCAM_DECART_VTON_MODEL", "lucy-vton-latest")
 LIVE_MODEL = os.environ.get("APEXCAM_DECART_MODEL", "lucy-2.5")
 # Always ask for the sharp tier — without `resolution` Decart falls back to 480p
 # (832x480). With "720p" we get 1280x720. enhance_prompt = Decart's own prompt
@@ -78,16 +79,28 @@ def submit_job(model: str, video_bytes: bytes, prompt: str | None,
     if len(video_bytes) > MAX_VIDEO_BYTES:
         raise RuntimeError("That video is over the 200 MB limit — trim it or lower the quality.")
     is_restyle = model == RESTYLE_MODEL
+    is_vton = model == VTON_MODEL
     if is_restyle and prompt and reference_bytes:
         prompt = None   # restyle takes prompt XOR reference_image, never both
     if is_restyle and not prompt and not reference_bytes:
         raise RuntimeError("Choose a style, or upload a reference image to restyle from.")
+    if is_vton and not prompt and not reference_bytes:
+        raise RuntimeError("Describe the outfit, or upload a garment photo to try on.")
     files = {"data": (filename or "in.mp4", video_bytes, content_type or "video/mp4")}
     if reference_bytes:
+        # VTON's reference is a garment photo, restyle's is a style source, and
+        # plain video's is a face — same field, different meaning per model.
         files["reference_image"] = ("ref.jpg", reference_bytes, "image/jpeg")
     form: dict[str, str] = {"resolution": RESOLUTION}
     if is_restyle:
         if prompt:   # enhance_prompt is only valid alongside a text prompt
+            form["prompt"] = prompt
+            form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
+    elif is_vton:
+        # VTON takes a garment image AND/OR a text prompt together (unlike
+        # restyle's XOR) — never falls back to FACE_PROMPT, that's face-swap
+        # semantics and would be wrong here.
+        if prompt:
             form["prompt"] = prompt
             form["enhance_prompt"] = "true" if ENHANCE_PROMPT else "false"
     else:
