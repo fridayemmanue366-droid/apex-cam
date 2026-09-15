@@ -189,4 +189,17 @@ export const cloud = {
     f.append("session_id", sessionId);
     return call<{ stopped: boolean }>("/studio/live/stop", { method: "POST", body: f });
   },
+
+  // --- cloud voice cloning (Apex Pro): mints a short-lived Modal token +
+  // session id. The desktop hands these straight to the LOCAL backend
+  // (client.ts's audioCloudStart), which opens the actual WebSocket and
+  // streams mic audio to Modal — this call never touches audio itself.
+  voiceCloudStart: () =>
+    call<{ session_id: string; token: string; url: string }>(
+      "/studio/voice/cloud/start", { method: "POST" }),
+  voiceCloudStop: (sessionId: string) => {
+    const f = new FormData();
+    f.append("session_id", sessionId);
+    return call<{ stopped: boolean }>("/studio/voice/cloud/stop", { method: "POST", body: f });
+  },
 };

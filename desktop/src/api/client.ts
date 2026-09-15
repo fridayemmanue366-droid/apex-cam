@@ -152,6 +152,12 @@ export interface RVCStatus {
   on_gpu: boolean;
 }
 
+export interface CloudVoiceStatus {
+  enabled: boolean;
+  connected: boolean;
+  error: string | null;
+}
+
 export interface EnhanceSettings {
   brightness: number;
   contrast: number;
@@ -378,6 +384,27 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(s),
     }),
+
+  // Cloud voice (Apex Pro): this machine gets a Modal ws_url + token from the
+  // CLOUD server (cloud.ts's voiceCloudStart) and hands them here — the local
+  // backend opens the actual WebSocket and heartbeats cloud_url/auth/session_id
+  // on its own, same broker split as proLiveCloud.
+  audioCloudStatus: () => req<CloudVoiceStatus>("/audio/cloud"),
+  audioCloudStart: (room: {
+    ws_url: string;
+    token: string;
+    voice: string;
+    pitch_shift: number;
+    session_id: string;
+    cloud_url: string;
+    auth: string;
+  }) =>
+    req<CloudVoiceStatus>("/audio/cloud/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(room),
+    }),
+  audioCloudStop: () => req<CloudVoiceStatus>("/audio/cloud/stop", { method: "POST" }),
 };
 
 export const WS_PREVIEW_URL = BASE.replace("http", "ws") + "/ws/preview";
