@@ -20,14 +20,24 @@ Models live in the "apexcam-voice-models" Modal Volume (uploaded once via
 voice-independent base models; each target voice is its own .onnx alongside
 them, selected by name per session.
 
-SECURITY: this endpoint is reachable directly (Modal gives it a public URL).
-It must never be pointed at by a customer's app directly with no gate — the
-real deploy wires an auth check here (a short-lived token minted by
-apexcam-api on Render, the same broker pattern as the fal/Decart Lucy
-handshake) before this is wired into production. That gate is the next
-piece to build, not yet present in this first working version.
+SECURITY: this endpoint is reachable directly (Modal gives it a public URL),
+gated by a short-lived HMAC-signed token minted server-side by apexcam-api
+on Render (server/app/security.py's make_voice_token()) — same broker
+pattern as the fal/Decart Lucy handshake elsewhere in this app. Verified
+independently here (shared secret via a Modal Secret, `apexcam-voice-secret`
+/ env `APEXCAM_VOICE_SECRET`) with NO callback to the Render server, so
+there's zero added latency on the hot path. A token is checked as the very
+first thing after ws.accept(), before any model loading — an invalid/missing/
+expired token is rejected before it can cost a cent of GPU time.
 """
 from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
 
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -35,6 +45,40 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import modal
 
 app = modal.App("apexcam-voice")
+
+
+# --- token verification (mirrors server/app/security.py's make_voice_token,
+# a SEPARATE signing secret from the main 30-day session token — narrow
+# scope, short TTL, so a leaked token costs at most 5 minutes of GPU time on
+# one session, not account access). Duplicated here rather than imported
+# since this container doesn't have the server's codebase — deliberately
+# tiny and dependency-free (stdlib only), same reasoning as security.py
+# itself. ----------------------------------------------------------------
+def _b64d(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _verify_voice_token(token: str) -> int | None:
+    """Return the user id if the token is valid, unexpired, and scoped to
+    cloud_voice — else None."""
+    secret = os.environ.get("APEXCAM_VOICE_SECRET", "").encode()
+    if not secret:
+        return None   # misconfigured deploy — fail closed, never open
+    try:
+        payload, sig = token.split(".")
+        expected = base64.urlsafe_b64encode(
+            hmac.new(secret, payload.encode(), hashlib.sha256).digest()
+        ).decode().rstrip("=")
+        if not hmac.compare_digest(sig, expected):
+            return None
+        data = json.loads(_b64d(payload))
+        if data.get("scope") != "cloud_voice":
+            return None
+        if data.get("exp", 0) < time.time():
+            return None
+        return int(data["uid"])
+    except Exception:
+        return None
 
 # debian_slim only ships the NVIDIA driver + CUDA Driver API (confirmed via
 # Modal's own docs) — not the CUDA 12.x + cuDNN 9.x RUNTIME libraries
@@ -296,7 +340,8 @@ class VoiceSession:
         return np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
 
 
-@app.cls(image=image, gpu="L4", volumes={MODELS_DIR: MODELS_VOLUME})
+@app.cls(image=image, gpu="L4", volumes={MODELS_DIR: MODELS_VOLUME},
+        secrets=[modal.Secret.from_name("apexcam-voice-secret")])
 # REQUIRED for WebSockets on Modal: without a class + this decorator, Modal
 # treats the whole connection as a single "input" and mishandles the
 # long-lived accept/send/receive lifecycle a WebSocket actually needs (a
@@ -329,8 +374,10 @@ class VoiceServer:
 
         @web_app.websocket("/ws")
         async def ws_convert(ws: WebSocket):
-            """Protocol: first text message is JSON {"voice": "<name>", "sample_rate": 48000,
-            "pitch_shift": 0}. After that, binary frames are raw float32 PCM mono chunks in,
+            """Protocol: first text message is JSON {"token": "<from apexcam-api>",
+            "voice": "<name>", "sample_rate": 48000, "pitch_shift": 0}. Connection is
+            rejected (code 4401) if the token is missing, invalid, expired, or wrong
+            scope. After that, binary frames are raw float32 PCM mono chunks in,
             converted float32 PCM mono chunks out — one frame per frame, in order."""
             import asyncio
             import time
@@ -341,7 +388,12 @@ class VoiceServer:
             sample_rate = 48000
             try:
                 cfg = await ws.receive_json()
-                print("got cfg:", cfg, flush=True)
+                print("got cfg:", {k: v for k, v in cfg.items() if k != "token"}, flush=True)
+                uid = _verify_voice_token(cfg.get("token", ""))
+                if uid is None:
+                    print("REJECTED: invalid/missing/expired token", flush=True)
+                    await ws.close(code=4401, reason="invalid or expired token")
+                    return
                 sample_rate = int(cfg.get("sample_rate", 48000))
                 # Loading 3 large ONNX models is blocking, synchronous work —
                 # run it off the event loop so the loop stays responsive to a

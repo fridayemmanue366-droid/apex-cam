@@ -17,6 +17,13 @@ import time
 SECRET = os.environ.get("APEXCAM_SECRET", "dev-insecure-change-me").encode()
 TOKEN_TTL = int(os.environ.get("APEXCAM_TOKEN_TTL", str(60 * 60 * 24 * 30)))  # 30 days
 
+# A SEPARATE signing secret for short-lived, narrowly-scoped tokens handed to
+# third-party services (e.g. the cloud-voice Modal app) — deliberately NOT
+# the same secret as the 30-day account session token above. If a scoped
+# token ever leaked (logged by a provider, etc.) the blast radius is "5
+# minutes of one feature" instead of "this customer's whole account".
+VOICE_SECRET = os.environ.get("APEXCAM_VOICE_SECRET", "dev-insecure-change-me-voice").encode()
+
 
 # --- passwords -----------------------------------------------------------
 def hash_password(password: str) -> str:
@@ -65,3 +72,15 @@ def verify_token(token: str) -> int | None:
         return int(data["uid"])
     except Exception:
         return None
+
+
+def make_voice_token(user_id: int, ttl: int = 300) -> str:
+    """Short-lived token (default 5 min) scoped to the cloud-voice Modal
+    service, signed with VOICE_SECRET — NOT the main session token. The
+    Modal app verifies this independently (same secret, shared via a Modal
+    Secret) without ever calling back to this server, so there's no added
+    latency on the hot path."""
+    payload = _b64(json.dumps({"uid": user_id, "scope": "cloud_voice",
+                               "exp": int(time.time()) + ttl}).encode())
+    sig = _b64(hmac.new(VOICE_SECRET, payload.encode(), hashlib.sha256).digest())
+    return f"{payload}.{sig}"
