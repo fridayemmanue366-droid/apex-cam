@@ -189,8 +189,20 @@ class CloudVoiceEngine:
             await ws.send(samples.astype(np.float32).tobytes())
 
     async def _receiver(self, ws) -> None:
+        import asyncio
         while not self._stop_evt.is_set():
-            data = await ws.recv()
+            # A plain `await ws.recv()` blocks until the SERVER sends
+            # something, which can be arbitrarily long once the mic goes
+            # quiet — that starved stop() of any chance to notice
+            # _stop_evt, leaving the WebSocket open (and the Modal GPU
+            # session billing) until Modal's own idle timeout eventually
+            # killed it from the other end. Poll instead, so a stop()
+            # is noticed within ~1s and the `async with` block above
+            # actually sends a close frame right away.
+            try:
+                data = await asyncio.wait_for(ws.recv(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
             out = np.frombuffer(data, dtype=np.float32)
             try:
                 self._out_q.put_nowait(out)
