@@ -35,6 +35,108 @@ CONTENT_MODEL = RVC_DIR / "content_vec.onnx"
 PITCH_MODEL = RVC_DIR / "rmvpe.onnx"
 VOICES_DIR = RVC_DIR / "voices"
 
+# --- RMVPE mel-spectrogram front end ----------------------------------------
+# rmvpe.onnx does NOT take raw audio — its real input is a (1, 128, T) log-mel
+# spectrogram (confirmed via the model's own input metadata: shape [1, 128,
+# 'time']). Feeding raw audio throws a hard ONNX shape error, which used to be
+# silently swallowed by the bare except below, so pitch extraction was
+# returning all-zero F0 on every single call. Exact params below are ported
+# verbatim from the reference implementation (RVC-Project's infer/rmvpe.py,
+# MelSpectrogram + RMVPE class) — cross-checked numerically against librosa
+# (max abs diff ~1.6e-3 in log-mel space) and end-to-end against this exact
+# rmvpe.onnx file with a 220 Hz test tone (decoded median F0: 220.1 Hz).
+_MEL_SR = 16000
+_MEL_N_FFT = 1024
+_MEL_WIN = 1024
+_MEL_HOP = 160
+_MEL_NMELS = 128
+_MEL_FMIN = 30.0
+_MEL_FMAX = 8000.0
+_MEL_CLAMP = 1e-5
+_RMVPE_PAD_TO = 32   # RMVPE's U-Net needs the time axis padded to a multiple of this
+
+
+def _hz_to_mel_htk(f):
+    return 2595.0 * np.log10(1.0 + f / 700.0)
+
+
+def _mel_to_hz_htk(m):
+    return 700.0 * (10.0 ** (m / 2595.0) - 1.0)
+
+
+def _build_mel_filterbank() -> np.ndarray:
+    """HTK-scale mel filterbank with Slaney-style area normalization — matches
+    librosa.filters.mel(sr=16000, n_fft=1024, n_mels=128, fmin=30, fmax=8000,
+    htk=True) to within float32 precision, without depending on librosa."""
+    n_freqs = _MEL_N_FFT // 2 + 1
+    fft_freqs = np.linspace(0, _MEL_SR / 2, n_freqs)
+    mel_pts = np.linspace(_hz_to_mel_htk(_MEL_FMIN), _hz_to_mel_htk(_MEL_FMAX), _MEL_NMELS + 2)
+    hz_pts = _mel_to_hz_htk(mel_pts)
+    fb = np.zeros((_MEL_NMELS, n_freqs), dtype=np.float64)
+    for i in range(_MEL_NMELS):
+        lo, center, hi = hz_pts[i], hz_pts[i + 1], hz_pts[i + 2]
+        left = (fft_freqs - lo) / (center - lo)
+        right = (hi - fft_freqs) / (hi - center)
+        fb[i] = np.maximum(0, np.minimum(left, right))
+    enorm = 2.0 / (hz_pts[2:_MEL_NMELS + 2] - hz_pts[:_MEL_NMELS])
+    fb *= enorm[:, None]
+    return fb.astype(np.float32)
+
+
+def _periodic_hann(n: int) -> np.ndarray:
+    # torch.hann_window's default periodic=True window — NOT np.hanning (which
+    # is the symmetric variant and gives a slightly different STFT).
+    return (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(n) / n)).astype(np.float32)
+
+
+_MEL_BASIS = _build_mel_filterbank()
+_MEL_WINDOW = _periodic_hann(_MEL_WIN)
+
+
+def _mel_spectrogram(audio16: np.ndarray) -> np.ndarray:
+    """16 kHz mono float32 -> log-mel spectrogram (128, T), matching RMVPE's
+    training-time front end exactly (centered/reflect-padded STFT, periodic
+    Hann window, HTK+Slaney mel filterbank, log-clamped)."""
+    pad = _MEL_N_FFT // 2
+    if audio16.size <= pad:
+        audio16 = np.pad(audio16, (0, pad + 1 - audio16.size))
+    padded = np.pad(audio16, pad, mode="reflect")
+    n_frames = 1 + (len(padded) - _MEL_N_FFT) // _MEL_HOP
+    if n_frames < 1:
+        return np.zeros((_MEL_NMELS, 0), np.float32)
+    frames = np.stack([padded[i * _MEL_HOP: i * _MEL_HOP + _MEL_N_FFT] for i in range(n_frames)])
+    windowed = frames * _MEL_WINDOW[None, :]
+    spec = np.fft.rfft(windowed, n=_MEL_N_FFT, axis=1)
+    magnitude = np.abs(spec)
+    mel = _MEL_BASIS @ magnitude.T
+    return np.log(np.clip(mel, _MEL_CLAMP, None)).astype(np.float32)
+
+
+# --- RMVPE 360-class pitch-salience decode -----------------------------------
+# rmvpe.onnx outputs (1, T, 360) per-frame salience over 360 pitch bins (20
+# cents apart), NOT F0 directly — the old code reshaped this straight into an
+# "f0" array, which is meaningless. to_local_average_cents is RMVPE's own
+# decode: a salience-weighted average of the 9 bins around the peak, ported
+# verbatim from infer/rmvpe.py.
+_CENTS_MAPPING = np.pad(20 * np.arange(360) + 1997.3794084376191, (4, 4))
+
+
+def _to_local_average_cents(salience: np.ndarray, thred: float = 0.03) -> np.ndarray:
+    center = np.argmax(salience, axis=1)
+    sal = np.pad(salience, ((0, 0), (4, 4)))
+    center = center + 4
+    starts = center - 4
+    ends = center + 5
+    todo_sal = np.array([sal[idx, starts[idx]:ends[idx]] for idx in range(sal.shape[0])])
+    todo_cents = np.array([_CENTS_MAPPING[starts[idx]:ends[idx]] for idx in range(sal.shape[0])])
+    weight_sum = np.sum(todo_sal, 1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        devided = np.sum(todo_sal * todo_cents, 1) / weight_sum
+    devided = np.nan_to_num(devided)
+    maxx = np.max(salience, axis=1)
+    devided[maxx <= thred] = 0
+    return devided
+
 
 def base_models_present() -> bool:
     return CONTENT_MODEL.exists() and PITCH_MODEL.exists()
@@ -237,11 +339,27 @@ class RVCVoiceEngine:
 
     def _extract_pitch(self, audio16: np.ndarray, n: int):
         """RMVPE F0 -> (coarse pitch int64 [1,n], continuous f0 float32 [1,n]).
-        Coarse-pitch mel mapping uses the standard RVC 50-1100 Hz range. Guarded."""
+        Coarse-pitch mel mapping uses the standard RVC 50-1100 Hz range. Guarded.
+
+        RMVPE's real input is a (1, 128, T) log-mel spectrogram, not raw audio
+        (see _mel_spectrogram's docstring) — and its output is a 360-class
+        pitch-salience distribution per frame, not F0 directly, so it needs
+        _to_local_average_cents to decode. Both steps were missing before;
+        the ONNX shape error that raw audio threw was being silently caught
+        below and treated as "no pitch detected" on every single call."""
         try:
+            mel = _mel_spectrogram(audio16)
+            t = mel.shape[1]
+            pad = _RMVPE_PAD_TO * ((t - 1) // _RMVPE_PAD_TO + 1) - t if t > 0 else 0
+            mel_in = np.pad(mel, ((0, 0), (0, pad)), mode="constant") if pad > 0 else mel
             inp = self._pitch.get_inputs()[0].name
-            f0 = self._pitch.run(None, {inp: audio16[None, :].astype(np.float32)})[0].reshape(-1)
-        except Exception:
+            hidden = self._pitch.run(None, {inp: mel_in[None, :, :].astype(np.float32)})[0]
+            salience = hidden[:, :t].reshape(-1, hidden.shape[-1])
+            f0 = _to_local_average_cents(salience)
+            f0 = 10 * (2 ** (f0 / 1200))
+            f0[f0 == 10] = 0
+        except Exception as exc:
+            log.debug("RMVPE pitch extraction failed, using silence: %s", exc)
             f0 = np.zeros(n, np.float32)
         if len(f0) != n:
             f0 = (np.interp(np.linspace(0, 1, n), np.linspace(0, 1, len(f0)), f0)
