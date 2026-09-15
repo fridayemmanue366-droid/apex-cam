@@ -169,9 +169,14 @@ class AudioPipeline:
     def _process(self, samples: np.ndarray) -> np.ndarray:
         if self.params.noise_reduction:
             samples = self._noise_gate(samples)
-        # Voice cloning (RVC) — changes voice identity. No-op until models added.
+        # Voice cloning — either the cloud engine (Apex Pro, GPU on Modal) or
+        # the local RVC engine (needs models installed). audio.py's routes
+        # keep these mutually exclusive, same as Pro vs the local face swap.
+        from app.engines.voice.cloud_rvc import cloud_rvc
         from app.engines.voice.rvc import rvc
-        if rvc.enabled and rvc.ready:
+        if cloud_rvc.enabled and cloud_rvc.ready:
+            samples = cloud_rvc.convert(samples, SAMPLE_RATE)
+        elif rvc.enabled and rvc.ready:
             samples = rvc.convert(samples, SAMPLE_RATE)
         # Real-time pitch/voice shift (deeper/higher, incl. gender-ish shifts).
         elif abs(self.params.pitch) > 0.05:
