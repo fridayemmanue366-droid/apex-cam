@@ -111,6 +111,7 @@ def studio_pricing() -> dict:
         "live_usd_per_sec": pricing.mode_sell_usd_per_sec("live"),
         "video_usd_per_sec": pricing.mode_sell_usd_per_sec("video"),
         "restyle_usd_per_sec": pricing.mode_sell_usd_per_sec("restyle"),
+        "cloud_voice_usd_per_sec": pricing.mode_sell_usd_per_sec("cloud_voice"),
     }
 
 
@@ -369,3 +370,58 @@ async def live_stop(session_id: str = Form(...), uid: int = Depends(current_user
     if sess and sess["uid"] == uid:
         await _close_live(session_id)
     return {"stopped": True}
+
+
+# --- Cloud voice cloning (Modal GPU) --------------------------------------
+# Same broker shape as /live/*: this server mints a short-lived credential
+# and hands off a URL; the actual audio stream goes customer<->Modal
+# directly, never through here. Billed the same way as the fal live path for
+# the same reason — this server holds nothing open, so it can't meter time
+# directly; the client's app heartbeats /voice/cloud/tick every ~2s.
+CLOUD_VOICE_WS_URL = os.environ.get(
+    "APEXCAM_CLOUD_VOICE_WS",
+    "wss://fridayemmanue366--apexcam-voice-voiceserver-web.modal.run/ws")
+
+_voice_sessions: dict[str, dict] = {}   # session_id -> {uid, last_tick}
+
+
+@router.post("/voice/cloud/start")
+async def voice_cloud_start(uid: int = Depends(current_user)) -> dict:
+    """Mint a short-lived (5 min) token scoped to the cloud-voice Modal
+    service and hand back its URL. The token is signed with a SEPARATE
+    secret from the main session token (security.make_voice_token) — Modal
+    verifies it independently, no callback to this server."""
+    if db.credit_seconds(uid) < 1.0:
+        raise HTTPException(402, "Not enough credit — top up first")
+    from app import security
+    token = security.make_voice_token(uid)
+    sid = uuid.uuid4().hex
+    _voice_sessions[sid] = {"uid": uid, "last_tick": time.monotonic()}
+    return {"session_id": sid, "token": token, "url": CLOUD_VOICE_WS_URL}
+
+
+@router.post("/voice/cloud/tick")
+async def voice_cloud_tick(session_id: str = Form(...), streaming: str = Form("false"),
+                           uid: int = Depends(current_user)) -> dict:
+    """Heartbeat metering, same pattern as /live/tick: the client posts this
+    ~every 2s reporting whether audio is actually flowing. Debits only the
+    elapsed time since the last tick, converted into wallet-seconds at
+    cloud_voice's own rate (pricing.mode_rate) — connecting/idle time costs
+    nothing."""
+    sess = _voice_sessions.get(session_id)
+    if not sess or sess["uid"] != uid:
+        raise HTTPException(404, "No such session")
+    now = time.monotonic()
+    dt = min(now - sess.get("last_tick", now), 5.0)
+    sess["last_tick"] = now
+    if streaming == "true" and dt > 0:
+        if not db.spend(uid, dt * pricing.mode_rate("cloud_voice"), "cloud_voice"):
+            _voice_sessions.pop(session_id, None)
+            return {"stopped": True}
+    return {"stopped": False}
+
+
+@router.post("/voice/cloud/stop")
+async def voice_cloud_stop(session_id: str = Form(...), uid: int = Depends(current_user)) -> dict:
+    sess = _voice_sessions.pop(session_id, None)
+    return {"stopped": bool(sess and sess["uid"] == uid)}

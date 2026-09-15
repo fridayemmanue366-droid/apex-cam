@@ -37,8 +37,9 @@ from app import db
 
 # --- Our cost to run each mode (USD) — the floor we can never sell under -----
 # "live" (realtime) runs on fal now; video/restyle are still direct Decart,
-# untouched by the fal migration.
-COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01}
+# untouched by the fal migration. cloud_voice = Modal's real L4 GPU price,
+# $0.000222/sec, confirmed on Modal's own pricing page — NOT guessed.
+COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01, "cloud_voice": 0.000222}
 COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 
 # Lucy Image — the ACTIVE provider's real cost, flat per image, not per
@@ -53,8 +54,11 @@ IMAGE_COST_USD = 0.08
 # (mode_margin()), defaulting to whatever preserves TODAY's actual sell price
 # at live's current 1.63x margin, so this change doesn't silently cut or hike
 # anyone's price on deploy — from here, the owner can move either
-# independently in the panel.
-DEFAULT_MODE_MARGIN = {"video": 3.26, "restyle": 4.35}
+# independently in the panel. cloud_voice's 4.0 default is a fresh choice
+# (new feature, no prior price to preserve) landing on ~$0.05/min at launch
+# — cheap enough to encourage trying it, ~4x margin like the others, and
+# instantly adjustable in the panel like everything else here.
+DEFAULT_MODE_MARGIN = {"video": 3.26, "restyle": 4.35, "cloud_voice": 4.0}
 
 # Minute packages the app sells (wallet minutes). The 1-min entry is the cheap
 # tester for the live payment flow.
@@ -261,7 +265,7 @@ def pricing_snapshot() -> dict:
                 "sell_usd_per_sec": mode_sell_usd_per_sec(m),
                 "profit_pct": round((1.0 - 1.0 / mode_margin(m)) * 100, 1),
             }
-            for m in ("video", "restyle")
+            for m in ("video", "restyle", "cloud_voice")
         },
         "packages": [
             {"minutes": m,
