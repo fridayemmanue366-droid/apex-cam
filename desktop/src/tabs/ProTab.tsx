@@ -29,7 +29,7 @@ interface ModelDef {
 const MODELS: ModelDef[] = [
   { id: "lucy-realtime", name: "Lucy Realtime", icon: "🎥",
     tag: "Live face, body & scene", status: "available" },
-  { id: "lucy-image", name: "Lucy Image", icon: "🖼️",
+  { id: "lucy-image", name: "Apex Image", icon: "🖼️",
     tag: "Edit or create any photo", status: "available" },
   { id: "lucy-restyle", name: "Lucy Restyle", icon: "🎨",
     tag: "Restyle a recorded video", status: "available" },
@@ -870,7 +870,7 @@ function LucyImageAbout({ imageCredits }: { imageCredits: string }) {
         <div><div className="pro-uplabel">Input</div><p className="pro-muted">1 photo + optional reference</p></div>
         <div><div className="pro-uplabel">Instruction</div><p className="pro-muted">Free-text, no fixed menu</p></div>
         <div><div className="pro-uplabel">Output</div><p className="pro-muted">1 edited photo, 720p</p></div>
-        <div><div className="pro-uplabel">Provider</div><p className="pro-muted">Decart Lucy Image</p></div>
+        <div><div className="pro-uplabel">Provider</div><p className="pro-muted">Nano Banana 2 (Google, via fal)</p></div>
         <div><div className="pro-uplabel">Speed</div><p className="pro-muted">Seconds, not a live stream</p></div>
         <div><div className="pro-uplabel">Cost</div><p className="pro-muted">{imageCredits} / image, on success only</p></div>
       </div>
@@ -890,9 +890,10 @@ function LucyImagePrivacy() {
     <div className="pro-card narrow">
       <h3>Where your data goes</h3>
       <p className="pro-muted">
-        Your uploaded photo and any reference photo go to our cloud processing provider (Decart)
-        for editing — that's inherent to how a cloud model works. Apex Cam does not itself store
-        your uploaded or generated photos beyond what's needed to return the result to you.
+        Your uploaded photo and any reference photo go to our cloud processing provider (fal,
+        running Google's Nano Banana 2 model) for editing — that's inherent to how a cloud model
+        works. Apex Cam does not itself store your uploaded or generated photos beyond what's
+        needed to return the result to you.
       </p>
       <h3 style={{ marginTop: 18 }}>Consent</h3>
       <p className="pro-muted">
