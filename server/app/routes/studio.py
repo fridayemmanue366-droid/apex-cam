@@ -378,9 +378,13 @@ async def live_stop(session_id: str = Form(...), uid: int = Depends(current_user
 # directly, never through here. Billed the same way as the fal live path for
 # the same reason — this server holds nothing open, so it can't meter time
 # directly; the client's app heartbeats /voice/cloud/tick every ~2s.
+#
+# Points at cloud-voice/clone_app.py — clones a customer-supplied reference
+# clip (~1-2 min of ANY voice, no training step), NOT cloud-voice/app.py's
+# fixed-preset-voice RVC service, which this replaces for cloud voice.
 CLOUD_VOICE_WS_URL = os.environ.get(
     "APEXCAM_CLOUD_VOICE_WS",
-    "wss://fridayemmanue366--apexcam-voice-voiceserver-web.modal.run/ws")
+    "wss://fridayemmanue366--apexcam-voice-clone-voicecloneserver-web.modal.run/ws")
 
 _voice_sessions: dict[str, dict] = {}   # session_id -> {uid, last_tick}
 

@@ -1,19 +1,23 @@
-"""Cloud voice cloning — streams mic audio to the Modal GPU service
-(cloud-voice/app.py) instead of running RVC locally. Same public shape as
-RVCVoiceEngine (enabled/ready/convert) so audio_pipeline.py can use either
-one interchangeably, but the internals are necessarily different: the audio
-callback that calls convert() runs on a tight ~10ms real-time thread
-(sounddevice) that must never block on network I/O, while talking to Modal
-means a WebSocket round-trip of tens to hundreds of ms.
+"""Cloud voice CLONING — streams mic audio to the Modal GPU service
+(cloud-voice/clone_app.py), converting it live into the voice of a reference
+clip the customer supplies (~1-2 minutes of ANY voice, no training step).
+Same public shape as RVCVoiceEngine (enabled/ready/convert) so
+audio_pipeline.py can use any of the voice engines interchangeably, but the
+internals are necessarily different: the audio callback that calls
+convert() runs on a tight ~10ms real-time thread (sounddevice) that must
+never block on network I/O, while talking to Modal means a WebSocket
+round-trip of tens to hundreds of ms, plus a one-time (many-second)
+reference-conditioning pass before conversion can start.
 
 Architecture: a background thread runs its own asyncio event loop holding
 the WebSocket open for the session's lifetime. convert() itself never
 touches the network — it only pushes into an input queue and pops from an
 output queue, both thread-safe and bounded, so a slow/stalled network never
 blocks the audio thread. If no converted audio is ready yet (still filling
-the pipe, or the network hiccups), convert() passes the raw input through
-unchanged for that block — same "never silence, never glitch" principle
-RVCVoiceEngine's own buffering already uses locally.
+the pipe, still conditioning on the reference, or the network hiccups),
+convert() passes the raw input through unchanged for that block — same
+"never silence, never glitch" principle RVCVoiceEngine's own buffering
+already uses locally.
 
 Billing/session setup follows the SAME split as lucy_pro.py's cloud mode:
 the server-round-trip (mint a token, heartbeat /studio/voice/cloud/tick) is
@@ -33,22 +37,20 @@ from app.core.logging import get_logger
 
 log = get_logger(__name__)
 
-SR = 16000                    # the cloud model's sample rate (matches rvc.py)
 _QUEUE_MAX = 50                # ~ a few seconds of 10ms blocks; bounded so a
                                 # stalled network can't grow latency forever
 
 # IMPORTANT: the wire protocol carries RAW DEVICE-RATE audio (48kHz), not
-# pre-resampled 16kHz — the server's VoiceSession.convert() was ported
-# directly from RVCVoiceEngine.convert() (rvc.py), which also takes device-SR
-# samples and does its OWN internal 48k<->16k resampling per window. Declaring
-# the real device rate in cfg and sending unresampled bytes keeps this client
-# consistent with that same contract instead of resampling twice.
+# pre-resampled — clone_app.py's CloneSession does its own resampling to the
+# model's native rate per block. Declaring the real device rate in cfg and
+# sending unresampled bytes keeps this client consistent with that contract.
 
 
 class CloudVoiceEngine:
-    """One cloud-voice session's streaming state. Call start() with a
-    session URL/token from the server (POST /studio/voice/cloud/start),
-    then convert() per audio block like the local RVC engine."""
+    """One cloud-voice-cloning session's streaming state. Call start() with
+    a session URL/token from the server (POST /studio/voice/cloud/start)
+    plus the customer's reference clip, then convert() per audio block like
+    the local RVC engine."""
 
     def __init__(self) -> None:
         self.enabled = False
@@ -62,6 +64,11 @@ class CloudVoiceEngine:
 
     @property
     def ready(self) -> bool:
+        """True once the reference clip has been conditioned server-side and
+        the service is actually ready to convert audio — NOT just "the
+        WebSocket is open" (conditioning is a real, possibly many-second
+        step; convert() must keep passing audio through unconverted until
+        this is true)."""
         return self._thread is not None and self._connected.is_set()
 
     @property
@@ -85,20 +92,22 @@ class CloudVoiceEngine:
     def error(self) -> str | None:
         return self._error
 
-    def start(self, ws_url: str, voice_token: str, voice_name: str, pitch_shift: int,
+    def start(self, ws_url: str, voice_token: str, reference_wav: np.ndarray,
              sample_rate: int = 48000) -> None:
-        """Begin connecting in the background. Non-blocking — check `ready`
-        before relying on convert() actually converting (it safely
-        passes audio through until then). `sample_rate` is the DEVICE rate
-        this session's convert() calls will use (audio_pipeline.py's
-        SAMPLE_RATE, normally 48000) — declared once in the cfg handshake."""
+        """Begin connecting + uploading the reference clip in the background.
+        Non-blocking — check `ready` before relying on convert() actually
+        converting (it safely passes audio through until then).
+        `reference_wav`: mono float32 PCM at `sample_rate` — the customer's
+        ~1-2 minute sample of the voice to clone. `sample_rate` is also the
+        DEVICE rate this session's convert() calls will use
+        (audio_pipeline.py's SAMPLE_RATE, normally 48000)."""
         self.stop()
         self._stop_evt.clear()
         self._connected.clear()
         self._error = None
         self._thread = threading.Thread(
-            target=self._run, args=(ws_url, voice_token, voice_name, pitch_shift, sample_rate),
-            daemon=True, name="cloud-voice-ws")
+            target=self._run, args=(ws_url, voice_token, reference_wav.astype(np.float32), sample_rate),
+            daemon=True, name="cloud-voice-clone-ws")
         self._thread.start()
 
     def stop(self) -> None:
@@ -134,13 +143,13 @@ class CloudVoiceEngine:
         return samples
 
     # -- background thread: owns the WebSocket send/receive loop ------------
-    def _run(self, ws_url: str, voice_token: str, voice_name: str, pitch_shift: int,
+    def _run(self, ws_url: str, voice_token: str, reference_wav: np.ndarray,
             sample_rate: int) -> None:
         import asyncio
-        asyncio.run(self._run_async(ws_url, voice_token, voice_name, pitch_shift, sample_rate))
+        asyncio.run(self._run_async(ws_url, voice_token, reference_wav, sample_rate))
 
-    async def _run_async(self, ws_url: str, voice_token: str, voice_name: str,
-                         pitch_shift: int, sample_rate: int) -> None:
+    async def _run_async(self, ws_url: str, voice_token: str, reference_wav: np.ndarray,
+                         sample_rate: int) -> None:
         import asyncio
         import json
 
@@ -148,15 +157,19 @@ class CloudVoiceEngine:
 
         try:
             async with websockets.connect(ws_url, open_timeout=60, max_size=None) as ws:
-                await ws.send(json.dumps({
-                    "token": voice_token, "voice": voice_name,
-                    "sample_rate": sample_rate, "pitch_shift": pitch_shift,
-                }))
-                msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=60))
+                await ws.send(json.dumps({"token": voice_token, "sample_rate": sample_rate}))
+                await ws.send(reference_wav.tobytes())
+                log.info("Cloud voice: reference clip sent (%.1fs), conditioning...",
+                        len(reference_wav) / sample_rate)
+                # Conditioning on the reference is a real, potentially
+                # many-second step (a full forward pass over up to ~2 minutes
+                # of audio) — give it real room, not the same short timeout
+                # used for a plain handshake.
+                msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
                 if msg.get("type") != "ready":
                     self._error = f"cloud voice: unexpected response {msg}"
                     return
-                log.info("Cloud voice connected (providers=%s)", msg.get("providers"))
+                log.info("Cloud voice clone ready")
                 self._connected.set()
 
                 sender = asyncio.create_task(self._sender(ws))
@@ -185,7 +198,7 @@ class CloudVoiceEngine:
                 await asyncio.sleep(0.01)
                 continue
             # Raw device-rate bytes — see the module docstring on why this is
-            # NOT resampled to SR (16k) here; the server does that per-window.
+            # NOT resampled here; the server does that per-window.
             await ws.send(samples.astype(np.float32).tobytes())
 
     async def _receiver(self, ws) -> None:
@@ -218,4 +231,4 @@ class CloudVoiceEngine:
 
 
 # Singleton, same pattern as rvc.py's `rvc`.
-cloud_rvc = CloudVoiceEngine()
+cloud_clone = CloudVoiceEngine()

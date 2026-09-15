@@ -113,11 +113,39 @@ image = (
     )
     .run_commands(
         "git clone --depth 1 https://github.com/Plachtaa/seed-vc.git /seedvc",
+        # modules/length_regulator.py does `from dac.nn.quantize import
+        # VectorQuantize` at module level, but InterpolateRegulator only
+        # ever instantiates it when vector_quantize=True (see its __init__)
+        # -- our config (config_dit_mel_seed_uvit_xlsr_tiny.yml) never sets
+        # that, so it's purely an unused import for us. The REAL package
+        # (descript-audio-codec) drags in descript-audiotools, which pins
+        # protobuf<3.20 -- incompatible with the protobuf version Modal's
+        # OWN generated stubs need (confirmed: forcing protobuf down into
+        # that old range breaks "import modal" itself inside the container
+        # with "Enum VolumeFsVersion has no value defined for name
+        # 'ValueType'"). A tiny local stub sidesteps that whole dependency
+        # fight instead of fighting a genuinely unresolvable pip conflict.
+        "mkdir -p /stubs/dac/nn",
+        "touch /stubs/dac/__init__.py",
+        "touch /stubs/dac/nn/__init__.py",
+        "printf 'import torch.nn as nn\\n\\n\\nclass VectorQuantize(nn.Module):\\n"
+        "    \"\"\"Stub -- real seed-vc configs never instantiate this (see\\n"
+        "    modules/length_regulator.py: only built when vector_quantize=True,\\n"
+        "    which our config never sets). Exists purely so the unconditional\\n"
+        "    module-level import succeeds.\"\"\"\\n\\n"
+        "    def __init__(self, *a, **kw):\\n"
+        "        super().__init__()\\n' > /stubs/dac/nn/quantize.py",
     )
 )
 
-MODEL_CACHE_VOLUME = modal.Volume.from_name("apexcam-voice-clone-cache", create_if_missing=True)
-CACHE_DIR = "/cache"
+# No modal.Volume for model-weight caching, matching app.py (the RVC
+# service) -- keeps this simple; a cold container re-downloads weights from
+# HuggingFace instead of reusing a cache, but warm containers (the common
+# case once traffic starts) are unaffected. (Earlier debugging found that
+# Volume support requires a newer protobuf than descript-audiotools could
+# tolerate in the same environment -- moot now that the dac dependency is
+# stubbed out below instead of pip-installed for real, but a Volume was
+# never actually needed here regardless.)
 
 SR_MODEL = None          # set from the loaded config, model's native sample rate
 _CE_DIT_CONTEXT_S = 2.0   # seconds of rolling context the model needs before each block (matches upstream default ce_dit_difference)
@@ -153,23 +181,35 @@ class CloneSession:
         entire "cloning" step. No gradient update, no training; just a
         forward pass whose output (prompt_condition/mel2/style2) is cached
         and reused for every chunk in this session."""
+        import time as _time
+
         import torch
         import torchaudio
 
+        def _t(label, t0):
+            print(f"  set_reference: {label} took {_time.time()-t0:.2f}s", flush=True)
+            return _time.time()
+
+        t0 = _time.time()
         reference_wav = reference_wav[: int(self.sr * _MAX_REFERENCE_S)]
         device = self.device
         ref_t = torch.from_numpy(reference_wav).to(device)
         ori_16k = torchaudio.functional.resample(ref_t, self.sr, 16000)
+        t0 = _t("setup/resample", t0)
         with torch.no_grad():
             S_ori = self.semantic_fn(ori_16k.unsqueeze(0))
+            t0 = _t("semantic_fn", t0)
             feat2 = torchaudio.compliance.kaldi.fbank(
                 ori_16k.unsqueeze(0), num_mel_bins=80, dither=0, sample_frequency=16000)
             feat2 = feat2 - feat2.mean(dim=0, keepdim=True)
             style2 = self.campplus_model(feat2.unsqueeze(0))
+            t0 = _t("campplus", t0)
             mel2 = self.to_mel(ref_t.unsqueeze(0))
+            t0 = _t("to_mel", t0)
             target2_lengths = torch.LongTensor([mel2.size(2)]).to(device)
             prompt_condition = self.model.length_regulator(
                 S_ori, ylens=target2_lengths, n_quantizers=3, f0=None)[0]
+            t0 = _t("length_regulator", t0)
         self.prompt_condition, self.mel2, self.style2 = prompt_condition, mel2, style2
         self._in_buf = np.zeros(0, np.float32)
 
@@ -245,20 +285,18 @@ class CloneSession:
         return np.pad(out, (target_n - len(out), 0))
 
 
-@app.cls(image=image, gpu="L4", volumes={CACHE_DIR: MODEL_CACHE_VOLUME},
-        secrets=[modal.Secret.from_name("apexcam-voice-secret")])
+@app.cls(image=image, gpu="L4", secrets=[modal.Secret.from_name("apexcam-voice-secret")])
 @modal.concurrent(max_inputs=2)   # diffusion model -- heavier per-session than RVC's net_g, keep this modest
 class VoiceCloneServer:
     @modal.enter()
     def load(self) -> None:
         """Loads the shared, slow-to-load model ONCE per container (not per
         customer session) -- reused across every WebSocket connection this
-        container handles. Cached on a Modal Volume so a cold container
-        doesn't re-download ~1GB+ of weights from HuggingFace every time."""
-        import os
-        os.environ["HF_HOME"] = CACHE_DIR
-        os.environ["HUGGINGFACE_HUB_CACHE"] = CACHE_DIR
+        container handles. No Volume caching (see the module-level note on
+        why) -- a cold container re-downloads weights from HuggingFace into
+        its own ephemeral filesystem; warm containers pay this only once."""
         import sys
+        sys.path.insert(0, "/stubs")   # our stub `dac` package -- must resolve before the real one would
         sys.path.insert(0, "/seedvc")
         os.chdir("/seedvc")   # some of seed-vc's modules assume cwd-relative config paths
 

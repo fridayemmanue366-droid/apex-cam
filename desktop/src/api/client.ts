@@ -385,25 +385,30 @@ export const api = {
       body: JSON.stringify(s),
     }),
 
-  // Cloud voice (Apex Pro): this machine gets a Modal ws_url + token from the
-  // CLOUD server (cloud.ts's voiceCloudStart) and hands them here — the local
-  // backend opens the actual WebSocket and heartbeats cloud_url/auth/session_id
-  // on its own, same broker split as proLiveCloud.
+  // Cloud voice cloning (Apex Pro): this machine gets a Modal ws_url + token
+  // from the CLOUD server (cloud.ts's voiceCloudStart) and hands them here
+  // ALONGSIDE the customer's reference clip (a 16-bit mono WAV at 48kHz,
+  // recorded/decoded client-side — see AudioTab.tsx) — the local backend
+  // opens the actual WebSocket, uploads the clip, and heartbeats
+  // cloud_url/auth/session_id on its own, same broker split as proLiveCloud.
   audioCloudStatus: () => req<CloudVoiceStatus>("/audio/cloud"),
   audioCloudStart: (room: {
     ws_url: string;
     token: string;
-    voice: string;
-    pitch_shift: number;
     session_id: string;
     cloud_url: string;
     auth: string;
-  }) =>
-    req<CloudVoiceStatus>("/audio/cloud/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(room),
-    }),
+    reference: Blob;
+  }) => {
+    const form = new FormData();
+    form.append("ws_url", room.ws_url);
+    form.append("token", room.token);
+    form.append("session_id", room.session_id);
+    form.append("cloud_url", room.cloud_url);
+    form.append("auth", room.auth);
+    form.append("reference", room.reference, "reference.wav");
+    return req<CloudVoiceStatus>("/audio/cloud/start", { method: "POST", body: form });
+  },
   audioCloudStop: () => req<CloudVoiceStatus>("/audio/cloud/stop", { method: "POST" }),
 };
 

@@ -8,10 +8,14 @@ import {
   type VoiceParams,
 } from "../api/client";
 import { cloud, getToken, signedIn, type Account } from "../api/cloud";
-
-// Only one target voice is on the cloud service today — the picker grows
-// when more are uploaded to the Modal volume (apexcam-voice-models/voices/).
-const CLOUD_VOICES = [{ id: "GuraTalkV2", label: "Gura" }];
+import {
+  MAX_REFERENCE_S,
+  MIN_REFERENCE_S,
+  MicRecorder,
+  decodeToMonoPCM,
+  encodeWav,
+  rms,
+} from "../lib/audioRecorder";
 
 // Virtual microphone: the backend captures the mic, processes the voice, and
 // publishes it to the virtual audio device (VB-CABLE Input). Call apps then
@@ -25,16 +29,84 @@ export function AudioTab() {
   const [rvc, setRvcState] = useState<RVCStatus | null>(null);
   const meterRef = useRef<HTMLDivElement>(null);
 
-  // --- Cloud voice (Apex Pro): same GPU RVC pipeline as the local engine
-  // above, running on Modal so it works without a local GPU or downloaded
-  // models. Server-metered like the rest of Apex Pro.
+  // --- Cloud voice (Apex Pro): clones a voice from a ~1-2 min sample the
+  // customer records or uploads, right here — no training wait, no preset
+  // list. Runs on Modal so it works without a local GPU. Server-metered
+  // like the rest of Apex Pro.
   const [cloudVoice, setCloudVoiceState] = useState<CloudVoiceStatus | null>(null);
   const [cloudSession, setCloudSession] = useState<string | null>(null);
-  const [cloudVoiceId, setCloudVoiceId] = useState(CLOUD_VOICES[0].id);
-  const [cloudPitch, setCloudPitch] = useState(0);
   const [cloudErr, setCloudErr] = useState<string | null>(null);
   const [cloudBusy, setCloudBusy] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
+  const [refBlob, setRefBlob] = useState<Blob | null>(null);
+  const [refSeconds, setRefSeconds] = useState(0);
+  const [refUrl, setRefUrl] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const micRef = useRef<MicRecorder | null>(null);
+  const recordTimerRef = useRef<number | null>(null);
+
+  const setReference = async (raw: Blob) => {
+    setCloudErr(null);
+    try {
+      const pcm = await decodeToMonoPCM(raw);
+      const seconds = pcm.length / 48000;
+      if (seconds < MIN_REFERENCE_S) {
+        setCloudErr(`That clip is only ${seconds.toFixed(0)}s — use at least ${MIN_REFERENCE_S}s for a good clone.`);
+        return;
+      }
+      if (rms(pcm) < 0.002) {
+        setCloudErr("That clip sounds silent — check your microphone and try again.");
+        return;
+      }
+      const wav = encodeWav(pcm);
+      if (refUrl) URL.revokeObjectURL(refUrl);
+      setRefBlob(wav);
+      setRefSeconds(seconds);
+      setRefUrl(URL.createObjectURL(wav));
+    } catch (e) {
+      setCloudErr(e instanceof Error ? e.message : "Could not read that audio");
+    }
+  };
+
+  // A plain function (not routed through the `recording` state) so the
+  // auto-stop timer can call it directly without hitting a stale closure
+  // over `recording` (it would otherwise still see the value from when the
+  // interval was first scheduled, re-entering the "start" branch instead).
+  const stopRecordingNow = async () => {
+    if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
+    recordTimerRef.current = null;
+    setRecording(false);
+    const blob = await micRef.current?.stop();
+    micRef.current = null;
+    if (blob) await setReference(blob);
+  };
+
+  const toggleRecording = async () => {
+    if (recording) {
+      await stopRecordingNow();
+      return;
+    }
+    setCloudErr(null);
+    try {
+      micRef.current = new MicRecorder();
+      await micRef.current.start();
+      setRecording(true);
+      setRecordSeconds(0);
+      recordTimerRef.current = window.setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= MAX_REFERENCE_S) stopRecordingNow();
+          return s + 1;
+        });
+      }, 1000);
+    } catch (e) {
+      setCloudErr(e instanceof Error ? e.message : "Could not access the microphone");
+    }
+  };
+
+  const uploadReference = (f: File | undefined) => {
+    if (f) setReference(f);
+  };
 
   const updateRvc = (patch: Partial<{ enabled: boolean; voice: string | null; pitch_shift: number }>) => {
     if (!rvc) return;
@@ -49,6 +121,13 @@ export function AudioTab() {
       setCloudSession(null);
     }
   };
+
+  // Release the reference clip's object URL when it's replaced or the tab unmounts.
+  useEffect(() => {
+    return () => {
+      if (refUrl) URL.revokeObjectURL(refUrl);
+    };
+  }, [refUrl]);
 
   // Drive the level meter width imperatively (updates twice a second with status).
   useEffect(() => {
@@ -95,6 +174,10 @@ export function AudioTab() {
       setCloudErr("No credit — buy minutes on the Apex Pro tab first.");
       return;
     }
+    if (!refBlob) {
+      setCloudErr("Record or upload a reference voice clip first.");
+      return;
+    }
     setCloudBusy(true);
     try {
       const r = await cloud.voiceCloudStart();
@@ -102,11 +185,10 @@ export function AudioTab() {
       const s = await api.audioCloudStart({
         ws_url: r.url,
         token: r.token,
-        voice: cloudVoiceId,
-        pitch_shift: cloudPitch,
         session_id: r.session_id,
         cloud_url: cloud.url,
         auth: getToken() ?? "",
+        reference: refBlob,
       });
       setCloudVoiceState(s);
     } catch (e) {
@@ -274,46 +356,53 @@ export function AudioTab() {
       <section className="panel">
         <h3>Cloud voice (Apex Pro)</h3>
         <p className="muted">
-          Full voice cloning — changes your voice <em>identity</em>, not just pitch — running on
-          our cloud GPU. Works on any laptop, no local model download and no GPU required. Metered
-          from your Apex Pro credit, same wallet as the video/photo tools.
+          Clone <em>any</em> voice — record a sample of yourself, a character, whoever — and talk
+          in it live. No training wait, no preset list: just {MIN_REFERENCE_S}s–{Math.round(MAX_REFERENCE_S / 60)} min of
+          clean audio of the voice you want. Runs on our cloud GPU, no local download required.
+          Metered from your Apex Pro credit, same wallet as the video/photo tools.
         </p>
-        <label className="row">
-          Target voice
-          <select
-            value={cloudVoiceId}
+
+        <div className="row">
+          <button
+            type="button"
+            className={recording ? "btn danger" : "btn"}
             disabled={!!cloudVoice?.enabled}
-            onChange={(e) => setCloudVoiceId(e.target.value)}
+            onClick={toggleRecording}
           >
-            {CLOUD_VOICES.map((v) => (
-              <option key={v.id} value={v.id}>{v.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="row">
-          Pitch ({cloudPitch > 0 ? "+" : ""}{cloudPitch})
-          <input
-            type="range"
-            min={-12}
-            max={12}
-            step={1}
-            value={cloudPitch}
-            disabled={!!cloudVoice?.enabled}
-            onChange={(e) => setCloudPitch(Number(e.target.value))}
-          />
-        </label>
+            {recording ? `■ Stop recording (${recordSeconds}s)` : "🎙 Record a reference voice"}
+          </button>
+          <span className="muted">or</span>
+          <label className="btn" style={{ cursor: cloudVoice?.enabled ? "not-allowed" : "pointer" }}>
+            📁 Upload a clip
+            <input
+              type="file"
+              accept="audio/*"
+              hidden
+              disabled={!!cloudVoice?.enabled}
+              onChange={(e) => uploadReference(e.target.files?.[0])}
+            />
+          </label>
+        </div>
+
+        {refUrl && (
+          <div className="row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+            <p className="muted">Reference clip ({refSeconds.toFixed(0)}s) — listen back before you start:</p>
+            <audio controls src={refUrl} style={{ width: "100%" }} />
+          </div>
+        )}
+
         <div className="row">
           <button
             type="button"
             className={cloudVoice?.enabled ? "btn danger" : "btn primary"}
-            disabled={cloudBusy}
+            disabled={cloudBusy || (!cloudVoice?.enabled && !refBlob)}
             onClick={toggleCloudVoice}
           >
             {cloudVoice?.enabled ? "■ Stop cloud voice" : "☁ Start cloud voice"}
           </button>
           {cloudVoice?.enabled && (
             <span className={cloudVoice.connected ? "pill ok" : "pill"}>
-              {cloudVoice.connected ? "LIVE" : "Connecting…"}
+              {cloudVoice.connected ? "LIVE" : "Cloning your voice… (can take a minute)"}
             </span>
           )}
         </div>
