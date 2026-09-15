@@ -468,7 +468,22 @@ select {
   display: grid; place-items: center; text-align: center; padding: 10px;
 }
 .pro-result-slot img, .pro-result-slot video { width: 100%; height: 100%; object-fit: contain; }
+.pro-result-slot.small { aspect-ratio: 4 / 3; padding: 4px; }
 .pro-dl { display: inline-block; margin-top: 12px; text-decoration: none; text-align: center; }
+
+/* Restyle: sample-style gallery + before/after comparison */
+.restyle-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 480px) { .restyle-gallery { grid-template-columns: repeat(2, 1fr); } }
+.restyle-gallery-item {
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(212,160,40,0.28); border-radius: 10px;
+  padding: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; align-items: center;
+}
+.restyle-gallery-item:hover { border-color: rgba(212,160,40,0.55); }
+.restyle-gallery-item.on { border-color: #f4d06f; box-shadow: 0 0 0 1px #f4d06f inset; }
+.restyle-gallery-item img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 6px; }
+.restyle-gallery-item span { font-size: 11px; color: #d8cfae; }
+.restyle-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .restyle-compare { grid-template-columns: 1fr; } }
 
 .setup-log {
   background: #0a0c10;

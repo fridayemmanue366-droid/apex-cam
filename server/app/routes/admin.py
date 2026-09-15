@@ -99,7 +99,6 @@ def pricing_admin(key: str = Form(...),
                   margin: float | None = Form(None),
                   margin_video: float | None = Form(None),
                   margin_restyle: float | None = Form(None),
-                  margin_vton: float | None = Form(None),
                   credit_usd: float | None = Form(None),
                   rate_buffer: float | None = Form(None),
                   rate_mode: str | None = Form(None),
@@ -114,7 +113,7 @@ def pricing_admin(key: str = Form(...),
         if margin < 1.0 or margin > 5.0:
             raise HTTPException(400, "margin must be between 1.0 and 5.0")
         db.set_setting("pricing_margin", str(margin))
-    for mode, val in (("video", margin_video), ("restyle", margin_restyle), ("vton", margin_vton)):
+    for mode, val in (("video", margin_video), ("restyle", margin_restyle)):
         if val is not None:
             if val < 1.0 or val > 10.0:
                 raise HTTPException(400, f"margin_{mode} must be between 1.0 and 10.0")
@@ -302,9 +301,9 @@ tr:last-child td{border-bottom:0}
     <th class="right">Profit</th><th></th></tr></thead>
     <tbody id="modeRows"><tr><td colspan="6" class="muted">—</td></tr></tbody></table>
   </div>
-  <p class="sub" style="margin:10px 0 0">Each model — Lucy Video, Lucy Restyle, Lucy VTON — has its
-    OWN margin, priced independently of Lucy Realtime above. A restyle/VTON job's final charge is
-    its video length x this rate, billed from the same minutes balance as everything else.</p>
+  <p class="sub" style="margin:10px 0 0">Each model — Lucy Video, Lucy Restyle — has its OWN margin,
+    priced independently of Lucy Realtime above. A restyle job's final charge is its video length x
+    this rate, billed from the same minutes balance as everything else.</p>
 </div>
 
 <div class="card"><h2>Accounts</h2><div class="scroll">
@@ -410,7 +409,7 @@ async function saveTrial(){
 }
 
 const money = n => '₦'+Math.round(n).toLocaleString();
-const MODE_LABELS = {video:'Lucy Video', restyle:'Lucy Restyle', vton:'Lucy VTON'};
+const MODE_LABELS = {video:'Lucy Video', restyle:'Lucy Restyle'};
 function renderPricing(p){
   const active = document.activeElement;
   if(active!==$('margin')) $('margin').value = p.margin;
@@ -437,7 +436,7 @@ function renderPricing(p){
     stat(p.image_credits+' credits', 'per image', 'blue') +
     stat(money(p.image_charge), 'customer pays', 'blue') +
     stat(p.image_profit_pct+'%', 'your profit', 'green');
-  $('modeRows').innerHTML = ['video','restyle','vton'].map(m => {
+  $('modeRows').innerHTML = ['video','restyle'].map(m => {
     const d = p.modes[m], id = 'margin_'+m;
     return '<tr><td>'+MODE_LABELS[m]+'</td><td class="right muted">$'+d.cost_usd_per_sec+'</td>'+
       '<td class="right"><input id="'+id+'" type="number" min="1" max="10" step="0.05" '+

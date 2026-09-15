@@ -33,8 +33,6 @@ const MODELS: ModelDef[] = [
     tag: "Edit or create any photo", status: "available" },
   { id: "lucy-restyle", name: "Lucy Restyle", icon: "🎨",
     tag: "Restyle a recorded video", status: "available" },
-  { id: "lucy-vton", name: "Lucy VTON", icon: "👕",
-    tag: "Try on any outfit, on video", status: "available" },
 ];
 
 const LOOKS = [
@@ -89,11 +87,6 @@ const RESTYLE_CAPS = [
   "Color grade & film-stock looks", "Text-prompt OR reference-image style",
 ];
 
-const VTON_CAPS = [
-  "Swap or add an outfit", "Garment photo as reference", "Text-only outfit description",
-  "Combine both together", "Keeps the person's identity & motion",
-];
-
 const SUB_PAGES: { id: SubPage; label: string }[] = [
   { id: "playground", label: "Playground" },
   { id: "about", label: "About" },
@@ -114,11 +107,11 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   // server — NOT the local /pro/pricing fallback above, which is a hand-
   // maintained constant that drifts from the real, admin-tunable rate (it
   // was showing $0.05/sec while the real rate was $0.0652/sec at the time
-  // this was fixed). video/restyle/vton each have their own independent
-  // margin now, not a fixed ratio of live's, so this can't be computed
-  // client-side either — it has to be fetched.
+  // this was fixed). video/restyle each have their own independent margin
+  // now, not a fixed ratio of live's, so this can't be computed client-side
+  // either — it has to be fetched.
   const [rates, setRates] = useState<{ live_usd_per_sec: number; video_usd_per_sec: number;
-    restyle_usd_per_sec: number; vton_usd_per_sec: number } | null>(null);
+    restyle_usd_per_sec: number } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
   // Cloud account — credits live on our server, tied to this login (so they
@@ -189,12 +182,11 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const imageCredits = imgPricing
     ? `${imgPricing.credits} credit${imgPricing.credits === 1 ? "" : "s"}`
     : "…";
-  // Video jobs (restyle/VTON) burn wallet-minutes like Lucy Realtime, but each
-  // has its OWN independent, admin-tunable margin now — not a fixed multiple
-  // of live's rate — so these come straight from the server, never computed
+  // Video jobs (restyle) burn wallet-minutes like Lucy Realtime, but has its
+  // OWN independent, admin-tunable margin now — not a fixed multiple of
+  // live's rate — so this comes straight from the server, never computed
   // client-side.
   const restylePerSec = rates ? rates.restyle_usd_per_sec : perSec * (2 / 3);
-  const vtonPerSec = rates ? rates.vton_usd_per_sec : perSec * 2;
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   // GO LIVE / Stop — server mints credentials for whichever provider is active
@@ -456,11 +448,6 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                     ${restylePerSec.toFixed(3)}/sec of video
                   </span>
                 )}
-                {model.id === "lucy-vton" && (
-                  <span className="pro-pill" title="Charged for the source video's length while processing">
-                    ${vtonPerSec.toFixed(2)}/sec of video
-                  </span>
-                )}
               </div>
               <div className="pro-subtabs">
                 {SUB_PAGES.map((s) => (
@@ -500,21 +487,11 @@ export function ProTab({ onExit }: { onExit: () => void }) {
               {model.id === "lucy-restyle" && (
                 <>
                   {sub === "playground" && (
-                    <VideoJobPlayground mode="restyle" account={account} perSecRate={restylePerSec}
+                    <RestylePlayground account={account} perSecRate={restylePerSec}
                       refreshAccount={() => cloud.me().then(setAccount).catch(() => undefined)} />
                   )}
                   {sub === "about" && <RestyleAbout perSec={restylePerSec} />}
-                  {sub === "privacy" && <VideoJobPrivacy mode="restyle" />}
-                </>
-              )}
-              {model.id === "lucy-vton" && (
-                <>
-                  {sub === "playground" && (
-                    <VideoJobPlayground mode="vton" account={account} perSecRate={vtonPerSec}
-                      refreshAccount={() => cloud.me().then(setAccount).catch(() => undefined)} />
-                  )}
-                  {sub === "about" && <VtonAbout perSec={vtonPerSec} />}
-                  {sub === "privacy" && <VideoJobPrivacy mode="vton" />}
+                  {sub === "privacy" && <RestylePrivacy />}
                 </>
               )}
             </>
@@ -933,19 +910,25 @@ function LucyImagePrivacy() {
   );
 }
 
-// --- Lucy Restyle / Lucy VTON: both background VIDEO jobs (submit -> poll ->
-// download), sharing one playground component since the shape is identical —
-// only what the reference image means and whether prompt+reference can
-// combine differs between the two. --------------------------------------
-type VideoMode = "restyle" | "vton";
+// --- Lucy Restyle: a background VIDEO job (submit -> poll -> download).
+// Real preset gallery (clickable sample-style thumbnails shipped with the
+// app, not just text prompts) plus a before/after view so the change is
+// actually visible, not just a file dropped in your downloads. -----------
+const RESTYLE_GALLERY = [
+  { name: "anime", label: "Anime" },
+  { name: "oilpainting", label: "Oil Painting" },
+  { name: "claymation", label: "Claymation" },
+  { name: "cyberpunk", label: "Cyberpunk" },
+  { name: "watercolor", label: "Watercolor" },
+  { name: "vhs", label: "Retro VHS" },
+];
 
-function VideoJobPlayground(props: {
-  mode: VideoMode;
+function RestylePlayground(props: {
   account: Account;
   perSecRate: number;
   refreshAccount: () => void;
 }) {
-  const { mode, account, perSecRate, refreshAccount } = props;
+  const { account, perSecRate, refreshAccount } = props;
   const videoInput = useRef<HTMLInputElement>(null);
   const refInput = useRef<HTMLInputElement>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -953,8 +936,10 @@ function VideoJobPlayground(props: {
   const [duration, setDuration] = useState<number | null>(null);
   const [refFile, setRefFile] = useState<File | null>(null);
   const [refPreview, setRefPreview] = useState<string | null>(null);
+  const [presetName, setPresetName] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
-  // Restyle only: text style XOR reference image — VTON allows both together.
+  // Restyle takes a text style XOR a reference image, never both — matches
+  // Decart's own restyle API constraint.
   const [styleBy, setStyleBy] = useState<"prompt" | "reference">("prompt");
   const [busy, setBusy] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -973,18 +958,28 @@ function VideoJobPlayground(props: {
     if (!f) return;
     setRefFile(f);
     setRefPreview(URL.createObjectURL(f));
+    setPresetName(null);
   };
-  const clearRef = () => { setRefFile(null); setRefPreview(null); };
+  const clearRef = () => { setRefFile(null); setRefPreview(null); setPresetName(null); };
+  const pickPreset = async (name: string) => {
+    try {
+      const blob = await fetch(`/restyle-presets/${name}.jpg`).then((r) => r.blob());
+      setRefFile(new File([blob], `${name}.jpg`, { type: "image/jpeg" }));
+      setRefPreview(URL.createObjectURL(blob));
+      setPresetName(name);
+    } catch {
+      setErr("Could not load that preset — try again");
+    }
+  };
 
-  const showRefSlot = mode === "vton" || styleBy === "reference";
-  const showPrompt = mode === "vton" || styleBy === "prompt";
+  const showRefSlot = styleBy === "reference";
+  const showPrompt = styleBy === "prompt";
   const canGenerate = !!videoFile && !busy &&
-    (mode === "vton" ? (!!prompt.trim() || !!refFile)
-                      : (styleBy === "prompt" ? !!prompt.trim() : !!refFile));
+    (styleBy === "prompt" ? !!prompt.trim() : !!refFile);
   const noCredit = (account.credit_seconds ?? 0) <= 0;
 
   const estCost = duration != null ? duration * perSecRate : null;
-  const estMinutes = duration != null ? (duration * (mode === "restyle" ? 2 / 3 : 2)) / 60 : null;
+  const estMinutes = duration != null ? (duration * (2 / 3)) / 60 : null;
 
   const generate = async () => {
     if (!canGenerate || !videoFile) return;
@@ -995,7 +990,8 @@ function VideoJobPlayground(props: {
     try {
       const sendPrompt = showPrompt ? prompt.trim() : "";
       const sendRef = showRefSlot ? refFile : null;
-      const { job_id, cost_minutes } = await cloud.videoStart(videoFile, sendPrompt, mode, false, sendRef);
+      const { job_id, cost_minutes } =
+        await cloud.videoStart(videoFile, sendPrompt, "restyle", false, sendRef);
       setCostMinutes(cost_minutes);
       refreshAccount();
       setStatusText("Processing…");
@@ -1034,7 +1030,7 @@ function VideoJobPlayground(props: {
             </div>
             {showRefSlot && (
               <div>
-                <div className="pro-uplabel">{mode === "vton" ? "Garment · optional" : "Style reference"}</div>
+                <div className="pro-uplabel">Style reference</div>
                 {refPreview ? (
                   <div className="pro-slot-wrap">
                     <div className="pro-photo-slot small" onClick={() => refInput.current?.click()}>
@@ -1044,7 +1040,7 @@ function VideoJobPlayground(props: {
                   </div>
                 ) : (
                   <div className="pro-photo-slot small" onClick={() => refInput.current?.click()}>
-                    <span className="pro-muted">+ {mode === "vton" ? "Garment photo" : "Style image"}</span>
+                    <span className="pro-muted">+ Style image</span>
                   </div>
                 )}
               </div>
@@ -1055,32 +1051,40 @@ function VideoJobPlayground(props: {
           <input ref={refInput} type="file" accept="image/*" hidden
                  onChange={(e) => pickRef(e.target.files?.[0])} />
 
-          {mode === "restyle" && (
-            <div className="row preset-row" style={{ marginTop: 4 }}>
-              <button type="button" className={`pro-chip${styleBy === "prompt" ? " on" : ""}`}
-                      onClick={() => setStyleBy("prompt")}>Describe a style</button>
-              <button type="button" className={`pro-chip${styleBy === "reference" ? " on" : ""}`}
-                      onClick={() => setStyleBy("reference")}>Use a reference image</button>
-            </div>
-          )}
+          <div className="row preset-row" style={{ marginTop: 4 }}>
+            <button type="button" className={`pro-chip${styleBy === "prompt" ? " on" : ""}`}
+                    onClick={() => setStyleBy("prompt")}>Describe a style</button>
+            <button type="button" className={`pro-chip${styleBy === "reference" ? " on" : ""}`}
+                    onClick={() => setStyleBy("reference")}>Pick a style</button>
+          </div>
 
           {showPrompt && (
             <>
-              <div className="pro-uplabel" style={{ marginTop: 4 }}>
-                {mode === "vton" ? "Describe the outfit · optional if you uploaded a garment photo" : "Style"}
-              </div>
+              <div className="pro-uplabel" style={{ marginTop: 4 }}>Style</div>
               <textarea className="pro-input pro-photo-prompt" rows={3} value={prompt}
-                        placeholder={mode === "vton"
-                          ? 'e.g. "Put them in a black leather jacket and jeans"'
-                          : 'e.g. "Anime style, vibrant colors"'}
+                        placeholder='e.g. "Anime style, vibrant colors"'
                         onChange={(e) => setPrompt(e.target.value)} />
-              {mode === "restyle" && (
-                <div className="row preset-row pro-photo-presets">
-                  {RESTYLE_PRESETS.map((p) => (
-                    <button key={p} type="button" className="pro-chip" onClick={() => setPrompt(p)}>{p}</button>
-                  ))}
-                </div>
-              )}
+              <div className="row preset-row pro-photo-presets">
+                {RESTYLE_PRESETS.map((p) => (
+                  <button key={p} type="button" className="pro-chip" onClick={() => setPrompt(p)}>{p}</button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {showRefSlot && (
+            <>
+              <div className="pro-uplabel" style={{ marginTop: 4 }}>Sample styles</div>
+              <div className="restyle-gallery">
+                {RESTYLE_GALLERY.map((g) => (
+                  <button key={g.name} type="button"
+                          className={`restyle-gallery-item${presetName === g.name ? " on" : ""}`}
+                          onClick={() => pickPreset(g.name)}>
+                    <img src={`/restyle-presets/${g.name}.jpg`} alt={g.label} />
+                    <span>{g.label}</span>
+                  </button>
+                ))}
+              </div>
             </>
           )}
 
@@ -1104,15 +1108,29 @@ function VideoJobPlayground(props: {
         </div>
 
         <div>
-          <div className="pro-uplabel">Result</div>
-          <div className="pro-result-slot">
-            {busy ? <span className="pro-muted">{statusText || "Working…"} — can take a few minutes</span>
-             : resultUrl ? <video src={resultUrl} controls />
-             : <span className="pro-muted">Result appears here</span>}
-          </div>
+          <div className="pro-uplabel">{resultUrl ? "Before / After" : "Result"}</div>
+          {resultUrl ? (
+            <div className="restyle-compare">
+              <div>
+                <div className="pro-uplabel" style={{ marginTop: 0 }}>Before</div>
+                <div className="pro-result-slot small">
+                  <video src={videoPreview ?? undefined} controls muted />
+                </div>
+              </div>
+              <div>
+                <div className="pro-uplabel" style={{ marginTop: 0 }}>After</div>
+                <div className="pro-result-slot small"><video src={resultUrl} controls /></div>
+              </div>
+            </div>
+          ) : (
+            <div className="pro-result-slot">
+              {busy ? <span className="pro-muted">{statusText || "Working…"} — can take a few minutes</span>
+               : <span className="pro-muted">Result appears here</span>}
+            </div>
+          )}
           {resultUrl && (
             <div className="row preset-row" style={{ marginTop: 10 }}>
-              <a className="pro-chip pro-dl" href={resultUrl} download={`apex-${mode}.mp4`}>⬇ Download</a>
+              <a className="pro-chip pro-dl" href={resultUrl} download="apex-restyle.mp4">⬇ Download</a>
             </div>
           )}
         </div>
@@ -1143,53 +1161,24 @@ function RestyleAbout({ perSec }: { perSec: number }) {
       <h3 style={{ marginTop: 18 }}>How it's different from Lucy Realtime</h3>
       <p className="pro-muted">
         Restyle works on a video you already recorded, not your live camera — upload a clip, choose
-        a style (describe it, or hand it a reference image), and get back a fully restyled version
-        to download. No live streaming, no persona photo.
+        a style (describe it, hand it a reference image, or pick a sample), and get back a fully
+        restyled version, shown side-by-side with your original so you can see exactly what changed.
+        No live streaming, no persona photo.
       </p>
     </div>
   );
 }
 
-function VtonAbout({ perSec }: { perSec: number }) {
-  return (
-    <div className="pro-card narrow">
-      <h3>Capabilities</h3>
-      <div className="row preset-row">
-        {VTON_CAPS.map((c) => <span key={c} className="pro-chip">{c}</span>)}
-      </div>
-
-      <h3 style={{ marginTop: 18 }}>Spec</h3>
-      <div className="pro-grid3">
-        <div><div className="pro-uplabel">Input</div><p className="pro-muted">1 recorded video of a person</p></div>
-        <div><div className="pro-uplabel">Outfit source</div><p className="pro-muted">Garment photo, text, or both</p></div>
-        <div><div className="pro-uplabel">Output</div><p className="pro-muted">1 video, person in the new outfit</p></div>
-        <div><div className="pro-uplabel">Provider</div><p className="pro-muted">Decart Lucy VTON</p></div>
-        <div><div className="pro-uplabel">Speed</div><p className="pro-muted">Background job — minutes, not live</p></div>
-        <div><div className="pro-uplabel">Cost</div><p className="pro-muted">${perSec.toFixed(2)}/sec of source video</p></div>
-      </div>
-
-      <h3 style={{ marginTop: 18 }}>What it's for</h3>
-      <p className="pro-muted">
-        Upload a video of a person and either a garment photo, a written description of the outfit,
-        or both — Lucy VTON dresses them in it across the whole clip, keeping their identity and
-        movement intact. Useful for e-commerce try-on previews or trying a look before committing
-        to it.
-      </p>
-    </div>
-  );
-}
-
-// --- Privacy: shared shape, mode-specific wording. --------------------------
-function VideoJobPrivacy({ mode }: { mode: VideoMode }) {
-  const noun = mode === "restyle" ? "restyled" : "try-on";
+// --- Privacy: honest, model-specific data/consent/risk policy. -------------
+function RestylePrivacy() {
   return (
     <div className="pro-card narrow">
       <h3>Where your data goes</h3>
       <p className="pro-muted">
         Your uploaded video (and any reference image) goes to our cloud processing provider
         (Decart) for processing — that's inherent to how a cloud model works. Apex Cam does not
-        itself store your uploaded or {noun} videos beyond what's needed to return the result to
-        you.
+        itself store your uploaded or restyled videos beyond what's needed to return the result
+        to you.
       </p>
       <h3 style={{ marginTop: 18 }}>Consent</h3>
       <p className="pro-muted">

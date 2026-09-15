@@ -103,15 +103,14 @@ def _drop_stale_photo_jobs() -> None:
 @router.get("/pricing")
 def studio_pricing() -> dict:
     """Live per-second sell rate for every metered mode — the client reads
-    THIS instead of hardcoding a ratio to the live rate (video/restyle/vton
-    each have their own independent, admin-tunable margin now, not a fixed
+    THIS instead of hardcoding a ratio to the live rate (video/restyle each
+    have their own independent, admin-tunable margin now, not a fixed
     multiple of live's)."""
     return {
         "currency": pricing.CURRENCY,
         "live_usd_per_sec": pricing.mode_sell_usd_per_sec("live"),
         "video_usd_per_sec": pricing.mode_sell_usd_per_sec("video"),
         "restyle_usd_per_sec": pricing.mode_sell_usd_per_sec("restyle"),
-        "vton_usd_per_sec": pricing.mode_sell_usd_per_sec("vton"),
     }
 
 
@@ -195,13 +194,13 @@ def photo_content(job_id: str, uid: int = Depends(current_user)) -> Response:
     return Response(content=data, media_type="image/png")
 
 
-# --- Video / Restyle / VTON jobs -----------------------------------------
+# --- Video / Restyle jobs -------------------------------------------------
 @router.post("/video/start")
 async def video_start(file: UploadFile, reference: UploadFile | None = File(None),
                       prompt: str = Form(""), mode: str = Form("video"),
                       face_swap: bool = Form(False),
                       uid: int = Depends(current_user)) -> dict:
-    if mode not in ("video", "restyle", "vton"):
+    if mode not in ("video", "restyle"):
         raise HTTPException(400, "Unknown mode")
     video_bytes = await file.read()
     dur = decart.video_duration(video_bytes)
@@ -209,13 +208,12 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
     if not db.spend(uid, cost, f"{mode} {dur:.0f}s"):
         raise HTTPException(402, "Not enough credit — top up first")
     # video: reference is a face (only meaningful when actually swapping).
-    # restyle: a style source. vton: a garment. All three legitimately use it,
-    # unlike before, where restyle's reference upload was silently dropped.
+    # restyle: a style source. Both legitimately use it, unlike before, where
+    # restyle's reference upload was silently dropped.
     ref = None
-    if reference and (mode in ("restyle", "vton") or face_swap):
+    if reference and (mode == "restyle" or face_swap):
         ref = await reference.read()
-    model = {"video": decart.VIDEO_MODEL, "restyle": decart.RESTYLE_MODEL,
-             "vton": decart.VTON_MODEL}[mode]
+    model = {"video": decart.VIDEO_MODEL, "restyle": decart.RESTYLE_MODEL}[mode]
     try:
         jid = decart.submit_job(model, video_bytes, prompt or None, ref,
                                 filename=file.filename or "in.mp4",

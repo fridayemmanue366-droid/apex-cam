@@ -4,7 +4,7 @@ per-model margins, all editable in the admin panel (no redeploy).
 Money model
 -----------
 The wallet holds "live seconds" — ONE ledger, shared by every model. Each
-model (live, video, restyle, vton, image) has its OWN cost floor and its OWN
+model (live, video, restyle, image) has its OWN cost floor and its OWN
 tunable margin, priced independently: sell = cost x that model's margin. A
 non-live model converts into wallet-seconds at whatever its own dollar price
 is worth against live's CURRENT price (mode_rate()) — so the ledger stays
@@ -15,7 +15,6 @@ touching the others.
                                      on direct Decart before the fal switch)
   video    $0.04/s     (Decart)
   restyle  $0.01/s     (Decart)
-  vton     $0.04/s     (Decart — Decart bills VTON at the same rate as video)
   image    $0.08/image (fal Nano Banana 2 at 1K — see IMAGE_COST_USD)
 
   sell price (per mode) = cost x that mode's margin
@@ -37,11 +36,9 @@ import urllib.request
 from app import db
 
 # --- Our cost to run each mode (USD) — the floor we can never sell under -----
-# "live" (realtime) runs on fal now; video/restyle/vton are still direct
-# Decart, untouched by the fal migration. VTON's video mode is priced the
-# same as plain Lucy video by Decart ($0.04/sec — confirmed on their pricing
-# page), so it shares that cost tier rather than needing its own.
-COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01, "vton": 0.04}
+# "live" (realtime) runs on fal now; video/restyle are still direct Decart,
+# untouched by the fal migration.
+COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01}
 COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 
 # Lucy Image — the ACTIVE provider's real cost, flat per image, not per
@@ -50,14 +47,14 @@ COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 # changes, so the admin panel's profit math stays honest.
 IMAGE_COST_USD = 0.08
 
-# Video/restyle/vton USED to sell at a fixed RATIO of live's price (2x, 0.667x,
-# 2x) — meaning retuning live's margin silently moved all three with it, and
-# there was no way to price one independently. Each now has its own margin
+# Video/restyle USED to sell at a fixed RATIO of live's price (2x, 0.667x) —
+# meaning retuning live's margin silently moved both with it, and there was
+# no way to price one independently. Each now has its own margin
 # (mode_margin()), defaulting to whatever preserves TODAY's actual sell price
 # at live's current 1.63x margin, so this change doesn't silently cut or hike
-# anyone's price on deploy — from here, the owner can move any one of them
+# anyone's price on deploy — from here, the owner can move either
 # independently in the panel.
-DEFAULT_MODE_MARGIN = {"video": 3.26, "restyle": 4.35, "vton": 3.26}
+DEFAULT_MODE_MARGIN = {"video": 3.26, "restyle": 4.35}
 
 # Minute packages the app sells (wallet minutes). The 1-min entry is the cheap
 # tester for the live payment flow.
@@ -91,7 +88,7 @@ def margin() -> float:
 
 
 def mode_margin(mode: str) -> float:
-    """Video/restyle/vton's OWN margin — independent of live's, unlike the old
+    """Video/restyle's OWN margin — independent of live's, unlike the old
     fixed-ratio system. "live" routes to margin() so callers don't need to
     special-case it."""
     if mode == "live":
@@ -264,7 +261,7 @@ def pricing_snapshot() -> dict:
                 "sell_usd_per_sec": mode_sell_usd_per_sec(m),
                 "profit_pct": round((1.0 - 1.0 / mode_margin(m)) * 100, 1),
             }
-            for m in ("video", "restyle", "vton")
+            for m in ("video", "restyle")
         },
         "packages": [
             {"minutes": m,
