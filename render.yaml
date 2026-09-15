@@ -34,6 +34,11 @@ services:
         sync: false                      # paste in the Render dashboard
       - key: APEXCAM_LUCY_KEY
         sync: false                      # fal.ai key for Apex Pro realtime (Lucy via fal)
+      - key: APEXCAM_VOICE_SECRET
+        sync: false                      # cloud-voice token signing secret — MUST match the
+                                         # Modal secret "apexcam-voice-secret" (key
+                                         # APEXCAM_VOICE_SECRET) exactly, or minted tokens
+                                         # will fail Modal-side verification
       - key: APEXCAM_PRO_PROVIDER
         value: fal                       # "fal" (no watermark, verified) or "decart" (proven fallback)
       - key: APEXCAM_ADMIN_KEY
