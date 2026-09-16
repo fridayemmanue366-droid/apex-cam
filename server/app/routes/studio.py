@@ -213,10 +213,10 @@ def _vn_data_path(job_id: str) -> Path:
     return VOICENOTE_DIR / f"{job_id}.wav"
 
 
-def _write_vn_meta(job_id: str, uid: int, status: str, cost: float) -> None:
+def _write_vn_meta(job_id: str, uid: int, status: str, cost: float, error: str | None = None) -> None:
     VOICENOTE_DIR.mkdir(parents=True, exist_ok=True)
     _vn_meta_path(job_id).write_text(json.dumps(
-        {"uid": uid, "status": status, "cost": cost, "created": time.time()}))
+        {"uid": uid, "status": status, "cost": cost, "created": time.time(), "error": error}))
 
 
 def _read_vn_meta(job_id: str) -> dict | None:
@@ -279,9 +279,9 @@ async def voicenote_start(reference: UploadFile, text: str = Form(...),
             out = await asyncio.to_thread(fal_voice_note.generate_voice_note, ref, text)
             _vn_data_path(jid).write_bytes(out)
             _write_vn_meta(jid, uid, "done", cost)
-        except Exception:
+        except Exception as exc:
             db.refund(uid, cost, "voicenote failed")
-            _write_vn_meta(jid, uid, "error", cost)
+            _write_vn_meta(jid, uid, "error", cost, error=str(exc)[:300])
 
     asyncio.create_task(run())
     return {"job_id": jid, "cost_credits": pricing.voicenote_credits(len(text))}
@@ -295,8 +295,8 @@ def voicenote_status(job_id: str, uid: int = Depends(current_user)) -> dict:
     if meta["status"] == "processing" and time.time() - meta["created"] > VOICENOTE_STUCK_S:
         db.refund(uid, meta["cost"], "voice note job lost in a restart")
         meta["status"] = "error"
-        _write_vn_meta(job_id, uid, "error", meta["cost"])
-    return {"status": meta["status"]}
+        _write_vn_meta(job_id, uid, "error", meta["cost"], error="timed out")
+    return {"status": meta["status"], "error": meta.get("error")}
 
 
 @router.get("/voicenote/{job_id}/content")

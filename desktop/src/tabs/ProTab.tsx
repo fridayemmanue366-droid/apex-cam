@@ -1322,12 +1322,15 @@ function VoiceNotePlayground(props: { account: Account; refreshAccount: () => vo
       const { job_id } = await cloud.voicenoteStart(refBlob, text.trim());
       const deadline = Date.now() + 3 * 60 * 1000;
       let status: "processing" | "done" | "error" = "processing";
+      let lastError: string | null | undefined;
       while (status === "processing") {
         if (Date.now() > deadline) throw new Error("Taking too long — try again");
         await sleep(1500);
-        status = (await cloud.voicenoteStatus(job_id)).status;
+        const s = await cloud.voicenoteStatus(job_id);
+        status = s.status;
+        lastError = s.error;
       }
-      if (status === "error") throw new Error("Could not generate that voice note");
+      if (status === "error") throw new Error(lastError || "Could not generate that voice note");
       setResultUrl(await cloud.voicenoteContent(job_id));
       refreshAccount();
     } catch (e) {

@@ -158,7 +158,7 @@ export const cloud = {
     return call<{ job_id: string; cost_credits: number }>("/studio/voicenote/start", { method: "POST", body: f });
   },
   voicenoteStatus: (id: string) =>
-    call<{ status: "processing" | "done" | "error" }>(`/studio/voicenote/${id}`),
+    call<{ status: "processing" | "done" | "error"; error?: string | null }>(`/studio/voicenote/${id}`),
   voicenoteContent: (id: string) => fetchBlob(`/studio/voicenote/${id}/content`),
   videoStart: (file: File, prompt: string, mode: "video" | "restyle",
                faceSwap: boolean, reference?: File | null) => {
