@@ -202,7 +202,14 @@ def photo_content(job_id: str, uid: int = Depends(current_user)) -> Response:
 # paused pending Modal billing) — this is type-a-message-get-a-file, meant
 # for sending as e.g. a WhatsApp voice note.
 VOICENOTE_DIR = db.DB_PATH.parent / "voicenote_jobs"
-VOICENOTE_STUCK_S = 3 * 60
+# Genuinely hit in testing: a longer message (F5-TTS has no async job variant,
+# so this whole request runs synchronously against fal inside the background
+# task) can legitimately take well over 3 minutes -- that used to self-heal
+# (mark "error", refund) a job that was actually still working, racing
+# against its own real completion moments later. 10 minutes gives real
+# long-message jobs enough room while still catching a truly abandoned one
+# (e.g. from a server restart mid-generation) in reasonable time.
+VOICENOTE_STUCK_S = 10 * 60
 
 
 def _vn_meta_path(job_id: str) -> Path:
@@ -280,9 +287,22 @@ async def voicenote_start(reference: UploadFile, text: str = Form(...),
     async def run() -> None:
         try:
             out = await asyncio.to_thread(fal_voice_note.generate_voice_note, ref, text)
+            # Real race, actually hit in testing: a long message can legitimately
+            # take longer than VOICENOTE_STUCK_S, so voicenote_status()'s self-heal
+            # can mark this job "error" and refund it WHILE this call is still
+            # running. If that already happened, don't silently flip it back to
+            # "done" without telling the customer — they were already told it
+            # failed and already refunded; leave that as the final word rather
+            # than confusingly resurrecting a job they've moved on from.
+            cur = _read_vn_meta(jid)
+            if cur and cur.get("status") == "error":
+                return
             _vn_data_path(jid).write_bytes(out)
             _write_vn_meta(jid, uid, "done", cost)
         except Exception as exc:
+            cur = _read_vn_meta(jid)
+            if cur and cur.get("status") == "error":
+                return   # already self-healed/refunded -- don't refund twice
             db.refund(uid, cost, "voicenote failed")
             _write_vn_meta(jid, uid, "error", cost, error=str(exc)[:300])
 
@@ -297,7 +317,7 @@ def voicenote_status(job_id: str, uid: int = Depends(current_user)) -> dict:
         raise HTTPException(404, "Not found")
     if meta["status"] == "processing" and time.time() - meta["created"] > VOICENOTE_STUCK_S:
         db.refund(uid, meta["cost"], "voice note job lost in a restart")
-        meta["status"] = "error"
+        meta = {**meta, "status": "error", "error": "timed out"}
         _write_vn_meta(job_id, uid, "error", meta["cost"], error="timed out")
     return {"status": meta["status"], "error": meta.get("error")}
 

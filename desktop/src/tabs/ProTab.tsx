@@ -1320,7 +1320,11 @@ function VoiceNotePlayground(props: { account: Account; refreshAccount: () => vo
     setBusy(true);
     try {
       const { job_id } = await cloud.voicenoteStart(refBlob, text.trim());
-      const deadline = Date.now() + 3 * 60 * 1000;
+      // Matches the server's own VOICENOTE_STUCK_S (studio.py) -- a longer
+      // message can genuinely take several minutes; giving up here sooner
+      // than the server does just means we stop polling before it's actually
+      // finished, not that anything is wrong.
+      const deadline = Date.now() + 10 * 60 * 1000;
       let status: "processing" | "done" | "error" = "processing";
       let lastError: string | null | undefined;
       while (status === "processing") {
