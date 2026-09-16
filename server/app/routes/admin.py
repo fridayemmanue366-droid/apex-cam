@@ -101,6 +101,8 @@ def pricing_admin(key: str = Form(...),
                   margin_restyle: float | None = Form(None),
                   margin_cloud_voice: float | None = Form(None),
                   credit_usd: float | None = Form(None),
+                  voicenote_credits_per_block: int | None = Form(None),
+                  voicenote_chars_per_block: int | None = Form(None),
                   rate_buffer: float | None = Form(None),
                   rate_mode: str | None = Form(None),
                   manual_rate: float | None = Form(None)) -> dict:
@@ -124,6 +126,14 @@ def pricing_admin(key: str = Form(...),
         if credit_usd < 0.01 or credit_usd > 5.0:
             raise HTTPException(400, "credit_usd must be between 0.01 and 5.0")
         db.set_setting("credit_usd", str(credit_usd))
+    if voicenote_credits_per_block is not None:
+        if voicenote_credits_per_block < 1 or voicenote_credits_per_block > 100:
+            raise HTTPException(400, "voicenote_credits_per_block must be between 1 and 100")
+        db.set_setting("voicenote_credits_per_block", str(voicenote_credits_per_block))
+    if voicenote_chars_per_block is not None:
+        if voicenote_chars_per_block < 10 or voicenote_chars_per_block > 5000:
+            raise HTTPException(400, "voicenote_chars_per_block must be between 10 and 5000")
+        db.set_setting("voicenote_chars_per_block", str(voicenote_chars_per_block))
     if rate_buffer is not None:
         if rate_buffer < 1.0 or rate_buffer > 3.0:
             raise HTTPException(400, "rate_buffer must be between 1.0 and 3.0")
@@ -183,12 +193,15 @@ h1{font-size:20px;margin:0}
 .stat .n{font-size:22px;font-weight:700} .stat .l{font-size:12px;color:#9aa0a6}
 .gold{color:#d4af37} .green{color:#4ade80} .red{color:#f87171} .blue{color:#60a5fa}
 label{display:block;margin:0 0 6px;font-size:12px;color:#9aa0a6}
-input{width:100%;padding:10px;border-radius:8px;border:1px solid #2a2f3a;
-  background:#12151b;color:#e8eaed;font-size:15px}
+/* font-size:16px on inputs is deliberate, not cosmetic — anything smaller
+   makes iOS Safari auto-zoom the whole page on focus, which is what a lot
+   of "the page is broken on my phone" reports actually turn out to be. */
+input,select{width:100%;padding:12px;border-radius:8px;border:1px solid #2a2f3a;
+  background:#12151b;color:#e8eaed;font-size:16px;min-height:44px}
 .fields{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;align-items:end}
 .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-button{padding:11px 16px;border:0;border-radius:8px;font-size:14px;font-weight:600;
-  cursor:pointer}
+button{padding:12px 18px;border:0;border-radius:8px;font-size:15px;font-weight:600;
+  cursor:pointer;min-height:44px}
 .grant{background:#d4af37;color:#1a1a1a} .sub2{background:#60a5fa;color:#0f1115}
 .check{background:#2a2f3a;color:#e8eaed} .ghost{background:transparent;
   border:1px solid #2a2f3a;color:#9aa0a6}
@@ -296,6 +309,24 @@ tr:last-child td{border-bottom:0}
 </div>
 
 <div class="card">
+  <h2>Voice Note pricing</h2>
+  <div class="stats" id="vnstats">
+    <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
+  </div>
+  <div class="fields" style="margin-top:14px">
+    <div><label>Characters per block</label>
+      <input id="vnchars" type="number" min="10" max="5000" step="1" placeholder="250"></div>
+    <div><label>Credits per block</label>
+      <input id="vncredits" type="number" min="1" max="100" step="1" placeholder="4"></div>
+    <div style="align-self:end"><button class="grant" onclick="saveVoiceNotePricing()">Save</button></div>
+  </div>
+  <p class="sub" style="margin:10px 0 0">A message is billed in whole blocks, rounded up — a 1-character
+    message still costs a full block. Uses the SAME price-per-credit as Lucy Image above (change it
+    there to move both together); these two fields only control how many credits one block of Voice
+    Note costs.</p>
+</div>
+
+<div class="card">
   <h2>Per-model pricing (video jobs + cloud voice)</h2>
   <div class="scroll">
     <table><thead><tr><th>Model</th><th class="right">Cost/sec</th>
@@ -339,7 +370,19 @@ async function post(action, extra){
   if(!key) throw new Error('Enter your admin key first.');
   const f = new FormData(); f.append('key', key);
   for(const k in (extra||{})) f.append(k, extra[k]);
-  const r = await fetch('/admin/'+action, {method:'POST', body:f});
+  // A slow/flaky mobile connection can otherwise hang forever with no
+  // feedback at all ("not answering") — force a clear timeout instead.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  let r;
+  try{
+    r = await fetch('/admin/'+action, {method:'POST', body:f, signal: ctrl.signal});
+  }catch(err){
+    if(err.name === 'AbortError') throw new Error('Timed out — check your connection and try again.');
+    throw new Error('Network error — check your connection and try again.');
+  }finally{
+    clearTimeout(timer);
+  }
   const d = await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(r.status===403 ? 'Wrong admin key.'
     : (d.detail || ('Error '+r.status)));
@@ -440,6 +483,15 @@ function renderPricing(p){
     stat(p.image_credits+' credits', 'per image', 'blue') +
     stat(money(p.image_charge), 'customer pays', 'blue') +
     stat(p.image_profit_pct+'%', 'your profit', 'green');
+  const activeVn = document.activeElement;
+  if(activeVn!==$('vnchars'))   $('vnchars').value   = p.voicenote_chars_per_block;
+  if(activeVn!==$('vncredits')) $('vncredits').value = p.voicenote_credits_per_block;
+  $('vnstats').innerHTML =
+    stat('$'+p.voicenote_cost_usd_per_block, 'fal cost / block', 'red') +
+    stat(p.voicenote_credits_per_block+' credits', 'per block', 'gold') +
+    stat(p.voicenote_chars_per_block+' chars', 'per block', 'blue') +
+    stat(money(p.voicenote_charge_per_block), 'customer pays / block', 'blue') +
+    stat(p.voicenote_profit_pct+'%', 'your profit', 'green');
   $('modeRows').innerHTML = ['video','restyle','cloud_voice'].map(m => {
     const d = p.modes[m], id = 'margin_'+m;
     return '<tr><td>'+MODE_LABELS[m]+'</td><td class="right muted">$'+d.cost_usd_per_sec+'</td>'+
@@ -471,6 +523,18 @@ async function saveImagePricing(){
     renderPricing(d);
     out.innerHTML = '<span class="green">Credit price saved — $'+d.credit_usd+
       '/credit ('+money(d.image_charge)+' per image), profit '+d.image_profit_pct+'%.</span>';
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+async function saveVoiceNotePricing(){
+  out.textContent='Working…';
+  try{
+    const d = await post('pricing', {voicenote_chars_per_block:$('vnchars').value,
+      voicenote_credits_per_block:$('vncredits').value});
+    renderPricing(d);
+    out.innerHTML = '<span class="green">Voice Note pricing saved — '+
+      d.voicenote_credits_per_block+' credits per '+d.voicenote_chars_per_block+
+      ' characters ('+money(d.voicenote_charge_per_block)+'/block), profit '+
+      d.voicenote_profit_pct+'%.</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 async function saveModeMargin(mode){

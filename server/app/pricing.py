@@ -58,8 +58,8 @@ IMAGE_COST_USD = 0.08
 # uses. Every block costs the same 4 credits (not just the first), so the
 # margin stays consistent whether the message is short or long.
 VOICENOTE_COST_USD_PER_1K_CHARS = 0.05
-VOICENOTE_CHARS_PER_CREDIT = 250     # block size
-VOICENOTE_CREDITS_PER_BLOCK = 4      # credits charged per block
+DEFAULT_VOICENOTE_CHARS_PER_CREDIT = 250     # block size (fallback; owner-tunable below)
+DEFAULT_VOICENOTE_CREDITS_PER_BLOCK = 4      # credits charged per block (fallback; owner-tunable below)
 
 # Video/restyle USED to sell at a fixed RATIO of live's price (2x, 0.667x) —
 # meaning retuning live's margin silently moved both with it, and there was
@@ -235,13 +235,21 @@ def image_cost_wallet_seconds() -> float:
 
 
 # --- Voice Notes (priced per character, charged in credits) ------------------
+def voicenote_chars_per_block() -> int:
+    return max(1, int(_sf("voicenote_chars_per_block", DEFAULT_VOICENOTE_CHARS_PER_CREDIT)))
+
+
+def voicenote_credits_per_block() -> int:
+    return max(1, int(_sf("voicenote_credits_per_block", DEFAULT_VOICENOTE_CREDITS_PER_BLOCK)))
+
+
 def voicenote_credits(char_count: int) -> int:
     """Credits for a message of this length — rounds UP to a whole block, so
     a 1-character message still costs a full block's credits (never zero),
-    and every block (not just the first) costs VOICENOTE_CREDITS_PER_BLOCK."""
+    and every block (not just the first) costs voicenote_credits_per_block()."""
     import math
-    blocks = max(1, math.ceil(max(0, char_count) / VOICENOTE_CHARS_PER_CREDIT))
-    return blocks * VOICENOTE_CREDITS_PER_BLOCK
+    blocks = max(1, math.ceil(max(0, char_count) / voicenote_chars_per_block()))
+    return blocks * voicenote_credits_per_block()
 
 
 def voicenote_sell_usd(char_count: int) -> float:
@@ -297,6 +305,16 @@ def pricing_snapshot() -> dict:
         "image_charge": image_charge_amount(),
         "image_profit_pct": round((1.0 - IMAGE_COST_USD / image_sell_usd()) * 100, 1)
                              if image_sell_usd() > 0 else 0.0,
+        "voicenote_chars_per_block": voicenote_chars_per_block(),
+        "voicenote_credits_per_block": voicenote_credits_per_block(),
+        "voicenote_cost_usd_per_block": round(
+            VOICENOTE_COST_USD_PER_1K_CHARS * voicenote_chars_per_block() / 1000.0, 4),
+        "voicenote_sell_usd_per_block": voicenote_sell_usd(voicenote_chars_per_block()),
+        "voicenote_charge_per_block": voicenote_charge_amount(voicenote_chars_per_block()),
+        "voicenote_profit_pct": round((1.0 - (VOICENOTE_COST_USD_PER_1K_CHARS
+                                              * voicenote_chars_per_block() / 1000.0)
+                                       / voicenote_sell_usd(voicenote_chars_per_block())) * 100, 1)
+                                 if voicenote_sell_usd(voicenote_chars_per_block()) > 0 else 0.0,
         "modes": {
             m: {
                 "cost_usd_per_sec": COST_USD_PER_SEC[m],
