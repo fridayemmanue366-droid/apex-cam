@@ -210,7 +210,10 @@ def _vn_meta_path(job_id: str) -> Path:
 
 
 def _vn_data_path(job_id: str) -> Path:
-    return VOICENOTE_DIR / f"{job_id}.wav"
+    # .ogg (mono Opus) -- fal_voice_note.generate_voice_note() re-encodes
+    # from F5-TTS's raw WAV output into WhatsApp's native voice-note format
+    # before this ever gets written.
+    return VOICENOTE_DIR / f"{job_id}.ogg"
 
 
 def _write_vn_meta(job_id: str, uid: int, status: str, cost: float, error: str | None = None) -> None:
@@ -311,7 +314,7 @@ def voicenote_content(job_id: str, uid: int = Depends(current_user)) -> Response
     except Exception:
         raise HTTPException(404, "Not ready")
     _drop_vn_job(job_id)
-    return Response(content=data, media_type="audio/wav")
+    return Response(content=data, media_type="audio/ogg")
 
 
 # --- Video / Restyle jobs -------------------------------------------------

@@ -1392,7 +1392,7 @@ function VoiceNotePlayground(props: { account: Account; refreshAccount: () => vo
           </div>
           {resultUrl && (
             <div className="row preset-row" style={{ marginTop: 10 }}>
-              <a className="pro-chip pro-dl" href={resultUrl} download="apex-voice-note.wav">⬇ Download</a>
+              <a className="pro-chip pro-dl" href={resultUrl} download="apex-voice-note.ogg">⬇ Download</a>
             </div>
           )}
         </div>

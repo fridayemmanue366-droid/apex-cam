@@ -8,6 +8,16 @@ type-a-message-get-an-audio-file, meant for things like a WhatsApp voice
 note: record or upload a reference voice once, type what you want said,
 download the result and send it yourself.
 
+F5-TTS returns WAV. WhatsApp DOES play a WAV file fine, but only as a
+generic document attachment — its native "voice note" bubble (recorded
+with the mic button) is specifically mono Opus-in-Ogg, nothing else. So
+the result is re-encoded to that exact format before being handed back,
+making it indistinguishable from an actually-recorded voice note when a
+customer attaches it. Uses PyAV (bundles its own codec libs — no system
+ffmpeg needed, works the same on Render's plain Python runtime as it does
+locally) rather than shelling out to an ffmpeg binary that may not exist
+in this environment.
+
 Same fal account/key as fal_image.py (env APEXCAM_LUCY_KEY), never shipped
 to the app.
 """
@@ -18,6 +28,37 @@ import os
 MODEL = os.environ.get("APEXCAM_FAL_VOICENOTE_MODEL", "fal-ai/f5-tts")
 MODEL_TYPE = os.environ.get("APEXCAM_FAL_VOICENOTE_MODEL_TYPE", "F5-TTS")
 MAX_CHARS = 5000   # F5-TTS's own documented limit
+OPUS_RATE = 48000  # WhatsApp's own voice notes are mono Opus/Ogg at 48kHz
+
+
+def _wav_to_ogg_opus(wav_bytes: bytes) -> bytes:
+    """Re-encodes WAV PCM to mono Opus-in-Ogg — WhatsApp's native voice-note
+    format. IMPORTANT: out_stream.layout MUST be set explicitly before
+    encoding — without it, the encoder silently defaults to stereo while a
+    mono-resampled frame is fed into it, corrupting the output (verified:
+    produced a file that "worked" — right byte count, played without
+    erroring — but decoded to near-silence and double the real duration)."""
+    import io
+
+    import av
+
+    in_container = av.open(io.BytesIO(wav_bytes))
+    in_stream = in_container.streams.audio[0]
+
+    out_buf = io.BytesIO()
+    out_container = av.open(out_buf, mode="w", format="ogg")
+    out_stream = out_container.add_stream("libopus", rate=OPUS_RATE)
+    out_stream.layout = "mono"
+
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=OPUS_RATE)
+    for frame in in_container.decode(in_stream):
+        for rframe in resampler.resample(frame):
+            for packet in out_stream.encode(rframe):
+                out_container.mux(packet)
+    for packet in out_stream.encode(None):   # flush
+        out_container.mux(packet)
+    out_container.close()
+    return out_buf.getvalue()
 
 
 def _key() -> str:
@@ -55,4 +96,4 @@ def generate_voice_note(reference_bytes: bytes, text: str) -> bytes:
     r = requests.get(url, timeout=60)
     if r.status_code != 200:
         raise RuntimeError(f"could not fetch generated audio: {r.status_code}")
-    return r.content
+    return _wav_to_ogg_opus(r.content)
