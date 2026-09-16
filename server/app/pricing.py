@@ -51,9 +51,15 @@ IMAGE_COST_USD = 0.08
 # Voice Notes — clone a voice from a sample, type a message, get it spoken in
 # that voice (F5-TTS on fal, $0.05/1000 characters, confirmed on fal's own
 # model page). Priced per-character rather than flat like Lucy Image, since
-# cost scales with message length, not a fixed unit.
+# cost scales with message length, not a fixed unit. Owner decision
+# (2026-09-16): charge 4 credits per 250-character block, not 1 — raw cost
+# per block is $0.0125, so 4 credits ($0.20 at the default credit price) is
+# a 16x margin / ~93.75% profit per block, not the 4x/75% every other mode
+# uses. Every block costs the same 4 credits (not just the first), so the
+# margin stays consistent whether the message is short or long.
 VOICENOTE_COST_USD_PER_1K_CHARS = 0.05
-VOICENOTE_CHARS_PER_CREDIT = 250   # raw cost/credit = $0.0125 vs $0.05 credit price = 4x margin, matching cloud_voice's
+VOICENOTE_CHARS_PER_CREDIT = 250     # block size
+VOICENOTE_CREDITS_PER_BLOCK = 4      # credits charged per block
 
 # Video/restyle USED to sell at a fixed RATIO of live's price (2x, 0.667x) —
 # meaning retuning live's margin silently moved both with it, and there was
@@ -230,10 +236,12 @@ def image_cost_wallet_seconds() -> float:
 
 # --- Voice Notes (priced per character, charged in credits) ------------------
 def voicenote_credits(char_count: int) -> int:
-    """Credits for a message of this length — rounds UP so a 1-character
-    message still costs a real credit, never zero."""
+    """Credits for a message of this length — rounds UP to a whole block, so
+    a 1-character message still costs a full block's credits (never zero),
+    and every block (not just the first) costs VOICENOTE_CREDITS_PER_BLOCK."""
     import math
-    return max(1, math.ceil(max(0, char_count) / VOICENOTE_CHARS_PER_CREDIT))
+    blocks = max(1, math.ceil(max(0, char_count) / VOICENOTE_CHARS_PER_CREDIT))
+    return blocks * VOICENOTE_CREDITS_PER_BLOCK
 
 
 def voicenote_sell_usd(char_count: int) -> float:
