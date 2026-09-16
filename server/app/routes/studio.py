@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app import db, decart, fal_image, fal_lucy, pricing
+from app import db, decart, fal_image, fal_lucy, fal_voice_note, pricing
 from app.deps import current_user
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -193,6 +193,125 @@ def photo_content(job_id: str, uid: int = Depends(current_user)) -> Response:
         raise HTTPException(404, "Not ready")
     _drop_photo_job(job_id)
     return Response(content=data, media_type="image/png")
+
+
+# --- Voice Notes (clone a voice from a sample, type a message, get audio) ---
+# Same job shape as Photo above (F5-TTS has no async variant either, and even
+# though it's usually fast, a long message is worth the same Render-proxy
+# safety margin). NOT the live/real-time voice changer (that's Cloud Voice,
+# paused pending Modal billing) — this is type-a-message-get-a-file, meant
+# for sending as e.g. a WhatsApp voice note.
+VOICENOTE_DIR = db.DB_PATH.parent / "voicenote_jobs"
+VOICENOTE_STUCK_S = 3 * 60
+
+
+def _vn_meta_path(job_id: str) -> Path:
+    return VOICENOTE_DIR / f"{job_id}.json"
+
+
+def _vn_data_path(job_id: str) -> Path:
+    return VOICENOTE_DIR / f"{job_id}.wav"
+
+
+def _write_vn_meta(job_id: str, uid: int, status: str, cost: float) -> None:
+    VOICENOTE_DIR.mkdir(parents=True, exist_ok=True)
+    _vn_meta_path(job_id).write_text(json.dumps(
+        {"uid": uid, "status": status, "cost": cost, "created": time.time()}))
+
+
+def _read_vn_meta(job_id: str) -> dict | None:
+    try:
+        return json.loads(_vn_meta_path(job_id).read_text())
+    except Exception:
+        return None
+
+
+def _drop_vn_job(job_id: str) -> None:
+    _vn_meta_path(job_id).unlink(missing_ok=True)
+    _vn_data_path(job_id).unlink(missing_ok=True)
+
+
+def _drop_stale_vn_jobs() -> None:
+    if not VOICENOTE_DIR.exists():
+        return
+    now = time.time()
+    for p in VOICENOTE_DIR.glob("*.json"):
+        meta = None
+        try:
+            meta = json.loads(p.read_text())
+        except Exception:
+            pass
+        if not meta or now - meta.get("created", 0) > PHOTO_JOB_TTL_S:
+            _drop_vn_job(p.stem)
+
+
+@router.get("/voicenote/pricing")
+def voicenote_pricing(chars: int = 0) -> dict:
+    """Credits for a message of `chars` length — the client recomputes this
+    live as the customer types, never hardcodes the per-character rate."""
+    return {
+        "credits": pricing.voicenote_credits(chars),
+        "currency": pricing.CURRENCY,
+        "usd": pricing.voicenote_sell_usd(chars),
+        "charge": pricing.voicenote_charge_amount(chars),
+        "max_chars": fal_voice_note.MAX_CHARS,
+    }
+
+
+@router.post("/voicenote/start")
+async def voicenote_start(reference: UploadFile, text: str = Form(...),
+                          uid: int = Depends(current_user)) -> dict:
+    text = text.strip()
+    if not text:
+        raise HTTPException(400, "Type something for the voice to say.")
+    if len(text) > fal_voice_note.MAX_CHARS:
+        raise HTTPException(400, f"That message is too long — max {fal_voice_note.MAX_CHARS} characters.")
+    cost = pricing.voicenote_cost_wallet_seconds(len(text))
+    if not db.spend(uid, cost, "voicenote"):
+        raise HTTPException(402, "Not enough credit — top up first")
+    ref = await reference.read()
+    _drop_stale_vn_jobs()
+    jid = uuid.uuid4().hex
+    _write_vn_meta(jid, uid, "processing", cost)
+
+    async def run() -> None:
+        try:
+            out = await asyncio.to_thread(fal_voice_note.generate_voice_note, ref, text)
+            _vn_data_path(jid).write_bytes(out)
+            _write_vn_meta(jid, uid, "done", cost)
+        except Exception:
+            db.refund(uid, cost, "voicenote failed")
+            _write_vn_meta(jid, uid, "error", cost)
+
+    asyncio.create_task(run())
+    return {"job_id": jid, "cost_credits": pricing.voicenote_credits(len(text))}
+
+
+@router.get("/voicenote/{job_id}")
+def voicenote_status(job_id: str, uid: int = Depends(current_user)) -> dict:
+    meta = _read_vn_meta(job_id)
+    if not meta or meta["uid"] != uid:
+        raise HTTPException(404, "Not found")
+    if meta["status"] == "processing" and time.time() - meta["created"] > VOICENOTE_STUCK_S:
+        db.refund(uid, meta["cost"], "voice note job lost in a restart")
+        meta["status"] = "error"
+        _write_vn_meta(job_id, uid, "error", meta["cost"])
+    return {"status": meta["status"]}
+
+
+@router.get("/voicenote/{job_id}/content")
+def voicenote_content(job_id: str, uid: int = Depends(current_user)) -> Response:
+    meta = _read_vn_meta(job_id)
+    if not meta or meta["uid"] != uid:
+        raise HTTPException(404, "Not found")
+    if meta["status"] != "done":
+        raise HTTPException(404, "Not ready")
+    try:
+        data = _vn_data_path(job_id).read_bytes()
+    except Exception:
+        raise HTTPException(404, "Not ready")
+    _drop_vn_job(job_id)
+    return Response(content=data, media_type="audio/wav")
 
 
 # --- Video / Restyle jobs -------------------------------------------------

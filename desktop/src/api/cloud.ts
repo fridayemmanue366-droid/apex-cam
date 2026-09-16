@@ -143,6 +143,23 @@ export const cloud = {
   photoStatus: (id: string) =>
     call<{ status: "processing" | "done" | "error" }>(`/studio/photo/${id}`),
   photoContent: (id: string) => fetchBlob(`/studio/photo/${id}/content`),
+
+  // --- Voice Notes: clone a voice from a sample, type a message, get an
+  // audio file back (e.g. to send as a WhatsApp voice note). NOT the live
+  // real-time voice changer (Cloud Voice, paused) -- this is type-and-get-a-
+  // file, same async job shape as Photo above (F5-TTS on fal).
+  voicenotePricing: (chars: number) =>
+    call<{ credits: number; currency: string; usd: number; charge: number; max_chars: number }>(
+      `/studio/voicenote/pricing?chars=${chars}`),
+  voicenoteStart: (reference: Blob, text: string) => {
+    const f = new FormData();
+    f.append("reference", reference, "reference.wav");
+    f.append("text", text);
+    return call<{ job_id: string; cost_credits: number }>("/studio/voicenote/start", { method: "POST", body: f });
+  },
+  voicenoteStatus: (id: string) =>
+    call<{ status: "processing" | "done" | "error" }>(`/studio/voicenote/${id}`),
+  voicenoteContent: (id: string) => fetchBlob(`/studio/voicenote/${id}/content`),
   videoStart: (file: File, prompt: string, mode: "video" | "restyle",
                faceSwap: boolean, reference?: File | null) => {
     const f = new FormData();

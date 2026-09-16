@@ -4,6 +4,13 @@ import { cloud, getToken, signedIn, type Account, type Pkg } from "../api/cloud"
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
 import { usePipeline } from "../context/PipelineContext";
+import {
+  MIN_REFERENCE_S,
+  MicRecorder,
+  decodeToMonoPCM,
+  encodeWav,
+  rms,
+} from "../lib/audioRecorder";
 
 // Apex Pro — its OWN universe, separate from local Apex Cam: its own sign-in,
 // its own pay-per-call credits, its own cloud engine (currently Lucy Realtime,
@@ -33,6 +40,8 @@ const MODELS: ModelDef[] = [
     tag: "Edit or create any photo", status: "available" },
   { id: "lucy-restyle", name: "Lucy Restyle", icon: "🎨",
     tag: "Restyle a recorded video", status: "available" },
+  { id: "voice-note", name: "Voice Note", icon: "🎙️",
+    tag: "Clone a voice, type a message, get an audio file", status: "available" },
 ];
 
 const LOOKS = [
@@ -448,6 +457,11 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                     ${restylePerSec.toFixed(3)}/sec of video
                   </span>
                 )}
+                {model.id === "voice-note" && (
+                  <span className="pro-pill" title="Charged once per generated message, by length">
+                    priced per message length
+                  </span>
+                )}
               </div>
               <div className="pro-subtabs">
                 {SUB_PAGES.map((s) => (
@@ -492,6 +506,16 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                   )}
                   {sub === "about" && <RestyleAbout perSec={restylePerSec} />}
                   {sub === "privacy" && <RestylePrivacy />}
+                </>
+              )}
+              {model.id === "voice-note" && (
+                <>
+                  {sub === "playground" && (
+                    <VoiceNotePlayground account={account}
+                      refreshAccount={() => cloud.me().then(setAccount).catch(() => undefined)} />
+                  )}
+                  {sub === "about" && <VoiceNoteAbout />}
+                  {sub === "privacy" && <VoiceNotePrivacy />}
                 </>
               )}
             </>
@@ -1192,6 +1216,226 @@ function RestylePrivacy() {
       <p className="pro-muted">
         Processed videos are labeled AI-generated. You may not remove or misrepresent that
         labeling — same policy that covers every other model here.
+      </p>
+    </div>
+  );
+}
+
+// --- Voice Note: clone a voice from a sample, type a message, get an audio
+// file (e.g. to send as a WhatsApp voice note). NOT live/real-time — that's
+// Cloud Voice on the Voice tab (paused pending cloud billing). This is
+// type-and-get-a-file, running on F5-TTS via fal. ---------------------------
+function VoiceNotePlayground(props: { account: Account; refreshAccount: () => void }) {
+  const { account, refreshAccount } = props;
+  const micRef = useRef<MicRecorder | null>(null);
+  const recordTimerRef = useRef<number | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [refBlob, setRefBlob] = useState<Blob | null>(null);
+  const [refUrl, setRefUrl] = useState<string | null>(null);
+  const [refSeconds, setRefSeconds] = useState(0);
+  const [text, setText] = useState("");
+  const [credits, setCredits] = useState(0);
+  const [maxChars, setMaxChars] = useState(5000);
+  const [busy, setBusy] = useState(false);
+  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => { if (refUrl) URL.revokeObjectURL(refUrl); };
+  }, [refUrl]);
+
+  // Live credit count as the customer types — never hardcode the rate here.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      cloud.voicenotePricing(text.length).then((p) => {
+        setCredits(p.credits);
+        setMaxChars(p.max_chars);
+      }).catch(() => undefined);
+    }, 250);
+    return () => clearTimeout(id);
+  }, [text.length]);
+
+  const setReference = async (raw: Blob) => {
+    setErr(null);
+    try {
+      const pcm = await decodeToMonoPCM(raw);
+      const seconds = pcm.length / 48000;
+      if (seconds < MIN_REFERENCE_S) {
+        setErr(`That clip is only ${seconds.toFixed(0)}s — use at least ${MIN_REFERENCE_S}s for a good clone.`);
+        return;
+      }
+      if (rms(pcm) < 0.002) {
+        setErr("That clip sounds silent — check your microphone and try again.");
+        return;
+      }
+      const wav = encodeWav(pcm);
+      if (refUrl) URL.revokeObjectURL(refUrl);
+      setRefBlob(wav);
+      setRefSeconds(seconds);
+      setRefUrl(URL.createObjectURL(wav));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not read that audio");
+    }
+  };
+
+  const stopRecordingNow = async () => {
+    if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
+    recordTimerRef.current = null;
+    setRecording(false);
+    const blob = await micRef.current?.stop();
+    micRef.current = null;
+    if (blob) await setReference(blob);
+  };
+
+  const toggleRecording = async () => {
+    if (recording) {
+      await stopRecordingNow();
+      return;
+    }
+    setErr(null);
+    try {
+      micRef.current = new MicRecorder();
+      await micRef.current.start();
+      setRecording(true);
+      setRecordSeconds(0);
+      recordTimerRef.current = window.setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= 120) stopRecordingNow();
+          return s + 1;
+        });
+      }, 1000);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not access the microphone");
+    }
+  };
+
+  const uploadReference = (f: File | undefined) => {
+    if (f) setReference(f);
+  };
+
+  const generate = async () => {
+    if (!refBlob || !text.trim() || busy) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const { job_id } = await cloud.voicenoteStart(refBlob, text.trim());
+      const deadline = Date.now() + 3 * 60 * 1000;
+      let status: "processing" | "done" | "error" = "processing";
+      while (status === "processing") {
+        if (Date.now() > deadline) throw new Error("Taking too long — try again");
+        await sleep(1500);
+        status = (await cloud.voicenoteStatus(job_id)).status;
+      }
+      if (status === "error") throw new Error("Could not generate that voice note");
+      setResultUrl(await cloud.voicenoteContent(job_id));
+      refreshAccount();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not generate that voice note");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const noCredit = (account.credit_seconds ?? 0) <= 0;
+
+  return (
+    <div className="pro-card">
+      <div className="pro-editor">
+        <div className="pro-editor-inputs">
+          <div className="pro-uplabel">Reference voice — the voice to clone</div>
+          <div className="row">
+            <button type="button" className="pro-chip"
+                    style={recording ? { background: "rgba(220,60,60,0.18)", borderColor: "rgba(220,60,60,0.5)", color: "#f08080" } : undefined}
+                    disabled={busy} onClick={toggleRecording}>
+              {recording ? `■ Stop recording (${recordSeconds}s)` : "🎙 Record"}
+            </button>
+            <span className="pro-muted">or</span>
+            <label className="pro-chip" style={{ cursor: busy ? "not-allowed" : "pointer" }}>
+              📁 Upload a clip
+              <input type="file" accept="audio/*" hidden disabled={busy}
+                     onChange={(e) => uploadReference(e.target.files?.[0])} />
+            </label>
+          </div>
+          {refUrl && (
+            <div style={{ marginTop: 8 }}>
+              <p className="pro-muted">Reference clip ({refSeconds.toFixed(0)}s):</p>
+              <audio controls src={refUrl} style={{ width: "100%" }} />
+            </div>
+          )}
+
+          <div className="pro-uplabel" style={{ marginTop: 12 }}>Message — what the voice should say</div>
+          <textarea className="pro-input pro-photo-prompt" rows={4} value={text}
+                    maxLength={maxChars}
+                    placeholder="Type exactly what you want said…"
+                    onChange={(e) => setText(e.target.value)} />
+          <p className="pro-muted" style={{ fontSize: 12 }}>{text.length} / {maxChars} characters</p>
+
+          {err && <p className="error">{err}</p>}
+          <button type="button" className="pro-goldbtn"
+                  disabled={!refBlob || !text.trim() || busy || noCredit}
+                  onClick={generate}>
+            {busy ? "Generating…" : `✦ Generate — ${credits} credit${credits === 1 ? "" : "s"}`}
+          </button>
+          {noCredit && <p className="pro-muted pro-note">No credit — buy minutes on the Credits tab.</p>}
+        </div>
+
+        <div>
+          <div className="pro-uplabel">Output</div>
+          <div className="pro-result-slot">
+            {busy ? <span className="pro-muted">Generating…</span>
+             : resultUrl ? <audio controls src={resultUrl} style={{ width: "100%" }} />
+             : <span className="pro-muted">Result appears here</span>}
+          </div>
+          {resultUrl && (
+            <div className="row preset-row" style={{ marginTop: 10 }}>
+              <a className="pro-chip pro-dl" href={resultUrl} download="apex-voice-note.wav">⬇ Download</a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VoiceNoteAbout() {
+  return (
+    <div className="pro-card narrow">
+      <h3>Capabilities</h3>
+      <div className="row preset-row">
+        {["Clone any voice from ~10s+ of audio", "Type a message, get it spoken",
+          "Download and send it yourself (e.g. as a WhatsApp voice note)",
+          "No training wait"].map((c) => <span key={c} className="pro-chip">{c}</span>)}
+      </div>
+      <h3 style={{ marginTop: 18 }}>How it's different from Cloud Voice</h3>
+      <p className="pro-muted">
+        This is <strong>type-and-get-a-file</strong> — you write the message, it speaks it in the
+        cloned voice, and you download the result. It is not live: it can't change your voice
+        while you talk on a call. That's a separate, currently-paused feature (Cloud Voice, on the
+        Voice tab).
+      </p>
+      <h3 style={{ marginTop: 18 }}>Provider</h3>
+      <p className="pro-muted">F5-TTS (via fal) — priced per character, shown live as you type.</p>
+    </div>
+  );
+}
+
+function VoiceNotePrivacy() {
+  return (
+    <div className="pro-card narrow">
+      <h3>Where your data goes</h3>
+      <p className="pro-muted">
+        Your reference clip and typed message go to our cloud processing provider (fal, running
+        F5-TTS) to generate the result — that's inherent to how a cloud model works. Apex Cam does
+        not itself store your reference clips or generated audio beyond what's needed to return
+        the result to you.
+      </p>
+      <h3 style={{ marginTop: 18 }}>Consent</h3>
+      <p className="pro-muted">
+        <strong>Only clone your own voice, or a voice you have explicit permission to use.</strong>{" "}
+        Using someone else's voice to deceive, defraud, harass, or impersonate them is prohibited
+        here and may be illegal in your jurisdiction. Accounts can be restricted over confirmed
+        misuse.
       </p>
     </div>
   );

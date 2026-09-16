@@ -48,6 +48,13 @@ COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
 # changes, so the admin panel's profit math stays honest.
 IMAGE_COST_USD = 0.08
 
+# Voice Notes — clone a voice from a sample, type a message, get it spoken in
+# that voice (F5-TTS on fal, $0.05/1000 characters, confirmed on fal's own
+# model page). Priced per-character rather than flat like Lucy Image, since
+# cost scales with message length, not a fixed unit.
+VOICENOTE_COST_USD_PER_1K_CHARS = 0.05
+VOICENOTE_CHARS_PER_CREDIT = 250   # raw cost/credit = $0.0125 vs $0.05 credit price = 4x margin, matching cloud_voice's
+
 # Video/restyle USED to sell at a fixed RATIO of live's price (2x, 0.667x) —
 # meaning retuning live's margin silently moved both with it, and there was
 # no way to price one independently. Each now has its own margin
@@ -219,6 +226,30 @@ def image_cost_wallet_seconds() -> float:
     the admin panel independently."""
     per_sec = sell_usd_per_min() / 60.0
     return round(image_sell_usd() / per_sec, 2) if per_sec > 0 else 0.0
+
+
+# --- Voice Notes (priced per character, charged in credits) ------------------
+def voicenote_credits(char_count: int) -> int:
+    """Credits for a message of this length — rounds UP so a 1-character
+    message still costs a real credit, never zero."""
+    import math
+    return max(1, math.ceil(max(0, char_count) / VOICENOTE_CHARS_PER_CREDIT))
+
+
+def voicenote_sell_usd(char_count: int) -> float:
+    return round(credit_usd() * voicenote_credits(char_count), 4)
+
+
+def voicenote_charge_amount(char_count: int) -> float:
+    usd = voicenote_sell_usd(char_count)
+    return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
+
+
+def voicenote_cost_wallet_seconds(char_count: int) -> float:
+    """Same live-seconds conversion as image_cost_wallet_seconds() — keeps
+    the one shared wallet ledger internally consistent."""
+    per_sec = sell_usd_per_min() / 60.0
+    return round(voicenote_sell_usd(char_count) / per_sec, 2) if per_sec > 0 else 0.0
 
 
 # --- Local-app subscription (flat price, separate from the Pro wallet) -------
