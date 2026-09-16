@@ -30,31 +30,61 @@ MODEL_TYPE = os.environ.get("APEXCAM_FAL_VOICENOTE_MODEL_TYPE", "F5-TTS")
 MAX_CHARS = 5000   # F5-TTS's own documented limit
 OPUS_RATE = 48000  # WhatsApp's own voice notes are mono Opus/Ogg at 48kHz
 
+# Loudness normalization — a plain volume (gain) adjustment only, applied to
+# the whole clip uniformly. It does NOT touch pitch, timbre, or formants, so
+# it cannot change how the cloned voice actually sounds — it only makes
+# different generations land at a consistent, healthy volume instead of
+# some coming out quiet and others near-clipping. Matters more than it might
+# seem here specifically because a customer's real use case (attach to
+# WhatsApp, or play-and-re-record through a second phone's mic) puts this
+# audio through a lossy real-world path where a weak signal degrades hard.
+TARGET_RMS = 0.2     # a healthy, consistent loudness to aim for
+PEAK_CEILING = 0.95  # hard ceiling so gain can never introduce clipping
+
 
 def _wav_to_ogg_opus(wav_bytes: bytes) -> bytes:
-    """Re-encodes WAV PCM to mono Opus-in-Ogg — WhatsApp's native voice-note
-    format. IMPORTANT: out_stream.layout MUST be set explicitly before
-    encoding — without it, the encoder silently defaults to stereo while a
-    mono-resampled frame is fed into it, corrupting the output (verified:
-    produced a file that "worked" — right byte count, played without
-    erroring — but decoded to near-silence and double the real duration)."""
+    """Normalizes loudness, then re-encodes to mono Opus-in-Ogg — WhatsApp's
+    native voice-note format. IMPORTANT: out_stream.layout MUST be set
+    explicitly before encoding — without it, the encoder silently defaults
+    to stereo while a mono-resampled frame is fed into it, corrupting the
+    output (verified: produced a file that "worked" — right byte count,
+    played without erroring — but decoded to near-silence and double the
+    real duration)."""
     import io
 
     import av
+    import numpy as np
 
     in_container = av.open(io.BytesIO(wav_bytes))
     in_stream = in_container.streams.audio[0]
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=OPUS_RATE)
+    chunks = []
+    for frame in in_container.decode(in_stream):
+        for rframe in resampler.resample(frame):
+            chunks.append(rframe.to_ndarray())
+    if not chunks:
+        raise RuntimeError("F5-TTS returned empty audio")
+    samples = np.concatenate(chunks, axis=1).flatten().astype(np.float32) / 32768.0
+
+    rms = float(np.sqrt(np.mean(samples ** 2)))
+    if rms > 1e-6:
+        gain = TARGET_RMS / rms
+        peak = float(np.max(np.abs(samples)))
+        if peak * gain > PEAK_CEILING:
+            gain = PEAK_CEILING / peak   # never clip, even if that means missing the RMS target
+        samples = samples * gain
+    pcm16 = np.clip(samples * 32768.0, -32768, 32767).astype(np.int16)
 
     out_buf = io.BytesIO()
     out_container = av.open(out_buf, mode="w", format="ogg")
     out_stream = out_container.add_stream("libopus", rate=OPUS_RATE)
     out_stream.layout = "mono"
 
-    resampler = av.AudioResampler(format="s16", layout="mono", rate=OPUS_RATE)
-    for frame in in_container.decode(in_stream):
-        for rframe in resampler.resample(frame):
-            for packet in out_stream.encode(rframe):
-                out_container.mux(packet)
+    frame = av.AudioFrame.from_ndarray(pcm16.reshape(1, -1), format="s16", layout="mono")
+    frame.rate = OPUS_RATE
+    frame.pts = 0
+    for packet in out_stream.encode(frame):
+        out_container.mux(packet)
     for packet in out_stream.encode(None):   # flush
         out_container.mux(packet)
     out_container.close()
