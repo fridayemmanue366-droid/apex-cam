@@ -56,7 +56,7 @@ async function fetchBlob(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-export interface Account { email: string; minutes: number; credit_seconds: number }
+export interface Account { email: string; minutes: number; credit_seconds: number; credits: number }
 export interface Pkg { minutes: number; usd: number; charge: number; currency: string }
 export interface SubStatus {
   active: boolean; trial: boolean; ever_paid: boolean; until: number; days_left: number;

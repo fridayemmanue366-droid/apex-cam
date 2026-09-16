@@ -372,6 +372,9 @@ export function ProTab({ onExit }: { onExit: () => void }) {
           <span className="pro-pill" title={`$${perSec.toFixed(2)}/sec`}>
             ◈ {clock(secsLeft)}{pro.enabled && pro.live ? " ⏱" : ""}
           </span>
+          <span className="pro-pill" title="Same balance, shown as Image/Voice Note credits">
+            {account.credits} credit{account.credits === 1 ? "" : "s"}
+          </span>
           {liveBadge}
           <span className="pro-account">
             <span className="pro-muted">{account.email}</span>

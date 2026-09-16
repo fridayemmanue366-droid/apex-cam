@@ -89,7 +89,8 @@ audio{width:100%;margin-top:10px}
   <div class="card">
     <div class="balance">
       <div><div class="muted">Signed in as <span id="who"></span></div>
-        <div class="n" id="balanceN">—</div></div>
+        <div class="n" id="balanceN">—</div>
+        <div class="muted" id="balanceCredits">—</div></div>
       <button class="ghost" style="width:auto" onclick="logout()">Log out</button>
     </div>
   </div>
@@ -209,10 +210,14 @@ async function doAuth(){
 function logout(){ setToken(null); showAuth(); }
 
 let account = null;
+function renderBalance(){
+  $('balanceN').textContent = account.minutes.toFixed(1) + ' min';
+  $('balanceCredits').textContent = account.credits + ' credit' + (account.credits===1?'':'s') + ' worth';
+}
 async function afterSignIn(){
   account = await apiJson('/me');
   $('who').textContent = account.email;
-  $('balanceN').textContent = account.minutes.toFixed(1) + ' min';
+  renderBalance();
   showMain();
   loadPackages();
   updatePricing();
@@ -379,7 +384,7 @@ async function generate(){
     $('resultCard').classList.remove('hidden');
     $('genMsg').innerHTML = '<p class="success">Done!</p>';
     account = await apiJson('/me');
-    $('balanceN').textContent = account.minutes.toFixed(1) + ' min';
+    renderBalance();
   }catch(err){
     $('genMsg').innerHTML = '<p class="error">' + err.message + '</p>';
   }finally{

@@ -39,6 +39,7 @@ class Me(BaseModel):
     email: str
     credit_seconds: float
     minutes: float
+    credits: int   # the SAME balance, shown as Image/Voice-Note credits (not a second wallet)
 
 
 def _minutes(seconds: float) -> float:
@@ -77,9 +78,11 @@ def login(c: Creds) -> AuthOut:
 
 @app.get("/me")
 def me(uid: int = Depends(current_user)) -> Me:
+    from app.pricing import credits_available
     u = db.get_user(uid)
     return Me(email=u["email"], credit_seconds=u["credit_seconds"],
-              minutes=_minutes(u["credit_seconds"]))
+              minutes=_minutes(u["credit_seconds"]),
+              credits=credits_available(u["credit_seconds"]))
 
 
 # Payments, subscription, Decart studio, the auto-update manifest, and

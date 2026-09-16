@@ -73,9 +73,12 @@ DEFAULT_VOICENOTE_CREDITS_PER_BLOCK = 4      # credits charged per block (fallba
 # instantly adjustable in the panel like everything else here.
 DEFAULT_MODE_MARGIN = {"video": 3.26, "restyle": 4.35, "cloud_voice": 4.0}
 
-# Minute packages the app sells (wallet minutes). The 1-min entry is the cheap
-# tester for the live payment flow.
-PACKAGES = [1, 5, 10, 20, 30, 60, 120, 300, 600]
+# Minute packages the app sells (wallet minutes). Owner decision (2026-09-16):
+# trimmed from a long list [1,5,10,20,30,60,120,300,600] down to just two —
+# simpler for a customer to choose from. Drives BOTH the desktop app's
+# Credits tab and the mobile Voice Note page's "Buy credit" card (both read
+# /pay/packages), so this one list is the single source of truth for either.
+PACKAGES = [5, 10]
 
 CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
 
@@ -137,6 +140,20 @@ def credit_usd() -> float:
     # clamped every credit up to the FULL image cost instead of its 1/10 share.
     floor = IMAGE_COST_USD / IMAGE_CREDITS if IMAGE_CREDITS else IMAGE_COST_USD
     return max(floor, _sf("credit_usd", DEFAULT_CREDIT_USD))
+
+
+def credits_available(credit_seconds: float) -> int:
+    """How many Image/Voice-Note credits a wallet-seconds balance is worth,
+    at the CURRENT credit price — floored, so it never overstates what a
+    customer can actually afford (matches how /me shows "minutes" as the
+    per-second view of the exact same one balance; this is the per-credit
+    view of it, not a second balance)."""
+    per_sec = sell_usd_per_min() / 60.0
+    if per_sec <= 0:
+        return 0
+    usd = max(0.0, credit_seconds) * per_sec
+    c = credit_usd()
+    return int(usd / c) if c > 0 else 0
 
 
 def rate_buffer() -> float:
