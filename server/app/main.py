@@ -82,11 +82,14 @@ def me(uid: int = Depends(current_user)) -> Me:
               minutes=_minutes(u["credit_seconds"]))
 
 
-# Payments, subscription, Decart studio, and the auto-update manifest.
-from app.routes import admin, pay, studio, subscription, update  # noqa: E402
+# Payments, subscription, Decart studio, the auto-update manifest, and
+# public web pages (mobile-friendly Voice Note — same account/studio APIs,
+# just a different front door than the desktop app).
+from app.routes import admin, pay, studio, subscription, update, web  # noqa: E402
 
 app.include_router(admin.router)
 app.include_router(pay.router)
 app.include_router(subscription.router)
 app.include_router(studio.router)
 app.include_router(update.router)
+app.include_router(web.router)
