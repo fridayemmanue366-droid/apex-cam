@@ -52,6 +52,21 @@ const LOOKS = [
   "Fashion model, editorial lighting",
 ];
 
+// Ready-made faces to test Lucy Realtime with, no upload needed. Every one
+// is AI-generated — a person who does not exist, not a real photo of a real
+// person — specifically so there's no likeness/publicity-rights question at
+// all, unlike even a "free to use" stock photo of an actual person (that
+// license usually covers copying the image, not using someone's real
+// identity for face-swapping, which is a separate legal question the
+// license doesn't answer).
+const PERSONA_GALLERY = [
+  { name: "woman_professional", label: "Woman (professional)" },
+  { name: "man_young", label: "Man (young)" },
+  { name: "woman_older", label: "Woman (older)" },
+  { name: "man_older", label: "Man (older)" },
+  { name: "woman_casual", label: "Woman (casual)" },
+];
+
 // Real, working presets — a live pitch shift on the same local engine the
 // Voice tab uses (no cloud call, no missing model, works on any machine).
 // Labeled by what the tech actually does, not a specific cloned identity.
@@ -553,6 +568,16 @@ function LucyRealtimePlayground(props: {
   const { pro, liveBadge, account, prompt, setPrompt, save, refFile, uploadRef,
           voice, pickVoice, voiceOn, toggleVoice,
           aiCameras, aiCam, autoName, changeAiCamera } = props;
+  const [personaErr, setPersonaErr] = useState<string | null>(null);
+  const pickPersona = async (name: string) => {
+    setPersonaErr(null);
+    try {
+      const blob = await fetch(`/persona-presets/${name}.jpg`).then((r) => r.blob());
+      uploadRef(new File([blob], `${name}.jpg`, { type: "image/jpeg" }));
+    } catch {
+      setPersonaErr("Could not load that preset — try again");
+    }
+  };
   return (
     <>
       <div className="pro-status">
@@ -594,6 +619,16 @@ function LucyRealtimePlayground(props: {
           <input ref={refFile} type="file" accept="image/*" hidden
                  onChange={(e) => uploadRef(e.target.files?.[0])} />
         </div>
+        <p className="pro-muted" style={{ marginTop: 10 }}>Or try one of these — every face here is
+          AI-generated, not a real person, so there's no likeness/rights question testing with them:</p>
+        <div className="row preset-row" style={{ marginTop: 6 }}>
+          {PERSONA_GALLERY.map((p) => (
+            <button key={p.name} type="button" className="pro-chip" onClick={() => pickPersona(p.name)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {personaErr && <p className="error">{personaErr}</p>}
       </div>
 
       <div className="pro-card">
