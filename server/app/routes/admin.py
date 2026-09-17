@@ -105,7 +105,8 @@ def pricing_admin(key: str = Form(...),
                   voicenote_chars_per_block: int | None = Form(None),
                   rate_buffer: float | None = Form(None),
                   rate_mode: str | None = Form(None),
-                  manual_rate: float | None = Form(None)) -> dict:
+                  manual_rate: float | None = Form(None),
+                  currency: str | None = Form(None)) -> dict:
     """Read or change pricing knobs live — each model's own margin, the rate
     buffer, and whether the dollar rate auto-tracks the live market or is set
     by hand. Returns a full snapshot (cost, live rate, effective rate, every
@@ -144,6 +145,15 @@ def pricing_admin(key: str = Form(...),
         if manual_rate < 100 or manual_rate > 10000:
             raise HTTPException(400, "manual_rate looks wrong (100..10000)")
         db.set_setting("manual_rate", str(manual_rate))
+    if currency is not None:
+        cur = currency.strip().upper()
+        if cur not in ("NGN", "USD"):
+            raise HTTPException(400, "currency must be NGN or USD")
+        # Real-world caveat this code can't verify: switching to USD only
+        # actually charges customers in USD if the Flutterwave merchant
+        # account is enabled for USD settlement — that's set on
+        # Flutterwave's side, not here.
+        db.set_setting("currency", cur)
     return pricing.pricing_snapshot()
 
 
@@ -267,20 +277,25 @@ tr:last-child td{border-bottom:0}
     <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
   </div>
   <div class="fields" style="margin-top:14px">
+    <div><label>Charge customers in</label>
+      <select id="curr"><option value="USD">USD ($)</option>
+        <option value="NGN">NGN (₦)</option></select></div>
     <div><label>Profit multiplier (sell = Decart cost × this)</label>
       <input id="margin" type="number" min="1" max="5" step="0.05" placeholder="1.3"></div>
     <div><label>Rate mode</label>
       <select id="rmode"><option value="auto">Auto (live rate × buffer)</option>
         <option value="manual">Manual</option></select></div>
-    <div id="bufwrap"><label>Rate buffer (× live rate)</label>
-      <input id="rbuf" type="number" min="1" max="3" step="0.01" placeholder="1.18"></div>
   </div>
   <div class="fields" style="margin-top:12px">
+    <div id="bufwrap"><label>Rate buffer (× live rate)</label>
+      <input id="rbuf" type="number" min="1" max="3" step="0.01" placeholder="1.18"></div>
     <div id="manwrap" style="display:none"><label>Manual rate (₦ per $)</label>
       <input id="mrate" type="number" min="100" max="10000" step="1" placeholder="1650"></div>
     <div style="align-self:end"><button class="grant" onclick="savePricing()">Save pricing</button></div>
-    <div></div>
   </div>
+  <p class="sub" style="margin:10px 0 0">Switching to USD only actually charges customers in USD
+    if your Flutterwave account is enabled for USD settlement — that's set on Flutterwave's side,
+    not here. NGN still needs the rate mode/buffer below; USD ignores them (no conversion needed).</p>
   <div class="scroll" style="margin-top:14px">
     <table><thead><tr><th>Package</th><th class="right">Customer pays</th>
     <th class="right">Decart cost</th><th class="right">Your profit</th></tr></thead>
@@ -455,10 +470,15 @@ async function saveTrial(){
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 
-const money = n => '₦'+Math.round(n).toLocaleString();
+let currentCurrency = 'NGN';
+const money = n => currentCurrency==='USD'
+  ? '$'+Number(n).toFixed(2)
+  : '₦'+Math.round(n).toLocaleString();
 const MODE_LABELS = {video:'Lucy Video', restyle:'Lucy Restyle', cloud_voice:'Cloud Voice'};
 function renderPricing(p){
+  currentCurrency = p.currency;
   const active = document.activeElement;
+  if(active!==$('curr'))   $('curr').value   = p.currency;
   if(active!==$('margin')) $('margin').value = p.margin;
   if(active!==$('rbuf'))   $('rbuf').value   = p.rate_buffer;
   if(active!==$('mrate'))  $('mrate').value  = p.manual_rate;
@@ -471,9 +491,9 @@ function renderPricing(p){
     stat(money(p.effective_rate), 'rate used', 'gold') +
     stat(p.profit_pct+'%', 'your profit', 'green');
   $('pkgs').innerHTML = p.packages.map(k =>
-    '<tr><td>'+k.minutes+' min</td><td class="right">'+money(k.ngn)+
-    '</td><td class="right muted">'+money(k.cost_ngn)+
-    '</td><td class="right green">'+money(k.profit_ngn)+'</td></tr>').join('');
+    '<tr><td>'+k.minutes+' min</td><td class="right">'+money(k.charge)+
+    '</td><td class="right muted">'+money(k.cost)+
+    '</td><td class="right green">'+money(k.profit)+'</td></tr>').join('');
   const activeImg = document.activeElement;
   if(activeImg!==$('creditusd')) $('creditusd').value = p.credit_usd;
   $('imgcredits').textContent = p.image_credits;
@@ -510,7 +530,7 @@ async function savePricing(){
   out.textContent='Working…';
   try{
     const d = await post('pricing', {margin:$('margin').value, rate_buffer:$('rbuf').value,
-      rate_mode:$('rmode').value, manual_rate:$('mrate').value||1650});
+      rate_mode:$('rmode').value, manual_rate:$('mrate').value||1650, currency:$('curr').value});
     renderPricing(d);
     out.innerHTML = '<span class="green">Pricing saved — live for all customers. '+
       'Profit '+d.profit_pct+'%, rate used '+money(d.effective_rate)+'/$.</span>';

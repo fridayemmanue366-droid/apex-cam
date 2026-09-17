@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from app import db
 from app.deps import current_user
-from app.pricing import (CURRENCY, SUB_DAYS, SUB_MONTHLY_NGN, sub_charge_amount,
+from app.pricing import (SUB_DAYS, SUB_MONTHLY_NGN, currency, sub_charge_amount,
                          sub_usd)
 from app.routes.pay import FLW_SECRET, PUBLIC_URL, _flw
 
@@ -51,7 +51,7 @@ def _status(uid: int) -> SubStatus:
         days_left=days_left,
         price_ngn=SUB_MONTHLY_NGN,
         price_usd=sub_usd(),
-        currency=CURRENCY,
+        currency=currency(),
         sub_days=SUB_DAYS,
     )
 
@@ -72,7 +72,7 @@ def start(uid: int = Depends(current_user)) -> dict:
     body = {
         "tx_ref": tx_ref,
         "amount": sub_charge_amount(),
-        "currency": CURRENCY,
+        "currency": currency(),
         "redirect_url": f"{PUBLIC_URL}/pay/callback",
         "customer": {"email": u["email"]},
         "customizations": {"title": "Apex Cam subscription",

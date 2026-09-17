@@ -18,8 +18,8 @@ from pydantic import BaseModel
 
 from app import db
 from app.deps import current_user
-from app.pricing import (CURRENCY, PACKAGES, charge_amount, sub_charge_amount,
-                         usd_price)
+from app.pricing import (PACKAGES, charge_amount, credits_available, currency,
+                         sub_charge_amount, usd_price)
 
 router = APIRouter(prefix="/pay", tags=["pay"])
 
@@ -39,8 +39,13 @@ def _flw(method: str, path: str, body: dict | None = None) -> dict:
 
 @router.get("/packages")
 def packages() -> list[dict]:
+    # `credits` shows the SAME balance the customer is actually buying, just
+    # in the other unit — so someone who thinks in Image/Voice-Note credits
+    # can see what a minutes package is worth without doing the math
+    # themselves (owner request, 2026-09-16).
     return [{"minutes": m, "usd": usd_price(m), "charge": charge_amount(m),
-             "currency": CURRENCY} for m in PACKAGES]
+             "currency": currency(), "credits": credits_available(m * 60.0)}
+            for m in PACKAGES]
 
 
 class Buy(BaseModel):
@@ -59,7 +64,7 @@ def start(b: Buy, uid: int = Depends(current_user)) -> dict:
     body = {
         "tx_ref": tx_ref,
         "amount": quoted,
-        "currency": CURRENCY,
+        "currency": currency(),
         "redirect_url": f"{PUBLIC_URL}/pay/callback",
         "customer": {"email": u["email"]},
         "customizations": {"title": "Apex Pro credit",
@@ -84,7 +89,7 @@ def _apply(transaction_id: str) -> bool:
         return False
     meta = d.get("meta") or {}
     uid = int(meta.get("user_id", 0))
-    if uid <= 0 or d.get("currency") != CURRENCY:
+    if uid <= 0 or d.get("currency") != currency():
         return False
     tx_ref = d.get("tx_ref", transaction_id)
     amount = float(d.get("amount", 0))

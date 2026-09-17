@@ -73,14 +73,27 @@ DEFAULT_VOICENOTE_CREDITS_PER_BLOCK = 4      # credits charged per block (fallba
 # instantly adjustable in the panel like everything else here.
 DEFAULT_MODE_MARGIN = {"video": 3.26, "restyle": 4.35, "cloud_voice": 4.0}
 
-# Minute packages the app sells (wallet minutes). Owner decision (2026-09-16):
-# trimmed from a long list [1,5,10,20,30,60,120,300,600] down to just two —
-# simpler for a customer to choose from. Drives BOTH the desktop app's
-# Credits tab and the mobile Voice Note page's "Buy credit" card (both read
-# /pay/packages), so this one list is the single source of truth for either.
-PACKAGES = [5, 10]
+# Minute packages the app sells (wallet minutes). Owner decision (2026-09-16,
+# revised same day): trimmed from a long list [1,5,10,20,30,60,120,300,600]
+# down to just two — simpler for a customer to choose from. Drives BOTH the
+# desktop app's Credits tab and the mobile Voice Note page's "Buy credit"
+# card (both read /pay/packages), so this one list is the single source of
+# truth for either.
+PACKAGES = [1, 5]
 
-CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
+# Owner decision (2026-09-16): show/charge in USD, not NGN. This is now a
+# live DB setting (currency(), below), not a fixed constant — changeable
+# from the admin panel without a redeploy, same as every other pricing knob
+# here. IMPORTANT real-world caveat this code can't verify on its own: the
+# actual charge amount is sent to Flutterwave as this currency — switching
+# to "USD" only works for real payments if the Flutterwave merchant account
+# is actually enabled for USD settlement. That's an account-level setting
+# on Flutterwave's side, not something this app controls.
+DEFAULT_CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
+
+
+def currency() -> str:
+    return (db.get_setting("currency", DEFAULT_CURRENCY) or DEFAULT_CURRENCY).upper()
 
 # --- owner-tunable knobs (fallback defaults; live values live in db.settings) -
 DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.25"))       # sell = cost x margin
@@ -223,9 +236,9 @@ def usd_price(minutes: float) -> float:
 
 
 def charge_amount(minutes: float) -> float:
-    """What we charge, in CURRENCY. NGN tracks the live dollar; USD is the raw sell."""
+    """What we charge, in currency(). NGN tracks the live dollar; USD is the raw sell."""
     usd = usd_price(minutes)
-    return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
+    return float(round(usd * effective_rate())) if currency() == "NGN" else usd
 
 
 # --- Lucy Image (flat per-image charge, priced in credits) -------------------
@@ -235,9 +248,9 @@ def image_sell_usd() -> float:
 
 
 def image_charge_amount() -> float:
-    """What we charge for one image, in CURRENCY."""
+    """What we charge for one image, in currency()."""
     usd = image_sell_usd()
-    return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
+    return float(round(usd * effective_rate())) if currency() == "NGN" else usd
 
 
 def image_cost_wallet_seconds() -> float:
@@ -275,7 +288,7 @@ def voicenote_sell_usd(char_count: int) -> float:
 
 def voicenote_charge_amount(char_count: int) -> float:
     usd = voicenote_sell_usd(char_count)
-    return float(round(usd * effective_rate())) if CURRENCY == "NGN" else usd
+    return float(round(usd * effective_rate())) if currency() == "NGN" else usd
 
 
 def voicenote_cost_wallet_seconds(char_count: int) -> float:
@@ -292,7 +305,7 @@ TRIAL_DAYS = float(os.environ.get("APEXCAM_TRIAL_DAYS", "1"))
 
 
 def sub_charge_amount() -> float:
-    return SUB_MONTHLY_NGN if CURRENCY == "NGN" else round(SUB_MONTHLY_NGN / effective_rate(), 2)
+    return SUB_MONTHLY_NGN if currency() == "NGN" else round(SUB_MONTHLY_NGN / effective_rate(), 2)
 
 
 def sub_usd() -> float:
@@ -306,7 +319,7 @@ def pricing_snapshot() -> dict:
     eff = effective_rate()
     cost_min = COST_LIVE_PER_MIN
     return {
-        "currency": CURRENCY,
+        "currency": currency(),
         "live_cost_usd_per_min": round(cost_min, 2),   # fal's cost for realtime Lucy
         "live_rate": round(live_rate(), 2),
         "rate_mode": rate_mode(),
@@ -343,10 +356,14 @@ def pricing_snapshot() -> dict:
         },
         "packages": [
             {"minutes": m,
-             "ngn": charge_amount(m),
+             "charge": charge_amount(m),   # in currency() -- USD raw or NGN-converted, whichever is active
              "usd": usd_price(m),
-             "cost_ngn": round(m * cost_min * eff),
-             "profit_ngn": round(charge_amount(m) - m * cost_min * eff)}
+             # Cost/profit must follow the SAME currency charge_amount() used,
+             # not always multiply by the NGN rate -- that was a real bug:
+             # switching to USD left these two showing NGN-scale numbers
+             # mislabeled as the active currency.
+             "cost": round(m * cost_min * eff, 2) if currency() == "NGN" else round(m * cost_min, 2),
+             "profit": round(charge_amount(m) - (m * cost_min * eff if currency() == "NGN" else m * cost_min), 2)}
             for m in PACKAGES
         ],
     }

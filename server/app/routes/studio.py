@@ -107,7 +107,7 @@ def studio_pricing() -> dict:
     have their own independent, admin-tunable margin now, not a fixed
     multiple of live's)."""
     return {
-        "currency": pricing.CURRENCY,
+        "currency": pricing.currency(),
         "live_usd_per_sec": pricing.mode_sell_usd_per_sec("live"),
         "video_usd_per_sec": pricing.mode_sell_usd_per_sec("video"),
         "restyle_usd_per_sec": pricing.mode_sell_usd_per_sec("restyle"),
@@ -122,7 +122,7 @@ def image_pricing() -> dict:
     values here are for the admin panel's own display, not the playground."""
     return {
         "credits": pricing.IMAGE_CREDITS,
-        "currency": pricing.CURRENCY,
+        "currency": pricing.currency(),
         "usd": pricing.image_sell_usd(),
         "charge": pricing.image_charge_amount(),
     }
@@ -261,7 +261,7 @@ def voicenote_pricing(chars: int = 0) -> dict:
     live as the customer types, never hardcodes the per-character rate."""
     return {
         "credits": pricing.voicenote_credits(chars),
-        "currency": pricing.CURRENCY,
+        "currency": pricing.currency(),
         "usd": pricing.voicenote_sell_usd(chars),
         "charge": pricing.voicenote_charge_amount(chars),
         "max_chars": fal_voice_note.MAX_CHARS,
