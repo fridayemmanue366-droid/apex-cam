@@ -19,7 +19,8 @@ from pydantic import BaseModel
 from app import db
 from app.deps import current_user
 from app.pricing import (PACKAGES, charge_amount, credits_available, currency,
-                         sub_charge_amount, usd_price)
+                         pay_charge_amount, pay_currency, sub_charge_amount,
+                         sub_pay_amount, usd_price)
 
 router = APIRouter(prefix="/pay", tags=["pay"])
 
@@ -60,11 +61,16 @@ def start(b: Buy, uid: int = Depends(current_user)) -> dict:
         raise HTTPException(503, "Payments not configured")
     u = db.get_user(uid)
     tx_ref = f"apex-{uid}-{uuid.uuid4().hex[:12]}"
-    quoted = charge_amount(b.minutes)     # lock the price NOW (rate may drift later)
+    # The customer SEES charge_amount()/currency() (e.g. USD) on the packages
+    # page, but the actual Flutterwave charge always goes out in
+    # pay_charge_amount()/pay_currency() -- see pay_currency()'s docstring:
+    # a USD Flutterwave checkout drops to card-only, losing bank
+    # transfer/USSD for customers who pay that way.
+    quoted = pay_charge_amount(b.minutes)     # lock the price NOW (rate may drift later)
     body = {
         "tx_ref": tx_ref,
         "amount": quoted,
-        "currency": currency(),
+        "currency": pay_currency(),
         "redirect_url": f"{PUBLIC_URL}/pay/callback",
         "customer": {"email": u["email"]},
         "customizations": {"title": "Apex Pro credit",
@@ -89,7 +95,9 @@ def _apply(transaction_id: str) -> bool:
         return False
     meta = d.get("meta") or {}
     uid = int(meta.get("user_id", 0))
-    if uid <= 0 or d.get("currency") != currency():
+    # Flutterwave was charged in pay_currency() (see /start), not the
+    # DISPLAY currency() -- verify against what was actually sent.
+    if uid <= 0 or d.get("currency") != pay_currency():
         return False
     tx_ref = d.get("tx_ref", transaction_id)
     amount = float(d.get("amount", 0))
@@ -99,7 +107,7 @@ def _apply(transaction_id: str) -> bool:
     #   seconds  -> a Pro credit top-up (add wallet seconds)
     sub_days = float(meta.get("sub_days", 0) or 0)
     if sub_days > 0:
-        if abs(amount - sub_charge_amount()) > 1.0:   # amount must match the plan
+        if abs(amount - sub_pay_amount()) > 1.0:   # amount must match the plan
             return False
         db.extend_subscription(uid, sub_days, tx_ref=tx_ref, detail="subscription")
         return True
@@ -110,7 +118,7 @@ def _apply(transaction_id: str) -> bool:
     # refresh between start and completion can never reject a real payment. Older
     # payments (no frozen price) fall back to recomputing. Tolerance is small but
     # scales a touch with size to absorb rounding.
-    expected = float(meta.get("charge", 0)) or charge_amount(minutes)
+    expected = float(meta.get("charge", 0)) or pay_charge_amount(minutes)
     if seconds <= 0 or abs(amount - expected) > max(1.0, expected * 0.02):
         return False
     db.topup(uid, seconds, tx_ref=tx_ref, detail=f"{minutes:g} min")   # idempotent

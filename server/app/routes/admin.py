@@ -106,7 +106,8 @@ def pricing_admin(key: str = Form(...),
                   rate_buffer: float | None = Form(None),
                   rate_mode: str | None = Form(None),
                   manual_rate: float | None = Form(None),
-                  currency: str | None = Form(None)) -> dict:
+                  currency: str | None = Form(None),
+                  pay_currency: str | None = Form(None)) -> dict:
     """Read or change pricing knobs live — each model's own margin, the rate
     buffer, and whether the dollar rate auto-tracks the live market or is set
     by hand. Returns a full snapshot (cost, live rate, effective rate, every
@@ -149,11 +150,20 @@ def pricing_admin(key: str = Form(...),
         cur = currency.strip().upper()
         if cur not in ("NGN", "USD"):
             raise HTTPException(400, "currency must be NGN or USD")
-        # Real-world caveat this code can't verify: switching to USD only
-        # actually charges customers in USD if the Flutterwave merchant
-        # account is enabled for USD settlement — that's set on
-        # Flutterwave's side, not here.
+        # This only controls what price customers SEE (packages list, this
+        # panel). It does NOT change what Flutterwave actually charges —
+        # see pay_currency below.
         db.set_setting("currency", cur)
+    if pay_currency is not None:
+        pcur = pay_currency.strip().upper()
+        if pcur not in ("NGN", "USD"):
+            raise HTTPException(400, "pay_currency must be NGN or USD")
+        # What's ACTUALLY sent to Flutterwave for the real charge. Confirmed
+        # live (2026-09-17): a USD-denominated Flutterwave checkout drops to
+        # card-only — bank transfer/USSD/etc. disappear, since those rails
+        # are NGN-only. Keep this NGN (default) to preserve every payment
+        # method, even while displaying prices in USD above.
+        db.set_setting("pay_currency", pcur)
     return pricing.pricing_snapshot()
 
 
@@ -277,7 +287,7 @@ tr:last-child td{border-bottom:0}
     <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
   </div>
   <div class="fields" style="margin-top:14px">
-    <div><label>Charge customers in</label>
+    <div><label>Show prices to customers in</label>
       <select id="curr"><option value="USD">USD ($)</option>
         <option value="NGN">NGN (₦)</option></select></div>
     <div><label>Profit multiplier (sell = Decart cost × this)</label>
@@ -291,6 +301,14 @@ tr:last-child td{border-bottom:0}
       <input id="rbuf" type="number" min="1" max="3" step="0.01" placeholder="1.18"></div>
     <div id="manwrap" style="display:none"><label>Manual rate (₦ per $)</label>
       <input id="mrate" type="number" min="100" max="10000" step="1" placeholder="1650"></div>
+    <div><label>Actually charge via Flutterwave in</label>
+      <select id="paycurr"><option value="NGN">NGN — keeps bank transfer/USSD</option>
+        <option value="USD">USD — card only</option></select></div>
+  </div>
+  <p class="sub" style="margin:8px 0 0">A USD Flutterwave checkout only offers card payment —
+    bank transfer, USSD and other local rails disappear. Keep this on NGN so every payment
+    method still works, even while prices are shown to customers in dollars above.</p>
+  <div class="fields" style="margin-top:12px">
     <div style="align-self:end"><button class="grant" onclick="savePricing()">Save pricing</button></div>
   </div>
   <p class="sub" style="margin:10px 0 0">Switching to USD only actually charges customers in USD
@@ -479,6 +497,7 @@ function renderPricing(p){
   currentCurrency = p.currency;
   const active = document.activeElement;
   if(active!==$('curr'))   $('curr').value   = p.currency;
+  if(active!==$('paycurr')) $('paycurr').value = p.pay_currency;
   if(active!==$('margin')) $('margin').value = p.margin;
   if(active!==$('rbuf'))   $('rbuf').value   = p.rate_buffer;
   if(active!==$('mrate'))  $('mrate').value  = p.manual_rate;
@@ -530,7 +549,8 @@ async function savePricing(){
   out.textContent='Working…';
   try{
     const d = await post('pricing', {margin:$('margin').value, rate_buffer:$('rbuf').value,
-      rate_mode:$('rmode').value, manual_rate:$('mrate').value||1650, currency:$('curr').value});
+      rate_mode:$('rmode').value, manual_rate:$('mrate').value||1650, currency:$('curr').value,
+      pay_currency:$('paycurr').value});
     renderPricing(d);
     out.innerHTML = '<span class="green">Pricing saved — live for all customers. '+
       'Profit '+d.profit_pct+'%, rate used '+money(d.effective_rate)+'/$.</span>';

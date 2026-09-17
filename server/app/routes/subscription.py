@@ -18,8 +18,8 @@ from pydantic import BaseModel
 
 from app import db
 from app.deps import current_user
-from app.pricing import (SUB_DAYS, SUB_MONTHLY_NGN, currency, sub_charge_amount,
-                         sub_usd)
+from app.pricing import (SUB_DAYS, SUB_MONTHLY_NGN, currency, pay_currency,
+                         sub_charge_amount, sub_pay_amount, sub_usd)
 from app.routes.pay import FLW_SECRET, PUBLIC_URL, _flw
 
 router = APIRouter(prefix="/subscription", tags=["subscription"])
@@ -71,8 +71,11 @@ def start(uid: int = Depends(current_user)) -> dict:
     tx_ref = f"apexsub-{uid}-{uuid.uuid4().hex[:12]}"
     body = {
         "tx_ref": tx_ref,
-        "amount": sub_charge_amount(),
-        "currency": currency(),
+        # Displayed price is sub_charge_amount()/currency(); the real
+        # Flutterwave charge goes out in sub_pay_amount()/pay_currency() --
+        # see pricing.pay_currency() for why these are kept separate.
+        "amount": sub_pay_amount(),
+        "currency": pay_currency(),
         "redirect_url": f"{PUBLIC_URL}/pay/callback",
         "customer": {"email": u["email"]},
         "customizations": {"title": "Apex Cam subscription",

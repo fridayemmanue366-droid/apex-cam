@@ -93,7 +93,28 @@ DEFAULT_CURRENCY = os.environ.get("APEXCAM_PAY_CURRENCY", "NGN")
 
 
 def currency() -> str:
+    """DISPLAY currency -- what the customer SEES a price labeled in
+    (packages list, admin panel, pricing snapshot). Independent of
+    pay_currency() below."""
     return (db.get_setting("currency", DEFAULT_CURRENCY) or DEFAULT_CURRENCY).upper()
+
+
+# Owner discovery (2026-09-17): a USD-denominated Flutterwave checkout drops
+# to card-only -- bank transfer, USSD, and other local rails are NGN-only and
+# Flutterwave hides them the moment the currency isn't NGN. Most Nigerian
+# customers pay by transfer, not a dollar-capable card, so charging in USD
+# for real (even while DISPLAYING dollars) would quietly cost conversions.
+# Fix: keep the customer-facing price in USD (currency(), above) but always
+# send the actual Flutterwave charge in this currency instead -- decoupled
+# so the owner can flip it independently if Flutterwave's local-rail-on-USD
+# limitation ever changes. Defaults to NGN (every payment method available).
+DEFAULT_PAY_CURRENCY = os.environ.get("APEXCAM_FLW_CURRENCY", "NGN")
+
+
+def pay_currency() -> str:
+    """The currency ACTUALLY sent to Flutterwave for real charges -- may
+    differ from currency() (what's merely displayed to the customer)."""
+    return (db.get_setting("pay_currency", DEFAULT_PAY_CURRENCY) or DEFAULT_PAY_CURRENCY).upper()
 
 # --- owner-tunable knobs (fallback defaults; live values live in db.settings) -
 DEFAULT_MARGIN = float(os.environ.get("APEXCAM_MARGIN", "1.25"))       # sell = cost x margin
@@ -236,9 +257,15 @@ def usd_price(minutes: float) -> float:
 
 
 def charge_amount(minutes: float) -> float:
-    """What we charge, in currency(). NGN tracks the live dollar; USD is the raw sell."""
+    """DISPLAY price, in currency(). NGN tracks the live dollar; USD is the raw sell."""
     usd = usd_price(minutes)
     return float(round(usd * effective_rate())) if currency() == "NGN" else usd
+
+
+def pay_charge_amount(minutes: float) -> float:
+    """What's ACTUALLY sent to Flutterwave, in pay_currency() -- see pay_currency()."""
+    usd = usd_price(minutes)
+    return float(round(usd * effective_rate())) if pay_currency() == "NGN" else usd
 
 
 # --- Lucy Image (flat per-image charge, priced in credits) -------------------
@@ -305,7 +332,13 @@ TRIAL_DAYS = float(os.environ.get("APEXCAM_TRIAL_DAYS", "1"))
 
 
 def sub_charge_amount() -> float:
+    """DISPLAY price, in currency()."""
     return SUB_MONTHLY_NGN if currency() == "NGN" else round(SUB_MONTHLY_NGN / effective_rate(), 2)
+
+
+def sub_pay_amount() -> float:
+    """What's ACTUALLY sent to Flutterwave, in pay_currency()."""
+    return SUB_MONTHLY_NGN if pay_currency() == "NGN" else round(SUB_MONTHLY_NGN / effective_rate(), 2)
 
 
 def sub_usd() -> float:
@@ -320,6 +353,7 @@ def pricing_snapshot() -> dict:
     cost_min = COST_LIVE_PER_MIN
     return {
         "currency": currency(),
+        "pay_currency": pay_currency(),
         "live_cost_usd_per_min": round(cost_min, 2),   # fal's cost for realtime Lucy
         "live_rate": round(live_rate(), 2),
         "rate_mode": rate_mode(),
