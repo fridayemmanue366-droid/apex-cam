@@ -62,6 +62,14 @@ TOKENS_URL = os.environ.get("APEXCAM_FAL_TOKENS_URL", "https://rest.fal.ai/token
 SEND_WIDTH = int(os.environ.get("APEXCAM_LUCY_SEND_W", "1280"))
 SEND_HEIGHT = int(os.environ.get("APEXCAM_LUCY_SEND_H", "720"))
 STALL_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_STALL_S", "8"))  # reconnect if frames stop
+# Owner discovery (2026-09-17): a broken connection that never produces a single
+# transformed frame used to retry FOREVER while GO LIVE stayed on -- each retry
+# opens a real, billable connection to fal, so a stuck/broken session silently
+# drained real fal cost with nothing ever reaching the customer's screen (and
+# nothing billed to them locally either, since our own meter only counts while
+# real frames are flowing). Give up after this many CONSECUTIVE attempts that
+# never deliver a single live frame, instead of retrying indefinitely.
+MAX_DEAD_ATTEMPTS = int(os.environ.get("APEXCAM_LUCY_MAX_DEAD_ATTEMPTS", "4"))
 
 
 def _load_local_key() -> str | None:
@@ -262,20 +270,36 @@ class LucyProEngine:
         """Reconnect with jittered backoff. fal's "Concurrent session limit
         reached" was common and transient in testing — a flat retry delay risks
         repeatedly colliding with other reconnecting clients, so this backs off
-        a little further each failure and adds jitter."""
-        attempt = 0
+        a little further each failure and adds jitter.
+
+        A session that actually delivered at least one live frame resets the
+        dead-attempt counter (it proved the connection CAN work — a later drop
+        is likely a transient blip worth retrying). A session that NEVER
+        delivers a frame counts toward MAX_DEAD_ATTEMPTS; hitting that gives up
+        entirely (stops opening new billable fal connections) instead of
+        retrying forever — see MAX_DEAD_ATTEMPTS's comment above."""
+        dead_attempts = 0
         while not self._stop.is_set():
             try:
                 await self._session_once()
-                attempt = 0   # a session that got this far was healthy; reset
             except Exception as exc:
                 self._last_error = str(exc)
                 log.debug("Apex Pro (fal) session error (will retry): %s", exc)
+            got_live = self._live_flag
             self._live_flag = False
             if self._stop.is_set():
                 return
-            attempt += 1
-            delay = min(2.0 * attempt, 10.0) + random.uniform(0, 1.0)
+            dead_attempts = 0 if got_live else dead_attempts + 1
+            if dead_attempts >= MAX_DEAD_ATTEMPTS:
+                self._last_error = (self._last_error or "Could not connect") + \
+                    f" — gave up after {MAX_DEAD_ATTEMPTS} failed tries with no video, " \
+                    "to avoid wasting cost. Try GO LIVE again."
+                log.warning("Apex Pro (fal): giving up after %d dead attempts, no frames ever arrived",
+                           dead_attempts)
+                self._enabled = False
+                self._cloud = None
+                return
+            delay = min(2.0 * dead_attempts, 10.0) + random.uniform(0, 1.0)
             await asyncio.sleep(delay)
 
     async def _session_once(self) -> None:
