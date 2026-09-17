@@ -155,6 +155,16 @@ class LucyProEngine:
         if not image_bytes:
             self._reference = None
             return False
+        # Same fix as fal_pro.py's set_reference: always re-encode to a REAL
+        # jpeg, regardless of what format was actually uploaded -- see that
+        # file's comment for the bug this closes.
+        from io import BytesIO
+
+        from PIL import Image
+        img = Image.open(BytesIO(image_bytes)).convert("RGB")
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=92)
+        image_bytes = buf.getvalue()
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         REFERENCE_IMG.write_bytes(image_bytes)
         self._reference = image_bytes

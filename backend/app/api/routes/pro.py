@@ -108,7 +108,10 @@ def set_pro(cfg: ProConfig) -> ProStatus:
 
 @router.post("/reference")
 async def set_reference(file: UploadFile) -> ProStatus:
-    lucy_pro.set_reference(await file.read())
+    try:
+        lucy_pro.set_reference(await file.read())
+    except Exception:
+        raise HTTPException(400, "That doesn't look like a valid image — try a different photo")
     return _status()
 
 

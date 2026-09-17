@@ -212,6 +212,21 @@ class LucyProEngine:
         if not image_bytes:
             self._reference = None
             return False
+        # Real bug found (2026-09-17): whatever bytes were uploaded got saved
+        # as-is under a ".jpg" name with no check on the ACTUAL format (PNG,
+        # WEBP, HEIC screenshots all pass straight through) -- but the session
+        # protocol below always labels this file "image/jpeg" in the data URI
+        # sent to fal. A mismatch there can make the model silently fail to
+        # use the reference at all: no explicit error, it just never produces
+        # video. Always re-encode to a REAL jpeg here so the bytes match the
+        # label every time, regardless of what format was actually uploaded.
+        from io import BytesIO
+
+        from PIL import Image
+        img = Image.open(BytesIO(image_bytes)).convert("RGB")
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=92)
+        image_bytes = buf.getvalue()
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         REFERENCE_IMG.write_bytes(image_bytes)
         self._reference = image_bytes
