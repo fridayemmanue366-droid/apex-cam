@@ -229,6 +229,7 @@ async function loadPackages(){
     $('pkgs').innerHTML = pkgs.map(p =>
       '<div class="pkg"><span>' + p.minutes + ' min — ' +
       (p.currency==='NGN' ? '₦'+Math.round(p.charge).toLocaleString() : '$'+p.usd.toFixed(2)) +
+      ' <span class="muted">(≈' + p.credits + ' credit' + (p.credits===1?'':'s') + ')</span>' +
       '</span><button class="blue" onclick="buy(' + p.minutes + ')">Buy</button></div>'
     ).join('');
   }catch(err){ $('pkgs').innerHTML = '<p class="error">' + err.message + '</p>'; }

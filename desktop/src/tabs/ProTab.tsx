@@ -441,8 +441,19 @@ export function ProTab({ onExit }: { onExit: () => void }) {
                   <div key={p.minutes} className="pro-pack">
                     <div className="pro-pack-min">{p.minutes}<span> min</span></div>
                     <div className="pro-pack-price">{p.usd ? `$${p.usd.toFixed(2)}` : usdLabel(p.minutes)}</div>
-                    {(p.charge ? <div className="pro-pack-alt">≈ ₦{p.charge.toLocaleString()}</div>
-                               : chargeLabel(p.minutes) && <div className="pro-pack-alt">≈ {chargeLabel(p.minutes)}</div>)}
+                    {/* Only show a second-currency line when the charge is actually in a
+                        DIFFERENT currency than the USD price above (e.g. NGN) — when
+                        currency is USD, `charge` IS `usd`, so showing it again with a
+                        currency symbol would be redundant/wrong (was hardcoded ₦
+                        regardless of what currency was actually active). */}
+                    {p.charge && p.currency !== "USD" ? (
+                      <div className="pro-pack-alt">≈ {p.currency === "NGN" ? "₦" : ""}{p.charge.toLocaleString()}</div>
+                    ) : (
+                      chargeLabel(p.minutes) && <div className="pro-pack-alt">≈ {chargeLabel(p.minutes)}</div>
+                    )}
+                    {p.credits != null && (
+                      <div className="pro-pack-alt">≈ {p.credits} credit{p.credits === 1 ? "" : "s"}</div>
+                    )}
                     <button type="button" className="pro-chip" onClick={() => buy(p.minutes)}>Buy</button>
                   </div>
                 ))}

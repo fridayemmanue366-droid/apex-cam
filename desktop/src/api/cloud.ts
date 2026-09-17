@@ -57,7 +57,7 @@ async function fetchBlob(path: string): Promise<string> {
 }
 
 export interface Account { email: string; minutes: number; credit_seconds: number; credits: number }
-export interface Pkg { minutes: number; usd: number; charge: number; currency: string }
+export interface Pkg { minutes: number; usd: number; charge: number; currency: string; credits: number }
 export interface SubStatus {
   active: boolean; trial: boolean; ever_paid: boolean; until: number; days_left: number;
   price_ngn: number; price_usd: number; currency: string; sub_days: number;
