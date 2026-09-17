@@ -62,6 +62,12 @@ TOKENS_URL = os.environ.get("APEXCAM_FAL_TOKENS_URL", "https://rest.fal.ai/token
 SEND_WIDTH = int(os.environ.get("APEXCAM_LUCY_SEND_W", "1280"))
 SEND_HEIGHT = int(os.environ.get("APEXCAM_LUCY_SEND_H", "720"))
 STALL_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_STALL_S", "8"))  # reconnect if frames stop
+# A CONNECTED session going silent for 8s is almost certainly broken. A
+# session that hasn't produced its FIRST frame yet may just be slow (ICE/SDP
+# negotiation over a slower network) -- give that one longer before treating
+# it as dead, so this fix doesn't itself start killing legitimately-working-
+# but-slow-to-connect sessions.
+FIRST_FRAME_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_FIRST_FRAME_S", "20"))
 # Owner discovery (2026-09-17): a broken connection that never produces a single
 # transformed frame used to retry FOREVER while GO LIVE stayed on -- each retry
 # opens a real, billable connection to fal, so a stuck/broken session silently
@@ -371,9 +377,32 @@ class LucyProEngine:
                                 self._live_flag = True
                                 self._last_frame_at = time.time()
                                 self._last_error = None
-                            except Exception:
+                            except asyncio.TimeoutError:
+                                # The common real-world case: fal accepted the
+                                # connection but never actually sent video back.
+                                # str(TimeoutError()) is empty, so this needs its
+                                # own readable message rather than falling into
+                                # the generic branch below.
+                                if not self._stop.is_set():
+                                    self._last_error = "fal accepted the connection but never sent any video back"
+                                return
+                            except Exception as exc:
+                                # Was swallowed silently before -- the customer only ever
+                                # saw the generic "no frames" stall message below, never
+                                # the actual reason a frame read failed.
+                                if not self._stop.is_set():
+                                    self._last_error = f"frame read failed: {exc}"
                                 return
                     asyncio.ensure_future(pull())
+
+                @pc.on("connectionstatechange")
+                def on_connstate():
+                    # The real, specific WebRTC failure reason (e.g. ICE couldn't
+                    # traverse the network) -- previously invisible; the loop below
+                    # would just silently wait until the generic stall timeout fired,
+                    # which named a SYMPTOM ("no frames") rather than this cause.
+                    if pc.connectionState in ("failed", "closed") and not self._stop.is_set():
+                        self._last_error = f"WebRTC connection {pc.connectionState}"
 
                 await pc.setLocalDescription(await pc.createOffer())
                 await send({"type": "offer", "sdp": pc.localDescription.sdp})
@@ -392,8 +421,20 @@ class LucyProEngine:
                         self._sent_prompt = self._prompt
                         self._sent_ref = self._reference
 
-                    if self._live_flag and time.time() - self._last_frame_at > STALL_TIMEOUT:
-                        raise RuntimeError(f"no frames for {STALL_TIMEOUT}s — reconnecting")
+                    # BUG FIXED: this used to only fire once `_live_flag` was already
+                    # True, i.e. only AFTER at least one frame had arrived — so a
+                    # connection that never produced a single frame (e.g. ICE never
+                    # completing) hung here forever: no timeout, no error, and it
+                    # never even reached the outer retry loop to count as a dead
+                    # attempt. Now it applies from the very first connection attempt.
+                    deadline = STALL_TIMEOUT if self._live_flag else FIRST_FRAME_TIMEOUT
+                    if time.time() - self._last_frame_at > deadline:
+                        reason = "frames stopped arriving" if self._live_flag else "no frames ever arrived"
+                        # Fall back to the live WebRTC/ICE state if nothing more
+                        # specific was captured — always a real, inspectable cause,
+                        # never just a bare "no frames" symptom.
+                        detail = self._last_error or f"webrtc={pc.connectionState} ice={pc.iceConnectionState}"
+                        raise RuntimeError(f"{reason} ({deadline:.0f}s) — {detail}")
 
                     try:
                         r = await asyncio.wait_for(ws.recv(), timeout=1.0)
