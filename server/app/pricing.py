@@ -11,8 +11,8 @@ is worth against live's CURRENT price (mode_rate()) — so the ledger stays
 internally consistent even as any one model's margin is retuned without
 touching the others.
 
-  live     $0.04/s  ($2.40/min)  <- fal's cost for realtime Lucy (was $0.02/s
-                                     on direct Decart before the fal switch)
+  live     $0.02/s  ($1.20/min)  <- fal's cost for realtime Lucy, reconfirmed
+                                     2026-09-18 on fal's own pricing page
   video    $0.04/s     (Decart)
   restyle  $0.01/s     (Decart)
   image    $0.08/image (fal Nano Banana 2 at 1K — see IMAGE_COST_USD)
@@ -39,8 +39,11 @@ from app import db
 # "live" (realtime) runs on fal now; video/restyle are still direct Decart,
 # untouched by the fal migration. cloud_voice = Modal's real L4 GPU price,
 # $0.000222/sec, confirmed on Modal's own pricing page — NOT guessed.
-COST_USD_PER_SEC = {"live": 0.04, "video": 0.04, "restyle": 0.01, "cloud_voice": 0.000222}
-COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $2.40/min
+# "live" reconfirmed 2026-09-18 directly on fal's decart/lucy-2-5/realtime
+# page: $0.02/s ($1.20/min), down from $0.04/s -- fal moved their own price,
+# this isn't a correction of an earlier mistake here.
+COST_USD_PER_SEC = {"live": 0.02, "video": 0.04, "restyle": 0.01, "cloud_voice": 0.000222}
+COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $1.20/min
 
 # Lucy Image — the ACTIVE provider's real cost, flat per image, not per
 # second. fal's Nano Banana 2 at 1K is $0.08/image (confirmed on fal's
