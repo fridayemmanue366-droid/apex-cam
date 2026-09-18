@@ -12,6 +12,17 @@ import path from "node:path";
 // backend lifecycle.
 let backend: ChildProcess | null = null;
 
+// Real gap found 2026-09-18: if the Python backend crashed on its own (not
+// from us quitting/updating it), NOTHING noticed or restarted it -- the app
+// window kept running but every feature that talks to 127.0.0.1:8790 (face
+// swap, Lucy, credits, everything) went silently dead with no way for a
+// customer to recover short of a full reinstall. `intentionallyKilled` lets
+// killBackend() mark a PID as an expected exit (quit, staged-update swap,
+// rollback) so the exit handler below only auto-restarts a genuine crash.
+const intentionallyKilled = new Set<number>();
+let backendRestartAttempts = 0;
+const MAX_BACKEND_RESTARTS = 5;   // give up after this many crashes in a row
+
 // Locate the Python + backend to run. In a packaged install we ship a private
 // (bundled) Python next to the app, so the customer never installs Python. In
 // dev we fall back to the project venv, then a system uvicorn.
@@ -52,28 +63,59 @@ async function verifyBackendOrRollback(dir: string, version: number): Promise<vo
 function startBackend() {
   if (process.env.APEXCAM_NO_BACKEND) return;
   const { py, dir } = resolveBackend();
+  let proc: ChildProcess;
   try {
     if (py) {
-      backend = spawn(py, ["-m", "uvicorn", "app.main:app", "--port", "8790"], {
+      proc = spawn(py, ["-m", "uvicorn", "app.main:app", "--port", "8790"], {
         cwd: dir,
         stdio: "inherit",
       });
     } else {
-      backend = spawn("uvicorn", ["app.main:app", "--port", "8790"], {
+      proc = spawn("uvicorn", ["app.main:app", "--port", "8790"], {
         cwd: dir,
         stdio: "inherit",
         shell: true,
       });
     }
   } catch {
-    /* dev: backend started manually */
+    return; /* dev: backend started manually */
   }
+  backend = proc;
+
+  // Uptime past 30s means this launch was healthy -- give a LATER, unrelated
+  // crash its own full restart budget instead of inheriting a used-up one.
+  const upTimer = setTimeout(() => { backendRestartAttempts = 0; }, 30_000);
+
+  proc.on("exit", (code) => {
+    clearTimeout(upTimer);
+    if (backend !== proc) return;   // superseded by a newer spawn already
+    backend = null;
+    if (proc.pid !== undefined && intentionallyKilled.has(proc.pid)) {
+      intentionallyKilled.delete(proc.pid);
+      return;                       // we killed this on purpose -- not a crash
+    }
+    backendRestartAttempts += 1;
+    if (backendRestartAttempts > MAX_BACKEND_RESTARTS) {
+      console.error(
+        `Apex Cam backend crashed ${backendRestartAttempts} times in a row -- ` +
+        "giving up on auto-restart. The app will keep running but AI features are unavailable."
+      );
+      return;
+    }
+    const delay = Math.min(2000 * backendRestartAttempts, 15_000);
+    console.error(
+      `Apex Cam backend exited unexpectedly (code ${code}) -- ` +
+      `restarting in ${delay}ms (attempt ${backendRestartAttempts}/${MAX_BACKEND_RESTARTS})`
+    );
+    setTimeout(startBackend, delay);
+  });
 }
 
 function killBackend() {
   const proc = backend;
   backend = null;
   if (!proc || proc.killed || proc.pid === undefined) return;
+  intentionallyKilled.add(proc.pid);
   if (process.platform === "win32") {
     // On Windows a plain .kill() can leave the Python child (and the camera handle)
     // alive — the webcam light then stays on after the app closes. Force-kill the
