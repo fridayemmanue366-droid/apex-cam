@@ -52,14 +52,22 @@ COST_LIVE_PER_MIN = COST_USD_PER_SEC["live"] * 60.0        # $1.20/min
 IMAGE_COST_USD = 0.08
 
 # Voice Notes — clone a voice from a sample, type a message, get it spoken in
-# that voice (F5-TTS on fal, $0.05/1000 characters, confirmed on fal's own
-# model page). Priced per-character rather than flat like Lucy Image, since
+# that voice. Priced per-character rather than flat like Lucy Image, since
 # cost scales with message length, not a fixed unit. Owner decision
 # (2026-09-16): charge 4 credits per 250-character block, not 1 — raw cost
-# per block is $0.0125, so 4 credits ($0.20 at the default credit price) is
-# a 16x margin / ~93.75% profit per block, not the 4x/75% every other mode
-# uses. Every block costs the same 4 credits (not just the first), so the
-# margin stays consistent whether the message is short or long.
+# per block was $0.0125 on F5-TTS ($0.05/1000 chars), so 4 credits ($0.20 at
+# the default credit price) was a 16x margin / ~93.75% profit per block, not
+# the 4x/75% every other mode uses. Every block costs the same 4 credits
+# (not just the first), so the margin stays consistent whether the message
+# is short or long.
+#
+# SWITCHED TO ELEVENLABS 2026-09-18 (see fal_voice_note.py's module
+# docstring for the full reasoning/caveats) — the real per-block cost on
+# ElevenLabs hasn't been confirmed yet (no fal credit available to test),
+# so this $0.05/1000-char figure is STILL THE OLD F5-TTS NUMBER, left as
+# the working assumption for now. Re-check this against a real generation's
+# actual fal cost as soon as credit is available, and adjust if it's wrong
+# — the margin math above depends on it being roughly accurate.
 VOICENOTE_COST_USD_PER_1K_CHARS = 0.05
 DEFAULT_VOICENOTE_CHARS_PER_CREDIT = 250     # block size (fallback; owner-tunable below)
 DEFAULT_VOICENOTE_CREDITS_PER_BLOCK = 4      # credits charged per block (fallback; owner-tunable below)

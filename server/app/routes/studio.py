@@ -196,19 +196,21 @@ def photo_content(job_id: str, uid: int = Depends(current_user)) -> Response:
 
 
 # --- Voice Notes (clone a voice from a sample, type a message, get audio) ---
-# Same job shape as Photo above (F5-TTS has no async variant either, and even
-# though it's usually fast, a long message is worth the same Render-proxy
-# safety margin). NOT the live/real-time voice changer (that's Cloud Voice,
-# paused pending Modal billing) — this is type-a-message-get-a-file, meant
-# for sending as e.g. a WhatsApp voice note.
+# Same job shape as Photo above (the TTS provider has no async job variant
+# either, and even though it's usually fast, a long message is worth the
+# same Render-proxy safety margin). NOT the live/real-time voice changer
+# (that's Cloud Voice, paused pending Modal billing) — this is
+# type-a-message-get-a-file, meant for sending as e.g. a WhatsApp voice
+# note. Provider switched F5-TTS -> ElevenLabs 2026-09-18, see
+# fal_voice_note.py's module docstring.
 VOICENOTE_DIR = db.DB_PATH.parent / "voicenote_jobs"
-# Genuinely hit in testing: a longer message (F5-TTS has no async job variant,
-# so this whole request runs synchronously against fal inside the background
-# task) can legitimately take well over 3 minutes -- that used to self-heal
-# (mark "error", refund) a job that was actually still working, racing
-# against its own real completion moments later. 10 minutes gives real
-# long-message jobs enough room while still catching a truly abandoned one
-# (e.g. from a server restart mid-generation) in reasonable time.
+# Genuinely hit in testing: a longer message (the provider has no async job
+# variant, so this whole request runs synchronously against fal inside the
+# background task) can legitimately take well over 3 minutes -- that used to
+# self-heal (mark "error", refund) a job that was actually still working,
+# racing against its own real completion moments later. 10 minutes gives
+# real long-message jobs enough room while still catching a truly abandoned
+# one (e.g. from a server restart mid-generation) in reasonable time.
 VOICENOTE_STUCK_S = 10 * 60
 
 
@@ -218,8 +220,8 @@ def _vn_meta_path(job_id: str) -> Path:
 
 def _vn_data_path(job_id: str) -> Path:
     # .ogg (mono Opus) -- fal_voice_note.generate_voice_note() re-encodes
-    # from F5-TTS's raw WAV output into WhatsApp's native voice-note format
-    # before this ever gets written.
+    # the provider's raw output (MP3, on ElevenLabs) into WhatsApp's native
+    # voice-note format before this ever gets written.
     return VOICENOTE_DIR / f"{job_id}.ogg"
 
 

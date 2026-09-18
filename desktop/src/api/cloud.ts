@@ -147,7 +147,7 @@ export const cloud = {
   // --- Voice Notes: clone a voice from a sample, type a message, get an
   // audio file back (e.g. to send as a WhatsApp voice note). NOT the live
   // real-time voice changer (Cloud Voice, paused) -- this is type-and-get-a-
-  // file, same async job shape as Photo above (F5-TTS on fal).
+  // file, same async job shape as Photo above (ElevenLabs on fal).
   voicenotePricing: (chars: number) =>
     call<{ credits: number; currency: string; usd: number; charge: number; max_chars: number }>(
       `/studio/voicenote/pricing?chars=${chars}`),

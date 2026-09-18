@@ -1273,7 +1273,7 @@ function RestylePrivacy() {
 // --- Voice Note: clone a voice from a sample, type a message, get an audio
 // file (e.g. to send as a WhatsApp voice note). NOT live/real-time — that's
 // Cloud Voice on the Voice tab (paused pending cloud billing). This is
-// type-and-get-a-file, running on F5-TTS via fal. ---------------------------
+// type-and-get-a-file, running on ElevenLabs via fal. ------------------------
 function VoiceNotePlayground(props: { account: Account; refreshAccount: () => void }) {
   const { account, refreshAccount } = props;
   const micRef = useRef<MicRecorder | null>(null);
@@ -1471,7 +1471,7 @@ function VoiceNoteAbout() {
         Voice tab).
       </p>
       <h3 style={{ marginTop: 18 }}>Provider</h3>
-      <p className="pro-muted">F5-TTS (via fal) — priced per character, shown live as you type.</p>
+      <p className="pro-muted">ElevenLabs (via fal) — priced per character, shown live as you type.</p>
     </div>
   );
 }
@@ -1482,7 +1482,7 @@ function VoiceNotePrivacy() {
       <h3>Where your data goes</h3>
       <p className="pro-muted">
         Your reference clip and typed message go to our cloud processing provider (fal, running
-        F5-TTS) to generate the result — that's inherent to how a cloud model works. Apex Cam does
+        ElevenLabs) to generate the result — that's inherent to how a cloud model works. Apex Cam does
         not itself store your reference clips or generated audio beyond what's needed to return
         the result to you.
       </p>
