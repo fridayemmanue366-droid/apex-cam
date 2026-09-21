@@ -43,7 +43,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 Name: "vcam"; Description: "Install the Apex Cam virtual camera (use your Apex Cam video in Zoom, WhatsApp, YouCam, Meet & more)"; GroupDescription: "Virtual camera:"
-Name: "getmodels"; Description: "Download the AI models now (~2 GB, needs internet - recommended)"; GroupDescription: "AI models:"
+Name: "getmodels"; Description: "Download the AI models now (~3 GB, needs internet - recommended). If it is interrupted, Apex Cam finishes it for you the first time you open it."; GroupDescription: "AI models:"
 
 [Files]
 ; The entire self-contained bundle -> {app}
@@ -62,7 +62,7 @@ Filename: "{app}\vcam\register-camera.bat"; \
   Flags: runhidden waituntilterminated; Tasks: vcam
 ; Optional one-time model download (visible console so the user sees progress).
 Filename: "{app}\python\python.exe"; Parameters: "backend\scripts\download_models.py --all"; \
-  WorkingDir: "{app}"; StatusMsg: "Downloading AI models (~2 GB, one-time)..."; \
+  WorkingDir: "{app}"; StatusMsg: "Downloading AI models (~3 GB, one-time - resumes if your connection drops)..."; \
   Tasks: getmodels
 ; Offer to launch after install.
 Filename: "{app}\{#AppExe}"; Description: "Launch Apex Cam"; Flags: nowait postinstall skipifsilent

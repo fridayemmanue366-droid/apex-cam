@@ -29,6 +29,17 @@ export interface FaceState {
   profile_id: string | null;
 }
 
+export interface ModelsStatus {
+  running: boolean;
+  current: string;
+  progress: number;                // 0..1 of the current download run
+  core_missing: string[];          // essential models not fully downloaded
+  all_installed: boolean;
+  failed: string[];
+  log: string[];
+  models: { name: string; tier: "core" | "extra"; mb: number; status: "installed" | "partial" | "missing"; why: string }[];
+}
+
 export interface SetupStatus {
   python: string;
   has_nvidia_gpu: boolean;
@@ -243,6 +254,8 @@ export const api = {
     }),
 
   setupStatus: () => req<SetupStatus>("/setup"),
+  modelsStatus: () => req<ModelsStatus>("/setup/models"),
+  modelsDownload: () => req<{ started: boolean }>("/setup/models/download", { method: "POST" }),
   installGpu: () => req<{ started: boolean }>("/setup/gpu", { method: "POST" }),
   installDirectml: () => req<{ started: boolean }>("/setup/directml", { method: "POST" }),
   getEnhancers: () => req<{ available: string[] }>("/setup/enhancers"),

@@ -8,6 +8,7 @@ import { SidebarPromo, PromoModal } from "./components/Promo";
 import { MediaProvider } from "./context/MediaContext";
 import { PipelineProvider } from "./context/PipelineContext";
 import { ProTab } from "./tabs/ProTab";
+import { ModelsBanner } from "./components/ModelsBanner";
 
 export function App() {
   const [active, setActive] = useState<TabName>("Home");
@@ -68,6 +69,7 @@ export function App() {
             <ProTab onExit={() => setActive("Home")} />
           ) : (
             <LocalGate>
+              <ModelsBanner />
               <ActiveTab />
             </LocalGate>
           )}

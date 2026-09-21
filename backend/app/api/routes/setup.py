@@ -16,6 +16,7 @@ import threading
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from app.core import model_downloader
 from app.core.logging import get_logger
 from app.engines.face.enhancer import enhancer_models_available
 from app.engines.face.neural_swap import (
@@ -186,6 +187,22 @@ def install_gpu() -> dict:
         return {"started": False, "reason": "already running"}
     threading.Thread(target=_install_gpu_stack, daemon=True).start()
     return {"started": True}
+
+
+@router.get("/models")
+def models_status() -> dict:
+    """Which AI model files are installed / partial / missing, plus live download
+    progress. The app shows a banner + button from this so a customer whose
+    install-time download was interrupted can always finish it from inside the app."""
+    return model_downloader.snapshot()
+
+
+@router.post("/models/download")
+def models_download() -> dict:
+    """Start (or resume) downloading every missing model in the background.
+    Resumes half-finished files and skips finished ones, so it is safe to press
+    again after a dropped connection."""
+    return {"started": model_downloader.start_background(include_extra=True)}
 
 
 @router.post("/directml")

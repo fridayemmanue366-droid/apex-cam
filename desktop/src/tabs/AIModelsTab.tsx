@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type ModelInfo } from "../api/client";
 import { GpuSetupPanel } from "../components/GpuSetupPanel";
+import { ModelsBanner } from "../components/ModelsBanner";
 
 const KIND_LABEL: Record<ModelInfo["kind"], string> = {
   face: "Face",
@@ -20,6 +21,7 @@ export function AIModelsTab() {
 
   return (
     <>
+      <ModelsBanner panel />
       <GpuSetupPanel />
       {renderModels(models)}
     </>
