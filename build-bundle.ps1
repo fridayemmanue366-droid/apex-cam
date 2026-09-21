@@ -182,7 +182,9 @@ if ($WithModels) {
   $modelsSrc = Join-Path $root "backend\models"
   if (-not (Test-Path $modelsSrc)) { Die "backend\models not found — download them once with download_models.py first." }
   $modelsDst = Join-Path $beOut "models"
-  robocopy $modelsSrc $modelsDst /E /NFL /NDL /NJH /NJS /NP /MT:16 | Out-Null
+  # Never ship: rvcoices (personal/third-party trained voice models on the dev PC),
+  # partial downloads, or the downloader's temp folder.
+  robocopy $modelsSrc $modelsDst /E /NFL /NDL /NJH /NJS /NP /MT:16 /XD "voices" "_hf_tmp" /XF "*.part" | Out-Null
   $mGB = [math]::Round((Get-ChildItem $modelsDst -Recurse -File | Measure-Object Length -Sum).Sum/1GB, 2)
   Write-Host "  models baked in ($mGB GB) — installer will NOT need a download" -ForegroundColor Green
 }

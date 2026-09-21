@@ -37,13 +37,21 @@ UninstallDisplayIcon={app}\apexcam.ico
 ; The bundle is ~1.2 GB; give the wizard room.
 DiskSpanning=no
 
+; True when the bundle was built with -WithModels (models already inside): the
+; installer then skips the "download AI models" checkbox and step entirely.
+#if FileExists(AddBackslash(SourcePath) + "..\dist-bundle\ApexCamackend\models\inswapper_128.onnx")
+  #define HasModels
+#endif
+
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 Name: "vcam"; Description: "Install the Apex Cam virtual camera (use your Apex Cam video in Zoom, WhatsApp, YouCam, Meet & more)"; GroupDescription: "Virtual camera:"
+#ifndef HasModels
 Name: "getmodels"; Description: "Download the AI models now (~3 GB, needs internet - recommended). If it is interrupted, Apex Cam finishes it for you the first time you open it."; GroupDescription: "AI models:"
+#endif
 
 [Files]
 ; The entire self-contained bundle -> {app}
@@ -60,10 +68,12 @@ Name: "{autodesktop}\Apex Cam"; Filename: "{app}\{#AppExe}"; IconFilename: "{app
 Filename: "{app}\vcam\register-camera.bat"; \
   StatusMsg: "Setting up the Apex Cam virtual camera (please approve the prompt)..."; \
   Flags: runhidden waituntilterminated; Tasks: vcam
+#ifndef HasModels
 ; Optional one-time model download (visible console so the user sees progress).
 Filename: "{app}\python\python.exe"; Parameters: "backend\scripts\download_models.py --all"; \
   WorkingDir: "{app}"; StatusMsg: "Downloading AI models (~3 GB, one-time - resumes if your connection drops)..."; \
   Tasks: getmodels
+#endif
 ; Offer to launch after install.
 Filename: "{app}\{#AppExe}"; Description: "Launch Apex Cam"; Flags: nowait postinstall skipifsilent
 
