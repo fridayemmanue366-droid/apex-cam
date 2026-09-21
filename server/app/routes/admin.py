@@ -82,16 +82,31 @@ def grant_subscription(key: str = Form(...), email: str = Form(...),
 
 
 @router.post("/settings")
-def settings(key: str = Form(...), trial_days: float | None = Form(None)) -> dict:
-    """Read or change owner settings. Currently the free-trial length for NEW
-    signups — editable here so it never needs a Render restart. Existing customers
-    are unaffected; extend them individually with the subscription action."""
+def settings(key: str = Form(...), trial_days: float | None = Form(None),
+             installer_url: str | None = Form(None),
+             installer_version: str | None = Form(None)) -> dict:
+    """Read or change owner settings: the free-trial length for NEW signups, and
+    the download link + version label shown on the public /download page —
+    editable here so neither needs a Render restart. Existing customers are
+    unaffected by the trial; extend them individually with the subscription
+    action. An empty installer_url clears the link (page shows "coming soon")."""
     _require_admin(key)
     if trial_days is not None:
         if trial_days < 0 or trial_days > 365:
             raise HTTPException(400, "trial_days must be between 0 and 365")
         db.set_setting("trial_days", str(trial_days))
-    return {"trial_days": db.trial_days()}
+    if installer_url is not None:
+        url = installer_url.strip()
+        if url and not url.lower().startswith("https://"):
+            raise HTTPException(400, "installer_url must start with https://")
+        if len(url) > 500:
+            raise HTTPException(400, "installer_url is too long")
+        db.set_setting("installer_url", url)
+    if installer_version is not None:
+        db.set_setting("installer_version", installer_version.strip()[:40])
+    return {"trial_days": db.trial_days(),
+            "installer_url": db.get_setting("installer_url", ""),
+            "installer_version": db.get_setting("installer_version", "")}
 
 
 @router.post("/pricing")
@@ -173,6 +188,8 @@ def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
     _require_admin(key)
     return {
         "trial_days": db.trial_days(),
+        "installer_url": db.get_setting("installer_url", ""),
+        "installer_version": db.get_setting("installer_version", ""),
         "totals": db.totals(),
         "users": [
             {"email": r["email"], "credit_minutes": round(float(r["credit_seconds"]) / 60.0, 2),
@@ -279,6 +296,19 @@ tr:last-child td{border-bottom:0}
   </div>
   <p class="sub" style="margin:10px 0 0">Only affects people who sign up after you save.
     To give an existing customer more time, use "Extend subscription" above.</p>
+</div>
+
+<div class="card">
+  <h2>Download page (/download)</h2>
+  <div class="fields">
+    <div style="grid-column:1/-1"><label>Installer link (https://… to ApexCam-Setup.exe)</label>
+      <input id="instUrl" type="url" placeholder="https://github.com/…/releases/download/…/ApexCam-Setup.exe"></div>
+    <div><label>Version label shown on the page</label>
+      <input id="instVer" type="text" maxlength="40" placeholder="1.0"></div>
+    <div style="align-self:end"><button class="sub2" onclick="saveInstaller()">Save download link</button></div>
+  </div>
+  <p class="sub" style="margin:10px 0 0">Leave the link empty and the page shows "coming soon"
+    instead of a dead button.</p>
 </div>
 
 <div class="card">
@@ -435,6 +465,8 @@ async function load(){
       stat(mins(t.granted_seconds), 'minutes comped (free)', 'gold') +
       stat(mins(t.used_seconds), 'minutes used', 'red');
     if(document.activeElement !== $('trial')) $('trial').value = d.trial_days;
+    if(document.activeElement !== $('instUrl')) $('instUrl').value = d.installer_url || '';
+    if(document.activeElement !== $('instVer')) $('instVer').value = d.installer_version || '';
     const now = Date.now()/1000;
     $('users').innerHTML = d.users.length ? d.users.map(u =>
       '<tr><td>'+esc(u.email)+'</td><td class="right">'+u.credit_minutes.toFixed(1)+
@@ -476,6 +508,15 @@ async function go(action){
     }
     out.innerHTML = '<span class="green">'+esc(msg)+'</span>';
     load();
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+
+async function saveInstaller(){
+  out.textContent='Working…';
+  try{
+    const d = await post('settings', {installer_url:$('instUrl').value, installer_version:$('instVer').value});
+    out.innerHTML = '<span class="green">'+(d.installer_url
+      ? 'Download page now points to your installer.' : 'Download link cleared — page shows "coming soon".')+'</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 

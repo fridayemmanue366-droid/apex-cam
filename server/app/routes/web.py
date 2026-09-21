@@ -10,8 +10,12 @@ nothing here is a separate backend, just a different front door to it.
 """
 from __future__ import annotations
 
+import html
+
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
+
+from app import db
 
 router = APIRouter(tags=["web"])
 
@@ -405,3 +409,85 @@ def voicenote_page() -> HTMLResponse:
     same /studio/voicenote/* routes as the desktop app — this is only a
     different front door, not a separate backend."""
     return HTMLResponse(VOICENOTE_PAGE)
+
+
+DOWNLOAD_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Download Apex Cam</title><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f1115;color:#e8eaed;
+  font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:640px;margin:0 auto;padding:28px 18px 70px}
+h1{font-size:30px;margin:8px 0 6px;text-align:center}
+.tag{color:#9aa0a6;text-align:center;margin:0 0 26px}
+.card{background:#171a21;border:1px solid #2a2f3a;border-radius:14px;
+  padding:20px;margin-bottom:16px}
+.card h2{font-size:13px;margin:0 0 12px;color:#9aa0a6;font-weight:600;
+  text-transform:uppercase;letter-spacing:.6px}
+.dl{text-align:center}
+.btn{display:inline-block;background:#f4d06f;color:#1a1a1a;font-weight:700;
+  font-size:18px;padding:16px 34px;border-radius:12px;text-decoration:none;
+  min-height:48px}
+.btn.off{background:#2a2f3a;color:#9aa0a6;cursor:default}
+.meta{color:#9aa0a6;font-size:13px;margin-top:12px}
+ol,ul{margin:0;padding-left:22px}
+li{margin:7px 0}
+.note{color:#9aa0a6;font-size:14px}
+a{color:#f4d06f}
+</style></head><body><div class="wrap">
+<h1>Apex Cam</h1>
+<p class="tag">Real-time face swap and AI camera for Windows</p>
+
+<div class="card dl">
+  {{BUTTON}}
+  <div class="meta">{{META}}</div>
+</div>
+
+<div class="card">
+  <h2>Install in 3 steps</h2>
+  <ol>
+    <li>Download <b>ApexCam-Setup.exe</b> and double-click it.</li>
+    <li>Windows may warn about an unknown publisher: click <b>More info</b>, then <b>Run anyway</b>.</li>
+    <li>Follow the installer, open Apex Cam, and create your account.{{TRIAL}}</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h2>What you need</h2>
+  <ul>
+    <li>Windows 10 or 11 (64-bit)</li>
+    <li>A webcam</li>
+    <li>A few GB of free disk space</li>
+    <li>An internet connection for the first setup (the AI models download after install)</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>On your phone?</h2>
+  <p class="note" style="margin:0">The Apex Cam desktop app is Windows only. You can still make cloned-voice
+  audio notes right in your phone's browser: <a href="/voicenote">open Voice Note</a>.</p>
+</div>
+</div></body></html>"""
+
+
+@router.get("/download", response_class=HTMLResponse)
+def download_page() -> HTMLResponse:
+    """Public download page. The installer itself (~460 MB) can't live on this
+    server, so its link is an admin-panel setting (installer_url) -- until one
+    is set the page shows "coming soon" rather than a dead button."""
+    url = (db.get_setting("installer_url", "") or "").strip()
+    ver = (db.get_setting("installer_version", "") or "").strip()
+    if url.lower().startswith("https://"):
+        button = '<a class="btn" href="%s" rel="noopener">Download for Windows</a>' % html.escape(url, quote=True)
+        meta = ("Version %s &middot; " % html.escape(ver) if ver else "") + "Windows 10/11, 64-bit"
+    else:
+        button = '<span class="btn off">Download coming soon</span>'
+        meta = "The installer is being finalized. Check back shortly."
+    try:
+        trial = float(db.trial_days())
+    except Exception:
+        trial = 0.0
+    trial_txt = (" You get a <b>%g-day free trial</b>." % trial) if trial > 0 else ""
+    page = (DOWNLOAD_PAGE.replace("{{BUTTON}}", button)
+            .replace("{{META}}", meta).replace("{{TRIAL}}", trial_txt))
+    return HTMLResponse(page)
