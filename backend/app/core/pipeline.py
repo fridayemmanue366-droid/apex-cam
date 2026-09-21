@@ -169,9 +169,6 @@ class Pipeline:
         self.detect_every = 2  # run face detection every Nth frame, reuse boxes
         self.vcam = VirtualCamera()
         self._vcam_requested = False
-        # Media Foundation camera (WhatsApp/Windows Camera can see this one).
-        from app.streaming.mf_camera import MFCamera
-        self.mf_cam = MFCamera()
 
     # -- public API ---------------------------------------------------------
 
@@ -283,23 +280,16 @@ class Pipeline:
     def enable_vcam(self) -> None:
         """Ask the worker to open the virtual camera on the next frame."""
         self._vcam_requested = True
-        # The Media Foundation camera (the one WhatsApp could see) is OFF by default:
-        # the current third-party bridge lags and can hang the calling app. We use
-        # the stable DirectShow / OBS virtual camera instead (works in OBS, Zoom,
-        # Meet, Teams, Discord). Set APEXCAM_MF_CAMERA=1 to try the WhatsApp bridge.
-        import os
-        if os.environ.get("APEXCAM_MF_CAMERA", "0") not in ("0", "false", ""):
-            try:
-                self.mf_cam.start()
-            except Exception:
-                log.exception("MF camera start failed")
+        # WhatsApp can't see this DirectShow virtual camera (it only accepts Media
+        # Foundation cameras); the working route there is relaying through YouCam.
+        # A native Media Foundation bridge was tried and removed 2026-09-21: it
+        # lagged and could hang the calling app (WhatsApp).
         with self._shared.lock:
             self._shared.stats.vcam_error = None
 
     def disable_vcam(self) -> None:
         self._vcam_requested = False
         self.vcam.close()
-        self.mf_cam.close()
         with self._shared.lock:
             self._shared.stats.vcam_active = False
             self._shared.stats.vcam_device = None
@@ -427,7 +417,6 @@ class Pipeline:
         finally:
             cap.release()
             self.vcam.close()
-            self.mf_cam.close()
             log.info("Pipeline stopped after %d frames", self.stats().frames)
 
     def _pump_vcam(self, processed: np.ndarray) -> None:
@@ -446,8 +435,6 @@ class Pipeline:
             # and shows as a diagonal "zig-zag" tear — force a clean C-order copy.
             clean = np.ascontiguousarray(processed)
             self.vcam.send(clean)
-            # Same frame to the Media Foundation "Apex Cam" (WhatsApp/Windows Camera).
-            self.mf_cam.send(clean)
         except Exception as exc:
             self._vcam_requested = False
             self.vcam.close()
