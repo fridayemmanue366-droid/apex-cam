@@ -399,7 +399,7 @@ class LucyProEngine:
                     async def pull():
                         while not self._stop.is_set():
                             try:
-                                fr = await asyncio.wait_for(track.recv(), timeout=10)
+                                fr = await asyncio.wait_for(track.recv(), timeout=3)
                                 img = fr.to_ndarray(format="bgr24")
                                 with self._lock:
                                     self._out_frame = img
@@ -407,18 +407,29 @@ class LucyProEngine:
                                 self._last_frame_at = time.time()
                                 self._last_error = None
                             except asyncio.TimeoutError:
-                                # The common real-world case: fal accepted the
-                                # connection but never actually sent video back.
-                                # str(TimeoutError()) is empty, so this needs its
-                                # own readable message rather than falling into
-                                # the generic branch below.
+                                # REAL BUG FOUND AND FIXED (2026-09-22): this used to
+                                # `return` here -- give up reading FOREVER -- the very
+                                # first time a single read missed its window. The
+                                # WebRTC connection itself was still open and fal could
+                                # still have been about to send video (a slightly slow
+                                # model start is completely normal), but nothing was
+                                # listening for it anymore, so we'd never see frames
+                                # that arrived moments later, and the outer loop's own
+                                # timeout would eventually tear down a connection that
+                                # may well have actually worked if given the chance.
+                                # Now a single miss just means "try again" -- only the
+                                # OUTER loop's FIRST_FRAME_TIMEOUT/STALL_TIMEOUT (real
+                                # elapsed time since the last actual frame) decides
+                                # when to actually give up. Shortened the per-read wait
+                                # from 10s to 3s too, so a real outage is still caught
+                                # within roughly the same overall budget, just with far
+                                # more chances for a merely-slow start to succeed.
                                 if not self._stop.is_set():
-                                    self._last_error = "fal accepted the connection but never sent any video back"
-                                return
+                                    self._last_error = "fal accepted the connection but hasn't sent any video yet"
+                                continue
                             except Exception as exc:
-                                # Was swallowed silently before -- the customer only ever
-                                # saw the generic "no frames" stall message below, never
-                                # the actual reason a frame read failed.
+                                # A REAL failure (track ended, connection torn down,
+                                # etc.) -- unlike a timeout, this genuinely means stop.
                                 if not self._stop.is_set():
                                     self._last_error = f"frame read failed: {exc}"
                                 return
