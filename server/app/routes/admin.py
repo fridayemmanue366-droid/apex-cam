@@ -122,7 +122,9 @@ def pricing_admin(key: str = Form(...),
                   rate_mode: str | None = Form(None),
                   manual_rate: float | None = Form(None),
                   currency: str | None = Form(None),
-                  pay_currency: str | None = Form(None)) -> dict:
+                  pay_currency: str | None = Form(None),
+                  license_usd: float | None = Form(None),
+                  license_mode: str | None = Form(None)) -> dict:
     """Read or change pricing knobs live — each model's own margin, the rate
     buffer, and whether the dollar rate auto-tracks the live market or is set
     by hand. Returns a full snapshot (cost, live rate, effective rate, every
@@ -179,7 +181,44 @@ def pricing_admin(key: str = Form(...),
         # are NGN-only. Keep this NGN (default) to preserve every payment
         # method, even while displaying prices in USD above.
         db.set_setting("pay_currency", pcur)
+    if license_usd is not None:
+        if license_usd < 0 or license_usd > 200:
+            raise HTTPException(400, "license_usd must be between 0 and 200")
+        db.set_setting("license_usd", str(license_usd))
+    if license_mode is not None:
+        lm = license_mode.strip().lower()
+        if lm not in ("auto", "manual"):
+            raise HTTPException(400, "license_mode must be auto or manual")
+        # "auto" removes the watermark the instant payment clears; "manual"
+        # (safer default) records the payment but leaves the owner to grant it
+        # from the pending-licenses list below, e.g. after personally
+        # confirming the customer / doing it face to face.
+        db.set_setting("license_mode", lm)
     return pricing.pricing_snapshot()
+
+
+@router.post("/license")
+def license_admin(key: str = Form(...), email: str = Form(...),
+                  action: str = Form(...)) -> dict:
+    """Grant or revoke the watermark license for one customer by hand — for a
+    free comp, or to approve a MANUAL-mode payment from the pending list."""
+    _require_admin(key)
+    if action not in ("grant", "revoke"):
+        raise HTTPException(400, "action must be grant or revoke")
+    user = db.get_user_by_email(email)
+    if not user:
+        raise HTTPException(404, f"No account for {email}")
+    db.set_license(int(user["id"]), action == "grant")
+    return {"email": email, "licensed": action == "grant"}
+
+
+@router.post("/license/pending")
+def license_pending(key: str = Form(...)) -> dict:
+    """Customers who paid the $10 in MANUAL mode and are waiting for the owner
+    to personally grant them — the review queue."""
+    _require_admin(key)
+    return {"pending": [{"email": r["email"], "paid_at": r["paid_at"]}
+                        for r in db.pending_licenses()]}
 
 
 @router.post("/overview")
@@ -190,11 +229,15 @@ def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
         "trial_days": db.trial_days(),
         "installer_url": db.get_setting("installer_url", ""),
         "installer_version": db.get_setting("installer_version", ""),
+        "license_mode": db.get_setting("license_mode", "manual") or "manual",
+        "pending_licenses": [{"email": r["email"], "paid_at": r["paid_at"]}
+                             for r in db.pending_licenses()],
         "totals": db.totals(),
         "users": [
             {"email": r["email"], "credit_minutes": round(float(r["credit_seconds"]) / 60.0, 2),
              "created": float(r["created"]),
-             "access_until": float(r["access_until"] or 0.0)}
+             "access_until": float(r["access_until"] or 0.0),
+             "licensed": bool(r["licensed"])}
             for r in db.all_users()
         ],
         "transactions": [
@@ -242,6 +285,7 @@ button{padding:12px 18px;border:0;border-radius:8px;font-size:15px;font-weight:6
 .grant{background:#d4af37;color:#1a1a1a} .sub2{background:#60a5fa;color:#0f1115}
 .check{background:#2a2f3a;color:#e8eaed} .ghost{background:transparent;
   border:1px solid #2a2f3a;color:#9aa0a6}
+.danger{background:#e66;color:#1a1a1a}
 #out{margin-top:12px;padding:12px;border-radius:8px;background:#12151b;
   border:1px solid #2a2f3a;white-space:pre-wrap;font-size:14px}
 table{width:100%;border-collapse:collapse;font-size:14px}
@@ -351,6 +395,35 @@ tr:last-child td{border-bottom:0}
   </div>
   <p class="sub" style="margin:10px 0 0">Prices update instantly for every customer — no reinstall.
     You can never sell below Decart's cost.</p>
+</div>
+
+<div class="card">
+  <h2>Watermark license</h2>
+  <p class="sub" style="margin:0 0 12px">Lucy Realtime and local face swap burn an "AI-GENERATED"
+    watermark into the output unless the account has this license. One-time payment, not monthly.</p>
+  <div class="fields">
+    <div><label>Price (USD, one-time)</label>
+      <input id="licUsd" type="number" min="0" max="200" step="0.5" placeholder="10"></div>
+    <div><label>When payment clears</label>
+      <select id="licMode">
+        <option value="manual">Manual — I review and grant it myself</option>
+        <option value="auto">Auto — watermark removed instantly</option>
+      </select></div>
+    <div style="align-self:end"><button class="grant" onclick="saveLicense()">Save</button></div>
+  </div>
+  <div class="fields" style="margin-top:14px">
+    <div><label>Customer email</label><input id="licEmail" type="email" placeholder="name@example.com"></div>
+    <div style="align-self:end;display:flex;gap:8px">
+      <button class="grant" onclick="licenseAction('grant')">Grant (free)</button>
+      <button class="danger" onclick="licenseAction('revoke')">Revoke</button>
+    </div>
+    <div></div>
+  </div>
+  <div class="scroll" style="margin-top:14px">
+    <h3 style="font-size:13px;color:#9aa0a6;margin:0 0 8px">Paid, waiting for manual approval</h3>
+    <table><thead><tr><th>Email</th><th>Paid</th><th></th></tr></thead>
+    <tbody id="licPending"><tr><td colspan="3" class="muted">load with your key</td></tr></tbody></table>
+  </div>
 </div>
 
 <div class="card">
@@ -469,12 +542,18 @@ async function load(){
     if(document.activeElement !== $('instVer')) $('instVer').value = d.installer_version || '';
     const now = Date.now()/1000;
     $('users').innerHTML = d.users.length ? d.users.map(u =>
-      '<tr><td>'+esc(u.email)+'</td><td class="right">'+u.credit_minutes.toFixed(1)+
+      '<tr><td>'+esc(u.email)+(u.licensed?' <span class="pill p-topup" title="Watermark license">no watermark</span>':'')+
+      '</td><td class="right">'+u.credit_minutes.toFixed(1)+
       ' min</td><td>'+(u.access_until>now
         ? '<span class="pill p-topup">until '+when(u.access_until)+'</span>'
         : '<span class="muted">expired</span>')+
       '</td><td class="muted">'+when(u.created)+'</td></tr>').join('')
       : '<tr><td colspan="4" class="muted">No accounts yet</td></tr>';
+    $('licPending').innerHTML = (d.pending_licenses && d.pending_licenses.length)
+      ? d.pending_licenses.map(x =>
+        '<tr><td>'+esc(x.email)+'</td><td class="muted">'+when(x.paid_at)+
+        '</td><td><button class="grant" data-email="'+esc(x.email)+'" onclick="grantPending(this.dataset.email)">Grant</button></td></tr>').join('')
+      : '<tr><td colspan="3" class="muted">Nobody waiting</td></tr>';
     $('tx').innerHTML = d.transactions.length ? d.transactions.map(x =>
       '<tr><td class="muted">'+when(x.created)+'</td><td>'+esc(x.email)+
       '</td><td><span class="pill p-'+esc(x.kind)+'">'+esc(x.kind)+
@@ -554,6 +633,9 @@ function renderPricing(p){
     '<tr><td>'+k.minutes+' min</td><td class="right">'+money(k.charge)+
     '</td><td class="right muted">'+money(k.cost)+
     '</td><td class="right green">'+money(k.profit)+'</td></tr>').join('');
+  const activeLic = document.activeElement;
+  if(activeLic!==$('licUsd')) $('licUsd').value = p.license_usd;
+  if(activeLic!==$('licMode')) $('licMode').value = p.license_mode;
   const activeImg = document.activeElement;
   if(activeImg!==$('creditusd')) $('creditusd').value = p.credit_usd;
   $('imgcredits').textContent = p.image_credits;
@@ -606,6 +688,27 @@ async function saveImagePricing(){
       '/credit ('+money(d.image_charge)+' per image), profit '+d.image_profit_pct+'%.</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
+async function saveLicense(){
+  out.textContent='Working…';
+  try{
+    const d = await post('pricing', {license_usd:$('licUsd').value, license_mode:$('licMode').value});
+    renderPricing(d);
+    out.innerHTML = '<span class="green">Watermark license saved — $'+d.license_usd+
+      ' one-time, '+d.license_mode+' mode.</span>';
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+async function licenseAction(action){
+  const email = $('licEmail').value.trim();
+  if(!email){ out.innerHTML='<span class="red">Enter a customer email.</span>'; return; }
+  out.textContent='Working…';
+  try{
+    const d = await post('license', {email, action});
+    out.innerHTML = '<span class="green">'+esc(email)+(d.licensed
+      ? ' now has the watermark license.' : ' had the watermark license revoked.')+'</span>';
+    load();
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+function grantPending(email){ $('licEmail').value = email; licenseAction('grant'); }
 async function saveVoiceNotePricing(){
   out.textContent='Working…';
   try{

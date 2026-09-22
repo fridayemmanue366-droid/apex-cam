@@ -35,6 +35,7 @@ class SubStatus(BaseModel):
     price_usd: float      # USD equivalent, for display
     currency: str
     sub_days: int         # days added per payment
+    licensed: bool         # watermark license -- see pricing.license_*
 
 
 def _status(uid: int) -> SubStatus:
@@ -53,6 +54,7 @@ def _status(uid: int) -> SubStatus:
         price_usd=sub_usd(),
         currency=currency(),
         sub_days=SUB_DAYS,
+        licensed=db.is_licensed(uid),
     )
 
 

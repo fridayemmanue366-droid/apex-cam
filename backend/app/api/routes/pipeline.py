@@ -38,6 +38,7 @@ class PipelineStatus(BaseModel):
     vcam_active: bool = False
     vcam_device: str | None = None
     vcam_error: str | None = None
+    licensed: bool = False
     faces_detected: int = 0
 
 
@@ -69,11 +70,27 @@ class Enhance(BaseModel):
 
 
 def _status() -> PipelineStatus:
-    return PipelineStatus(**vars(pipeline.stats()))
+    return PipelineStatus(**vars(pipeline.stats()), licensed=pipeline.licensed)
 
 
 @router.get("/pipeline")
 def status() -> PipelineStatus:
+    return _status()
+
+
+class LicenseUpdate(BaseModel):
+    licensed: bool
+
+
+@router.post("/pipeline/license")
+def set_license(req: LicenseUpdate) -> PipelineStatus:
+    """The Electron app calls this whenever it refreshes /me or /subscription
+    from the cloud server, to keep the local watermark decision (made here,
+    per-frame, with no network round trip) in sync with the account's real
+    license state. Deny-by-default (pipeline.licensed starts False) means a
+    stale/never-synced value always errs toward watermarking, not toward
+    silently shipping clean output."""
+    pipeline.licensed = bool(req.licensed)
     return _status()
 
 

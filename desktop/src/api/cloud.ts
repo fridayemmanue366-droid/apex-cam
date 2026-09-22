@@ -56,12 +56,13 @@ async function fetchBlob(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-export interface Account { email: string; minutes: number; credit_seconds: number; credits: number }
+export interface Account { email: string; minutes: number; credit_seconds: number; credits: number; licensed: boolean }
 export interface Pkg { minutes: number; usd: number; charge: number; currency: string; credits: number }
 export interface SubStatus {
   active: boolean; trial: boolean; ever_paid: boolean; until: number; days_left: number;
-  price_ngn: number; price_usd: number; currency: string; sub_days: number;
+  price_ngn: number; price_usd: number; currency: string; sub_days: number; licensed: boolean;
 }
+export interface LicensePricing { usd: number; charge: number; currency: string; mode: "auto" | "manual"; licensed: boolean }
 
 // Cache the access expiry so a brief network drop doesn't lock a paid-up user out.
 // It only ever GRANTS access inside a window the server already confirmed — it can't
@@ -114,6 +115,11 @@ export const cloud = {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ minutes }),
     }),
+
+  // --- watermark license (one-time; gates Lucy Realtime + local face swap) ---
+  licensePricing: () => call<LicensePricing>("/pay/license/pricing"),
+  startLicense: () =>
+    call<{ link: string; tx_ref: string }>("/pay/license/start", { method: "POST" }),
 
   // --- studio (metered server-side) ---
   // Per-second sell rate for every metered mode, live from the admin panel —

@@ -59,6 +59,12 @@ def _init(c: sqlite3.Connection) -> None:
     cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
     if "access_until" not in cols:
         c.execute("ALTER TABLE users ADD COLUMN access_until REAL NOT NULL DEFAULT 0")
+    # Watermark license (2026-09-22): a one-time $10 purchase that removes the
+    # "AI-GENERATED" watermark Lucy Realtime and local face swap otherwise burn
+    # into every output frame. Off by default (0) -- deny-by-default, so a new
+    # column added to an existing database never silently un-watermarks anyone.
+    if "licensed" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN licensed INTEGER NOT NULL DEFAULT 0")
     c.commit()
 
 
@@ -206,13 +212,67 @@ def extend_subscription(uid: int, days: float, tx_ref: str, detail: str = "") ->
         return True
 
 
+# --- watermark license (one-time, gates Lucy Realtime + local face swap) --
+def is_licensed(uid: int) -> bool:
+    u = get_user(uid)
+    return bool(u["licensed"]) if u else False
+
+
+def has_license_payment(uid: int) -> bool:
+    """True once a 'license' transaction exists — used in MANUAL mode to show
+    the owner who paid but hasn't been granted yet (record_license_payment
+    only flips `licensed` itself in AUTO mode)."""
+    row = _connect().execute(
+        "SELECT 1 FROM transactions WHERE user_id=? AND kind='license' LIMIT 1",
+        (uid,)).fetchone()
+    return row is not None
+
+
+def set_license(uid: int, licensed: bool) -> None:
+    """Owner grant/revoke, or the auto-mode payment path. Idempotent (just sets
+    the flag), no transaction row -- record_license_payment is what's idempotent
+    by tx_ref for the payment itself."""
+    with _lock:
+        c = _connect()
+        c.execute("UPDATE users SET licensed=? WHERE id=?", (1 if licensed else 0, uid))
+        c.commit()
+
+
+def record_license_payment(uid: int, tx_ref: str, detail: str = "") -> bool:
+    """Records a verified $10 license payment. Idempotent by tx_ref (a repeated
+    webhook can't double-record). Does NOT flip `licensed` itself -- the caller
+    decides based on license_mode() (auto grants immediately, manual leaves it
+    for the owner). Returns False if this tx_ref was already applied."""
+    with _lock:
+        c = _connect()
+        try:
+            c.execute(
+                "INSERT INTO transactions(user_id,kind,seconds,detail,tx_ref,created)"
+                " VALUES(?,?,?,?,?,?)",
+                (uid, "license", 0, detail or "watermark license", tx_ref, time.time()))
+        except sqlite3.IntegrityError:
+            return False   # tx_ref already applied
+        c.commit()
+        return True
+
+
+def pending_licenses() -> list[sqlite3.Row]:
+    """Users who paid the license fee but are not yet licensed -- the manual-mode
+    review queue the owner works through in the admin panel."""
+    return _connect().execute(
+        "SELECT u.id, u.email, MIN(t.created) as paid_at"
+        " FROM users u JOIN transactions t ON t.user_id=u.id"
+        " WHERE t.kind='license' AND u.licensed=0"
+        " GROUP BY u.id ORDER BY paid_at ASC").fetchall()
+
+
 # --- reporting (owner panel) ---------------------------------------------
 # Read-only views of the business. Sign convention: topup/refund/subscription are
 # positive, spend is negative. Admin grants are topups whose tx_ref starts
 # 'admin-', which is how comped credit is told apart from real revenue.
 def all_users() -> list[sqlite3.Row]:
     return _connect().execute(
-        "SELECT id,email,credit_seconds,created,access_until FROM users"
+        "SELECT id,email,credit_seconds,created,access_until,licensed FROM users"
         " ORDER BY created DESC").fetchall()
 
 

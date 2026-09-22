@@ -336,6 +336,40 @@ def voicenote_cost_wallet_seconds(char_count: int) -> float:
     return round(voicenote_sell_usd(char_count) / per_sec, 2) if per_sec > 0 else 0.0
 
 
+# --- Watermark license (one-time, gates Lucy Realtime + local face swap) -----
+# Owner decision (2026-09-22): both Lucy Realtime and local face swap output
+# get a burned-in "AI-GENERATED" watermark unless the account has this
+# license -- a one-time $10 purchase (not per-minute, not recurring), same
+# currency() / pay_currency() split as every other price here so it still
+# charges through Flutterwave in NGN by default (keeps bank transfer/USSD
+# available) while DISPLAYING in whatever currency() is set to.
+DEFAULT_LICENSE_USD = float(os.environ.get("APEXCAM_LICENSE_USD", "10"))
+
+
+def license_usd() -> float:
+    return max(0.0, _sf("license_usd", DEFAULT_LICENSE_USD))
+
+
+def license_charge_amount() -> float:
+    """DISPLAY price, in currency()."""
+    usd = license_usd()
+    return float(round(usd * effective_rate())) if currency() == "NGN" else usd
+
+
+def license_pay_amount() -> float:
+    """What's ACTUALLY sent to Flutterwave, in pay_currency()."""
+    usd = license_usd()
+    return float(round(usd * effective_rate())) if pay_currency() == "NGN" else usd
+
+
+def license_mode() -> str:
+    """'auto' -> the watermark is removed the instant payment clears.
+    'manual' (default, safer) -> payment is recorded but the owner must
+    personally grant it from the admin panel's pending-licenses list."""
+    m = (db.get_setting("license_mode", "manual") or "manual").lower()
+    return m if m in ("auto", "manual") else "manual"
+
+
 # --- Local-app subscription (flat price, separate from the Pro wallet) -------
 SUB_MONTHLY_NGN = float(os.environ.get("APEXCAM_SUB_NGN", "20000"))
 SUB_DAYS = int(os.environ.get("APEXCAM_SUB_DAYS", "30"))
@@ -390,6 +424,9 @@ def pricing_snapshot() -> dict:
                                               * voicenote_chars_per_block() / 1000.0)
                                        / voicenote_sell_usd(voicenote_chars_per_block())) * 100, 1)
                                  if voicenote_sell_usd(voicenote_chars_per_block()) > 0 else 0.0,
+        "license_usd": round(license_usd(), 2),
+        "license_charge": license_charge_amount(),
+        "license_mode": license_mode(),
         "modes": {
             m: {
                 "cost_usd_per_sec": COST_USD_PER_SEC[m],

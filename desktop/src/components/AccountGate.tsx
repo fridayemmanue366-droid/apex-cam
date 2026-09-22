@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { cloud, signedIn, cachedActive, type SubStatus } from "../api/cloud";
+import { api } from "../api/client";
 
 /**
  * The ₦20,000/month subscription gates the LOCAL app only (Face, Voice, Camera,
@@ -35,6 +36,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     try {
       const s = await cloud.subscription();
       setStatus(s); setOffline(false);
+      // Keep the local backend's per-frame watermark decision in sync with
+      // the account's real license state (local face swap is gated here,
+      // not by /me — see pipeline.py's `licensed` attribute).
+      api.setLicensed(s.licensed).catch(() => undefined);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
       if (/sign in/i.test(msg)) { setStatus(null); }   // token rejected -> signed out

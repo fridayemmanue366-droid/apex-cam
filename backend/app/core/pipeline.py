@@ -146,6 +146,12 @@ class Pipeline:
         # already using self.tracker on the worker thread.
         self.swapper = FaceSwapEngine(FaceTracker())
         self.swap_enabled = False
+        # Watermark license (2026-09-22): deny-by-default (False) so a fresh
+        # process, or one that hasn't heard back from the server yet, always
+        # watermarks rather than accidentally shipping clean output. The
+        # Electron app pushes the real value here via POST /pipeline/license
+        # whenever it refreshes /me or /subscription from the server.
+        self.licensed = False
         self.lipsync = ProceduralLipSync()
         self.lip_sync_enabled = True  # mouth moves with your voice (needs mic on)
 
@@ -465,7 +471,7 @@ class Pipeline:
         if lucy_pro.ready:
             out = lucy_pro.process(frame)
             out = self._sharpen(out, max(self.sharpen, LUCY_SHARPEN))
-            self._draw_badge(out)   # no-op unless label_output is enabled
+            self._draw_badge(out, not self.licensed)
             return out
 
         # Background matting (blur / green-screen / replace) — real-time on CPU.
@@ -528,7 +534,9 @@ class Pipeline:
         if work.shape[1] != w:
             work = cv2.resize(work, (w, h), interpolation=cv2.INTER_LINEAR)
 
-        self._draw_badge(work)
+        # Only the actual face-swap output is watermarked, not a plain camera
+        # pass-through with e.g. just beautify/background/pose overlay on.
+        self._draw_badge(work, self.swap_enabled and not self.licensed)
         return work
 
     def _apply_sharpen(self, img: np.ndarray) -> np.ndarray:
@@ -568,22 +576,26 @@ class Pipeline:
         return out
 
     @staticmethod
-    def _draw_badge(img: np.ndarray) -> None:
-        """Optional responsible-use label. Off by default (settings.label_output);
-        when on, burns a small "AI-GENERATED" disclosure into the output frame."""
-        from app.config import settings
-        if not settings.label_output:
+    def _draw_badge(img: np.ndarray, watermark: bool = False) -> None:
+        """Burns "AI-GENERATED — APEX CAM" across the full bottom of the frame
+        when `watermark` is True (unlicensed Lucy Realtime / local face swap —
+        see pipeline.licensed and pricing.license_*). A FULL-WIDTH bottom bar,
+        not a small corner badge, on purpose: a corner mark can be cropped out
+        in seconds and would defeat the point of the license entirely."""
+        if not watermark:
             return
-        text = "AI-GENERATED"
-        scale = max(img.shape[1] / 1280, 0.5)
-        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * scale, 2)
-        pad = int(8 * scale)
-        x, y = int(16 * scale), int(16 * scale)
+        text = "AI-GENERATED — APEX CAM"
+        h, w = img.shape[:2]
+        scale = max(w / 1280, 0.5)
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7 * scale, 2)
+        bar_h = th + int(24 * scale)
         overlay = img.copy()
-        cv2.rectangle(overlay, (x, y), (x + tw + pad * 2, y + th + pad * 2), (77, 72, 229), -1)
-        cv2.addWeighted(overlay, 0.85, img, 0.15, 0, img)
-        cv2.putText(img, text, (x + pad, y + th + pad // 2), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6 * scale, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.rectangle(overlay, (0, h - bar_h), (w, h), (30, 30, 30), -1)
+        cv2.addWeighted(overlay, 0.72, img, 0.28, 0, img)
+        x = max(0, (w - tw) // 2)
+        y = h - bar_h // 2 + th // 2
+        cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7 * scale, (255, 255, 255), 2, cv2.LINE_AA)
 
     def _to_preview_jpeg(self, img: np.ndarray) -> bytes:
         w = img.shape[1]

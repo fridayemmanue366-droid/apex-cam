@@ -360,6 +360,10 @@ select {
 .pro-status { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
 .pro-pill { font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 999px; border: 1px solid rgba(212,160,40,0.4); color: #f4d06f; }
 .pro-pill.live { background: #2ecc71; color: #062; border-color: #2ecc71; }
+/* .pro-pill is also used as a <button> (e.g. the watermark-license pill) —
+   reset the native button chrome so it looks identical to the <span> pills. */
+button.pro-pill { background: transparent; cursor: pointer; font-family: inherit; }
+button.pro-pill:disabled { opacity: 0.6; cursor: default; }
 .pro-muted { color: #9c957f; font-size: 12.5px; line-height: 1.6; }
 .pro-card.narrow { max-width: 640px; }
 .pro-note { margin-top: 10px; }

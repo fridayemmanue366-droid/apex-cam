@@ -19,8 +19,9 @@ from pydantic import BaseModel
 from app import db
 from app.deps import current_user
 from app.pricing import (PACKAGES, charge_amount, credits_available, currency,
-                         pay_charge_amount, pay_currency, sub_charge_amount,
-                         sub_pay_amount, usd_price)
+                         license_charge_amount, license_mode, license_pay_amount,
+                         license_usd, pay_charge_amount, pay_currency,
+                         sub_charge_amount, sub_pay_amount, usd_price)
 
 router = APIRouter(prefix="/pay", tags=["pay"])
 
@@ -86,6 +87,40 @@ def start(b: Buy, uid: int = Depends(current_user)) -> dict:
     return {"link": resp["data"]["link"], "tx_ref": tx_ref}
 
 
+@router.get("/license/pricing")
+def license_pricing(uid: int = Depends(current_user)) -> dict:
+    return {"usd": license_usd(), "charge": license_charge_amount(), "currency": currency(),
+            "mode": license_mode(), "licensed": db.is_licensed(uid)}
+
+
+@router.post("/license/start")
+def license_start(uid: int = Depends(current_user)) -> dict:
+    """One-time $10 checkout that removes the watermark from Lucy Realtime and
+    local face swap. Same currency()/pay_currency() split as every other
+    payment here (display vs what Flutterwave is actually charged)."""
+    if not FLW_SECRET:
+        raise HTTPException(503, "Payments not configured")
+    if db.is_licensed(uid):
+        raise HTTPException(400, "Already licensed")
+    u = db.get_user(uid)
+    tx_ref = f"apexlic-{uid}-{uuid.uuid4().hex[:12]}"
+    quoted = license_pay_amount()
+    body = {
+        "tx_ref": tx_ref,
+        "amount": quoted,
+        "currency": pay_currency(),
+        "redirect_url": f"{PUBLIC_URL}/pay/callback",
+        "customer": {"email": u["email"]},
+        "customizations": {"title": "Apex Cam watermark license",
+                           "description": "One-time: removes the AI-generated watermark"},
+        "meta": {"user_id": uid, "license": True, "charge": quoted},
+    }
+    resp = _flw("POST", "/payments", body)
+    if resp.get("status") != "success":
+        raise HTTPException(502, "Could not start payment")
+    return {"link": resp["data"]["link"], "tx_ref": tx_ref}
+
+
 def _apply(transaction_id: str) -> bool:
     """Verify a transaction and credit the user. Idempotent. Returns True if it
     resulted in (or already was) a successful, correctly-priced payment."""
@@ -102,14 +137,24 @@ def _apply(transaction_id: str) -> bool:
     tx_ref = d.get("tx_ref", transaction_id)
     amount = float(d.get("amount", 0))
 
-    # Two kinds of payment share this callback, told apart by the meta:
+    # Three kinds of payment share this callback, told apart by the meta:
     #   sub_days -> a local-app subscription (extend access)
+    #   license  -> one-time watermark removal
     #   seconds  -> a Pro credit top-up (add wallet seconds)
     sub_days = float(meta.get("sub_days", 0) or 0)
     if sub_days > 0:
         if abs(amount - sub_pay_amount()) > 1.0:   # amount must match the plan
             return False
         db.extend_subscription(uid, sub_days, tx_ref=tx_ref, detail="subscription")
+        return True
+
+    if meta.get("license"):
+        expected = float(meta.get("charge", 0)) or license_pay_amount()
+        if abs(amount - expected) > max(1.0, expected * 0.02):
+            return False
+        db.record_license_payment(uid, tx_ref, detail="watermark license")   # idempotent
+        if license_mode() == "auto":
+            db.set_license(uid, True)
         return True
 
     seconds = float(meta.get("seconds", 0))

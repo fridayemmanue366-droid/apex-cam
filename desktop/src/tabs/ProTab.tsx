@@ -153,6 +153,14 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     }
   }, []);
 
+  // Keep the LOCAL backend's per-frame watermark decision in sync whenever
+  // `account` is refreshed from anywhere in this tab (many call sites do
+  // `cloud.me().then(setAccount)` — watching the value itself here, rather
+  // than adding this call at every one of them, means none can be missed).
+  useEffect(() => {
+    api.setLicensed(account?.licensed ?? false).catch(() => undefined);
+  }, [account?.licensed]);
+
   // Packages come LIVE from the cloud server — adding, removing or repricing a
   // package updates every customer instantly, with no app update.
   const [pkgs, setPkgs] = useState<Pkg[]>([]);
@@ -335,6 +343,17 @@ export function ProTab({ onExit }: { onExit: () => void }) {
       .catch((e) => setBuyErr(e instanceof Error ? e.message : "Could not start payment"));
   };
 
+  const [licenseErr, setLicenseErr] = useState<string | null>(null);
+  const [buyingLicense, setBuyingLicense] = useState(false);
+  const buyLicense = () => {
+    setLicenseErr(null);
+    setBuyingLicense(true);
+    cloud.startLicense()
+      .then((r) => { window.open(r.link, "_blank"); })
+      .catch((e) => setLicenseErr(e instanceof Error ? e.message : "Could not start payment"))
+      .finally(() => setBuyingLicense(false));
+  };
+
   // Apex Pro requires a cloud account (that's where the credits live).
   if (!authChecked) return <section className="panel"><p className="muted">Loading…</p></section>;
   if (!account) {
@@ -390,6 +409,16 @@ export function ProTab({ onExit }: { onExit: () => void }) {
           <span className="pro-pill" title="Same balance, shown as Image/Voice Note credits">
             {account.credits} credit{account.credits === 1 ? "" : "s"}
           </span>
+          {account.licensed ? (
+            <span className="pro-pill ok" title="Lucy Realtime and local face swap output has no watermark">
+              ✓ No watermark
+            </span>
+          ) : (
+            <button type="button" className="pro-pill" disabled={buyingLicense} onClick={buyLicense}
+                    title="Removes the AI-GENERATED watermark from Lucy Realtime and local face swap, one time">
+              {buyingLicense ? "Opening…" : "Remove watermark — $10 once"}
+            </button>
+          )}
           {liveBadge}
           <span className="pro-account">
             <span className="pro-muted">{account.email}</span>
@@ -399,6 +428,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
           <button type="button" className="pro-linkbtn pro-exit" onClick={onExit}>← Apex Cam</button>
         </div>
       </div>
+      {licenseErr && <p className="error" style={{ margin: "0 24px" }}>{licenseErr}</p>}
 
       <div className="pro-shell">
         {/* Model rail — one entry per WORKING model. Credits is account-level,

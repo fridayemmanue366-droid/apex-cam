@@ -253,6 +253,15 @@ export const api = {
       backend: "landmark",
     }),
 
+  // Keeps the LOCAL pipeline's per-frame watermark decision in sync with the
+  // account's real license state on the server -- call whenever /me or
+  // /subscription is refreshed. See pipeline.py's `licensed` attribute.
+  setLicensed: (licensed: boolean) =>
+    req<{ licensed: boolean }>("/pipeline/license", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ licensed }),
+    }),
+
   setupStatus: () => req<SetupStatus>("/setup"),
   modelsStatus: () => req<ModelsStatus>("/setup/models"),
   modelsDownload: () => req<{ started: boolean }>("/setup/models/download", { method: "POST" }),
