@@ -136,6 +136,7 @@ class LucyProEngine:
         self._sent_ref: bytes | None = None
         self._sent_prompt: str | None = None
         self._live_flag = False
+        self._connected = False   # drives billing -- see the `live` property's docstring
         self._last_frame_at = 0.0     # last time a real output frame arrived
         self._last_active = 0.0       # last time process() was called
         # Cloud mode: server minted this JWT with ITS key; this machine never
@@ -180,8 +181,17 @@ class LucyProEngine:
 
     @property
     def live(self) -> bool:
-        """True only while transformed frames are actually arriving (fair meter)."""
-        return self._live_flag and (time.time() - self._last_frame_at) < 2.0
+        """Drives customer billing (see routes/pro.py's heartbeat). Owner
+        decision (2026-09-22): count the moment fal's WebRTC connection is
+        actually established, not only once a real video frame is confirmed
+        flowing -- a connection fal accepts but never sends video for should
+        land on the customer's balance, not only ever drain the real fal.ai
+        account with nothing billed to anyone. This is DELIBERATELY separate
+        from `_live_flag` (a real frame actually arrived), which still alone
+        decides the dead-attempt retry cap in _session_loop -- do not merge
+        these two, or a connection that connects but never sends frames
+        would retry forever again (the exact bug fixed a few days earlier)."""
+        return self._connected
 
     @property
     def enabled(self) -> bool:
@@ -265,6 +275,7 @@ class LucyProEngine:
     def _start_session(self) -> None:
         self._stop.clear()
         self._live_flag = False
+        self._connected = False
         self._last_error = None
         self._sent_prompt = None
         self._sent_ref = None
@@ -276,6 +287,7 @@ class LucyProEngine:
     def _stop_session(self) -> None:
         self._stop.set()
         self._live_flag = False
+        self._connected = False
         with self._lock:
             self._out_frame = None
 
@@ -286,6 +298,7 @@ class LucyProEngine:
             self._last_error = str(exc)
             log.warning("Apex Pro (fal) session ended: %s", exc)
         self._live_flag = False
+        self._connected = False
 
     async def _session_loop(self) -> None:
         """Reconnect with jittered backoff. fal's "Concurrent session limit
@@ -308,6 +321,7 @@ class LucyProEngine:
                 log.debug("Apex Pro (fal) session error (will retry): %s", exc)
             got_live = self._live_flag
             self._live_flag = False
+            self._connected = False   # belt-and-suspenders: this attempt's connection is over either way
             if self._stop.is_set():
                 return
             dead_attempts = 0 if got_live else dead_attempts + 1
@@ -418,6 +432,10 @@ class LucyProEngine:
                     # which named a SYMPTOM ("no frames") rather than this cause.
                     if pc.connectionState in ("failed", "closed") and not self._stop.is_set():
                         self._last_error = f"WebRTC connection {pc.connectionState}"
+                        self._connected = False
+                    elif pc.connectionState == "connected":
+                        # Billing starts here -- see the `live` property's docstring.
+                        self._connected = True
 
                 await pc.setLocalDescription(await pc.createOffer())
                 await send({"type": "offer", "sdp": pc.localDescription.sdp})
@@ -462,6 +480,7 @@ class LucyProEngine:
                     elif d.get("type") in ("error", "x-fal-error"):
                         raise RuntimeError(str(d))
         finally:
+            self._connected = False   # safety net if connectionstatechange never fired
             if pc is not None:
                 try:
                     await pc.close()
