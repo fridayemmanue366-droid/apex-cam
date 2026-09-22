@@ -15,7 +15,10 @@ back up, so low-end PCs drop resolution instead of dropping frames.
 """
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -59,10 +62,34 @@ def is_virtual_camera(name: str) -> bool:
 
 def enumerate_cameras() -> list[tuple[int, str]]:
     """(index, name) for each DirectShow camera, in OpenCV's index order.
-    Empty list if enumeration is unavailable (we then fall back to index 0)."""
+    Empty list if enumeration is unavailable (we then fall back to index 0).
+
+    Runs in an ISOLATED SUBPROCESS on purpose (real bug found and fixed
+    2026-09-22): pygrabber's FilterGraph() is backed by DirectShow COM
+    objects, which are apartment-threaded. Calling it from more than one
+    distinct thread within the same process — which happens naturally the
+    moment this runs behind a real HTTP server, since request handlers get
+    dispatched to a worker-thread pool — silently returns the WRONG device
+    order instead of raising, so there was nothing to catch. Reproduced
+    live, 3/3 times: /pipeline/cameras correctly reported the real webcam,
+    then /pipeline/start picked a VIRTUAL one moments later in the exact
+    same request flow the real app always uses (list cameras for the
+    picker, then start). A fresh subprocess gets a fresh COM apartment
+    every single time, which sidesteps the whole bug class. This isn't a
+    hot path (once per camera-picker view, once per GO LIVE), so the extra
+    ~0.3-0.5s is not noticeable."""
     try:
-        from pygrabber.dshow_graph import FilterGraph
-        return list(enumerate(FilterGraph().get_input_devices()))
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "from pygrabber.dshow_graph import FilterGraph;"
+             "import json;"
+             "print(json.dumps(FilterGraph().get_input_devices()))"],
+            capture_output=True, text=True, timeout=8,
+        )
+        if out.returncode != 0:
+            log.warning("Camera enumeration subprocess failed: %s", out.stderr[-500:])
+            return []
+        return list(enumerate(json.loads(out.stdout)))
     except Exception as exc:
         log.warning("Camera enumeration unavailable: %s", exc)
         return []
