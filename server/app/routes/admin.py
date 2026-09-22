@@ -86,7 +86,8 @@ def settings(key: str = Form(...), trial_days: float | None = Form(None),
              installer_url: str | None = Form(None),
              installer_version: str | None = Form(None),
              cloud_paused: bool | None = Form(None),
-             cloud_paused_message: str | None = Form(None)) -> dict:
+             cloud_paused_message: str | None = Form(None),
+             cloud_paused_bypass_emails: str | None = Form(None)) -> dict:
     """Read or change owner settings: the free-trial length for NEW signups, the
     download link + version label shown on the public /download page, and the
     cloud-features pause kill switch — editable here so none of them needs a
@@ -117,9 +118,16 @@ def settings(key: str = Form(...), trial_days: float | None = Form(None),
         msg = cloud_paused_message.strip()[:500]
         if msg:
             db.set_setting("cloud_paused_message", msg)
+    if cloud_paused_bypass_emails is not None:
+        # Accounts let through even while paused -- so the owner can test a
+        # fix live on their own account without reopening the block to every
+        # customer. Comma-separated; not validated as real emails since a
+        # typo here just means that address stays blocked, not a security issue.
+        db.set_setting("cloud_paused_bypass_emails", cloud_paused_bypass_emails.strip()[:1000])
     return {"trial_days": db.trial_days(),
             "installer_url": db.get_setting("installer_url", ""),
             "installer_version": db.get_setting("installer_version", ""),
+            "cloud_paused_bypass_emails": db.get_setting("cloud_paused_bypass_emails", ""),
             "cloud_paused": pricing.cloud_paused(),
             "cloud_paused_message": pricing.cloud_paused_message()}
 
@@ -263,6 +271,7 @@ def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
         "license_mode": db.get_setting("license_mode", "manual") or "manual",
         "cloud_paused": pricing.cloud_paused(),
         "cloud_paused_message": pricing.cloud_paused_message(),
+        "cloud_paused_bypass_emails": db.get_setting("cloud_paused_bypass_emails", ""),
         "pending_licenses": [{"email": r["email"], "paid_at": r["paid_at"]}
                              for r in db.pending_licenses()],
         "totals": db.totals(),
@@ -401,6 +410,12 @@ tr:last-child td{border-bottom:0}
     <div style="grid-column:2/-1"><label>Message shown to customers while paused</label>
       <input id="cpausedMsg" type="text" maxlength="500"></div>
   </div>
+  <div class="fields" style="margin-top:12px">
+    <div style="grid-column:1/-1"><label>Let these accounts through anyway (comma-separated emails)</label>
+      <input id="cpausedBypass" type="text" maxlength="1000" placeholder="you@example.com, tester@example.com"></div>
+  </div>
+  <p class="sub" style="margin:6px 0 0">Use this to test a fix live on your own account while
+    everyone else stays blocked — nobody else needs to see the fix work before you trust it.</p>
   <div class="fields" style="margin-top:12px">
     <div style="align-self:end"><button class="grant" onclick="saveCloudPause()">Save</button></div>
   </div>
@@ -593,6 +608,7 @@ async function load(){
     if(document.activeElement !== $('instVer')) $('instVer').value = d.installer_version || '';
     if(document.activeElement !== $('cpaused')) $('cpaused').value = d.cloud_paused ? '1' : '0';
     if(document.activeElement !== $('cpausedMsg')) $('cpausedMsg').value = d.cloud_paused_message || '';
+    if(document.activeElement !== $('cpausedBypass')) $('cpausedBypass').value = d.cloud_paused_bypass_emails || '';
     const now = Date.now()/1000;
     $('users').innerHTML = d.users.length ? d.users.map(u =>
       '<tr><td>'+esc(u.email)+(u.licensed?' <span class="pill p-topup" title="Watermark license">no watermark</span>':'')+
@@ -655,9 +671,11 @@ async function saveInstaller(){
 async function saveCloudPause(){
   out.textContent='Working…';
   try{
-    const d = await post('settings', {cloud_paused:$('cpaused').value==='1', cloud_paused_message:$('cpausedMsg').value});
+    const d = await post('settings', {cloud_paused:$('cpaused').value==='1', cloud_paused_message:$('cpausedMsg').value,
+      cloud_paused_bypass_emails:$('cpausedBypass').value});
     out.innerHTML = '<span class="green">'+(d.cloud_paused
-      ? 'Cloud AI features are now PAUSED for every customer.' : 'Cloud AI features are running normally again.')+'</span>';
+      ? 'Cloud AI features are now PAUSED for every customer.' : 'Cloud AI features are running normally again.')+
+      (d.cloud_paused_bypass_emails ? ' Bypassed: '+esc(d.cloud_paused_bypass_emails)+'.' : '')+'</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 

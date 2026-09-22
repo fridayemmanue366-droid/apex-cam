@@ -413,6 +413,14 @@ def cloud_paused_message() -> str:
     return db.get_setting("cloud_paused_message", DEFAULT_MAINTENANCE_MESSAGE) or DEFAULT_MAINTENANCE_MESSAGE
 
 
+def cloud_paused_bypass_emails() -> set[str]:
+    """Accounts let through even while paused -- so the owner can test a fix
+    live on their own account without reopening the block to every customer.
+    Comma-separated emails, admin-panel editable."""
+    raw = db.get_setting("cloud_paused_bypass_emails", "") or ""
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
 # --- reporting for the owner panel ------------------------------------------
 def pricing_snapshot() -> dict:
     """Everything the pricing card shows: cost, live rate, effective rate, margin,

@@ -35,12 +35,20 @@ from app.deps import current_user
 router = APIRouter(prefix="/studio", tags=["studio"])
 
 
-def _require_not_paused() -> None:
+def _require_not_paused(uid: int) -> None:
     """Owner kill switch (admin panel) for every fal-backed action -- see
     pricing.cloud_paused(). Checked at the top of every route that would
-    actually spend real fal cost, so nothing can trigger one while paused."""
-    if pricing.cloud_paused():
-        raise HTTPException(503, pricing.cloud_paused_message())
+    actually spend real fal cost, so nothing can trigger one while paused.
+    Accounts in cloud_paused_bypass_emails() (admin-panel editable) get
+    through anyway -- lets the owner test a fix live on their own account
+    without reopening the block to every customer."""
+    if not pricing.cloud_paused():
+        return
+    u = db.get_user(uid)
+    email = (u["email"] if u else "").lower()
+    if email in pricing.cloud_paused_bypass_emails():
+        return
+    raise HTTPException(503, pricing.cloud_paused_message())
 
 # Which realtime engine /live/start hands out. Must match the customer app's
 # default (backend/app/engines/pro_engine.py) or a customer gets credentials
@@ -144,7 +152,7 @@ def image_pricing() -> dict:
 async def photo_start(file: UploadFile, reference: UploadFile | None = File(None),
                       prompt: str = Form(""), face_swap: bool = Form(False),
                       uid: int = Depends(current_user)) -> dict:
-    _require_not_paused()
+    _require_not_paused(uid)
     # Recomputed on every call, never cached — reflects the owner's current
     # credit price from the admin panel immediately, no redeploy needed.
     cost = pricing.image_cost_wallet_seconds()
@@ -285,7 +293,7 @@ def voicenote_pricing(chars: int = 0) -> dict:
 @router.post("/voicenote/start")
 async def voicenote_start(reference: UploadFile, text: str = Form(...),
                           uid: int = Depends(current_user)) -> dict:
-    _require_not_paused()
+    _require_not_paused(uid)
     text = text.strip()
     if not text:
         raise HTTPException(400, "Type something for the voice to say.")
@@ -457,7 +465,7 @@ async def live_start(prompt: str = Form(""), reference: UploadFile | None = File
     whichever provider is active (LIVE_PROVIDER) — the client checks `provider`
     in the response to know which fields it got and which local endpoint to
     hand them to."""
-    _require_not_paused()
+    _require_not_paused(uid)
     if db.credit_seconds(uid) < 1.0:
         raise HTTPException(402, "Not enough credit — top up first")
     sid = uuid.uuid4().hex
