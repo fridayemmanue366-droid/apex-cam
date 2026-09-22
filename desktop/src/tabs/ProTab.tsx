@@ -4,6 +4,7 @@ import { cloud, getToken, signedIn, type Account, type LicensePricing, type Pkg 
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
 import { WatermarkNoticeModal } from "../components/WatermarkNoticeModal";
+import { CloudPausedModal } from "../components/CloudPausedModal";
 import { usePipeline } from "../context/PipelineContext";
 import {
   MIN_REFERENCE_S,
@@ -383,6 +384,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   // their own output. Price is fetched lazily since it isn't needed until
   // there's actually something unlicensed to show it for.
   const [showWatermarkNotice, setShowWatermarkNotice] = useState(true);
+  const [showCloudPausedNotice, setShowCloudPausedNotice] = useState(true);
   const [licensePrice, setLicensePrice] = useState<LicensePricing | null>(null);
   useEffect(() => {
     if (account && !account.licensed && !licensePrice) {
@@ -438,14 +440,19 @@ export function ProTab({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="pro pro-universe">
-      {!account.licensed && showWatermarkNotice && licensePrice && (
-        <WatermarkNoticeModal
-          priceLabel={licensePrice.currency === "USD" ? `$${licensePrice.charge.toFixed(2)}`
-                     : `${licensePrice.currency} ${licensePrice.charge.toLocaleString()}`}
-          buying={buyingLicense}
-          onBuy={() => { buyLicense(); setShowWatermarkNotice(false); }}
-          onDismiss={() => setShowWatermarkNotice(false)}
-        />
+      {rates?.cloud_paused && showCloudPausedNotice ? (
+        <CloudPausedModal message={rates.cloud_paused_message}
+                          onDismiss={() => setShowCloudPausedNotice(false)} />
+      ) : (
+        !account.licensed && showWatermarkNotice && licensePrice && (
+          <WatermarkNoticeModal
+            priceLabel={licensePrice.currency === "USD" ? `$${licensePrice.charge.toFixed(2)}`
+                       : `${licensePrice.currency} ${licensePrice.charge.toLocaleString()}`}
+            buying={buyingLicense}
+            onBuy={() => { buyLicense(); setShowWatermarkNotice(false); }}
+            onDismiss={() => setShowWatermarkNotice(false)}
+          />
+        )
       )}
       <div className="pro-hero">
         <span className="pro-crown">✦</span>
