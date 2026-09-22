@@ -136,7 +136,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   // now, not a fixed ratio of live's, so this can't be computed client-side
   // either — it has to be fetched.
   const [rates, setRates] = useState<{ live_usd_per_sec: number; video_usd_per_sec: number;
-    restyle_usd_per_sec: number } | null>(null);
+    restyle_usd_per_sec: number; cloud_paused: boolean; cloud_paused_message: string } | null>(null);
   const refFile = useRef<HTMLInputElement>(null);
 
   // Cloud account — credits live on our server, tied to this login (so they
@@ -210,6 +210,17 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     }, 1500);
     return () => clearInterval(t);
   }, [entered]);
+
+  // Independent of `entered` (the pause banner has to be visible BEFORE
+  // someone clicks GO LIVE, not only after) — refreshes the owner's cloud-
+  // pause kill switch periodically so it takes effect for people already
+  // sitting on this screen, not only on next launch.
+  useEffect(() => {
+    const t = setInterval(() => {
+      cloud.studioPricing().then(setRates).catch(() => undefined);
+    }, 15_000);
+    return () => clearInterval(t);
+  }, []);
 
   // Live per-second balance display, ticking down while actually live.
   const [secsLeft, setSecsLeft] = useState(0);
@@ -469,6 +480,15 @@ export function ProTab({ onExit }: { onExit: () => void }) {
         </div>
       </div>
       {licenseErr && <p className="error" style={{ margin: "0 24px" }}>{licenseErr}</p>}
+      {rates?.cloud_paused && (
+        <div style={{
+          margin: "0 24px 14px", padding: "12px 16px", borderRadius: 10,
+          background: "rgba(230,102,102,0.12)", border: "1px solid rgba(230,102,102,0.4)",
+        }}>
+          <strong style={{ color: "#e66" }}>⚠ GO LIVE, Apex Image and Voice Note are paused</strong>
+          <p className="pro-muted" style={{ margin: "6px 0 0" }}>{rates.cloud_paused_message}</p>
+        </div>
+      )}
 
       <div className="pro-shell">
         {/* Model rail — one entry per WORKING model. Credits is account-level,

@@ -390,6 +390,29 @@ def sub_usd() -> float:
     return round(SUB_MONTHLY_NGN / effective_rate(), 2)
 
 
+# --- cloud maintenance pause (owner kill switch for the fal-backed features) -
+# Owner decision (2026-09-22): a fal.ai account-side restriction (still
+# blocking realtime video after an otherwise-successful top-up -- confirmed
+# not to be a code regression) means every GO LIVE / Image / Voice Note
+# attempt was burning real fal cost for nothing. This is an admin-panel
+# on/off switch + editable message the owner controls directly, no redeploy,
+# so it can be lifted the instant fal's side is actually fixed -- NOT a fixed
+# timer, since nobody knows exactly when that will be.
+DEFAULT_MAINTENANCE_MESSAGE = (
+    "Your device is pending verification. Please wait up to 3 days while our "
+    "system verifies your computer before you can use Apex Cam's live cloud "
+    "features. You can still browse the app in the meantime."
+)
+
+
+def cloud_paused() -> bool:
+    return (db.get_setting("cloud_paused", "0") or "0") == "1"
+
+
+def cloud_paused_message() -> str:
+    return db.get_setting("cloud_paused_message", DEFAULT_MAINTENANCE_MESSAGE) or DEFAULT_MAINTENANCE_MESSAGE
+
+
 # --- reporting for the owner panel ------------------------------------------
 def pricing_snapshot() -> dict:
     """Everything the pricing card shows: cost, live rate, effective rate, margin,

@@ -34,6 +34,14 @@ from app.deps import current_user
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
+
+def _require_not_paused() -> None:
+    """Owner kill switch (admin panel) for every fal-backed action -- see
+    pricing.cloud_paused(). Checked at the top of every route that would
+    actually spend real fal cost, so nothing can trigger one while paused."""
+    if pricing.cloud_paused():
+        raise HTTPException(503, pricing.cloud_paused_message())
+
 # Which realtime engine /live/start hands out. Must match the customer app's
 # default (backend/app/engines/pro_engine.py) or a customer gets credentials
 # for a provider their local app isn't configured to use.
@@ -112,6 +120,9 @@ def studio_pricing() -> dict:
         "video_usd_per_sec": pricing.mode_sell_usd_per_sec("video"),
         "restyle_usd_per_sec": pricing.mode_sell_usd_per_sec("restyle"),
         "cloud_voice_usd_per_sec": pricing.mode_sell_usd_per_sec("cloud_voice"),
+        # Live/Image/Voice Note only -- Video/Restyle run on Decart, unaffected.
+        "cloud_paused": pricing.cloud_paused(),
+        "cloud_paused_message": pricing.cloud_paused_message(),
     }
 
 
@@ -133,6 +144,7 @@ def image_pricing() -> dict:
 async def photo_start(file: UploadFile, reference: UploadFile | None = File(None),
                       prompt: str = Form(""), face_swap: bool = Form(False),
                       uid: int = Depends(current_user)) -> dict:
+    _require_not_paused()
     # Recomputed on every call, never cached — reflects the owner's current
     # credit price from the admin panel immediately, no redeploy needed.
     cost = pricing.image_cost_wallet_seconds()
@@ -273,6 +285,7 @@ def voicenote_pricing(chars: int = 0) -> dict:
 @router.post("/voicenote/start")
 async def voicenote_start(reference: UploadFile, text: str = Form(...),
                           uid: int = Depends(current_user)) -> dict:
+    _require_not_paused()
     text = text.strip()
     if not text:
         raise HTTPException(400, "Type something for the voice to say.")
@@ -345,6 +358,10 @@ async def video_start(file: UploadFile, reference: UploadFile | None = File(None
                       prompt: str = Form(""), mode: str = Form("video"),
                       face_swap: bool = Form(False),
                       uid: int = Depends(current_user)) -> dict:
+    # NOT gated by _require_not_paused(): video/restyle run on Decart, a
+    # completely separate provider from fal -- unaffected by the fal account
+    # issue this pause exists for, so blocking them too would just cost
+    # revenue on a feature that still works fine.
     if mode not in ("video", "restyle"):
         raise HTTPException(400, "Unknown mode")
     video_bytes = await file.read()
@@ -440,6 +457,7 @@ async def live_start(prompt: str = Form(""), reference: UploadFile | None = File
     whichever provider is active (LIVE_PROVIDER) — the client checks `provider`
     in the response to know which fields it got and which local endpoint to
     hand them to."""
+    _require_not_paused()
     if db.credit_seconds(uid) < 1.0:
         raise HTTPException(402, "Not enough credit — top up first")
     sid = uuid.uuid4().hex

@@ -84,13 +84,17 @@ def grant_subscription(key: str = Form(...), email: str = Form(...),
 @router.post("/settings")
 def settings(key: str = Form(...), trial_days: float | None = Form(None),
              installer_url: str | None = Form(None),
-             installer_version: str | None = Form(None)) -> dict:
-    """Read or change owner settings: the free-trial length for NEW signups, and
-    the download link + version label shown on the public /download page —
-    editable here so neither needs a Render restart. Existing customers are
-    unaffected by the trial; extend them individually with the subscription
-    action. An empty installer_url clears the link (page shows "coming soon")."""
+             installer_version: str | None = Form(None),
+             cloud_paused: bool | None = Form(None),
+             cloud_paused_message: str | None = Form(None)) -> dict:
+    """Read or change owner settings: the free-trial length for NEW signups, the
+    download link + version label shown on the public /download page, and the
+    cloud-features pause kill switch — editable here so none of them needs a
+    Render restart. Existing customers are unaffected by the trial; extend
+    them individually with the subscription action. An empty installer_url
+    clears the link (page shows "coming soon")."""
     _require_admin(key)
+    from app import pricing
     if trial_days is not None:
         if trial_days < 0 or trial_days > 365:
             raise HTTPException(400, "trial_days must be between 0 and 365")
@@ -104,9 +108,20 @@ def settings(key: str = Form(...), trial_days: float | None = Form(None),
         db.set_setting("installer_url", url)
     if installer_version is not None:
         db.set_setting("installer_version", installer_version.strip()[:40])
+    if cloud_paused is not None:
+        # Kill switch for every fal-backed action (Live, Image, Voice Note --
+        # NOT Video/Restyle, which run on Decart and are unaffected). See
+        # studio.py's _require_not_paused().
+        db.set_setting("cloud_paused", "1" if cloud_paused else "0")
+    if cloud_paused_message is not None:
+        msg = cloud_paused_message.strip()[:500]
+        if msg:
+            db.set_setting("cloud_paused_message", msg)
     return {"trial_days": db.trial_days(),
             "installer_url": db.get_setting("installer_url", ""),
-            "installer_version": db.get_setting("installer_version", "")}
+            "installer_version": db.get_setting("installer_version", ""),
+            "cloud_paused": pricing.cloud_paused(),
+            "cloud_paused_message": pricing.cloud_paused_message()}
 
 
 @router.post("/pricing")
@@ -225,11 +240,14 @@ def license_pending(key: str = Form(...)) -> dict:
 def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
     """Everything the owner needs on one screen: totals, accounts, recent activity."""
     _require_admin(key)
+    from app import pricing
     return {
         "trial_days": db.trial_days(),
         "installer_url": db.get_setting("installer_url", ""),
         "installer_version": db.get_setting("installer_version", ""),
         "license_mode": db.get_setting("license_mode", "manual") or "manual",
+        "cloud_paused": pricing.cloud_paused(),
+        "cloud_paused_message": pricing.cloud_paused_message(),
         "pending_licenses": [{"email": r["email"], "paid_at": r["paid_at"]}
                              for r in db.pending_licenses()],
         "totals": db.totals(),
@@ -353,6 +371,24 @@ tr:last-child td{border-bottom:0}
   </div>
   <p class="sub" style="margin:10px 0 0">Leave the link empty and the page shows "coming soon"
     instead of a dead button.</p>
+</div>
+
+<div class="card">
+  <h2>Pause cloud AI features</h2>
+  <p class="sub" style="margin:0 0 12px">Kill switch for GO LIVE / Apex Image / Voice Note (all
+    fal-backed). Video/Restyle keep working — they run on Decart, a separate provider. Turn this
+    on the instant a provider issue starts costing you money on failed attempts; turn it off the
+    moment it's actually fixed. No redeploy either way.</p>
+  <div class="fields">
+    <div><label>Status</label>
+      <select id="cpaused"><option value="0">Running normally</option>
+        <option value="1">Paused</option></select></div>
+    <div style="grid-column:2/-1"><label>Message shown to customers while paused</label>
+      <input id="cpausedMsg" type="text" maxlength="500"></div>
+  </div>
+  <div class="fields" style="margin-top:12px">
+    <div style="align-self:end"><button class="grant" onclick="saveCloudPause()">Save</button></div>
+  </div>
 </div>
 
 <div class="card">
@@ -540,6 +576,8 @@ async function load(){
     if(document.activeElement !== $('trial')) $('trial').value = d.trial_days;
     if(document.activeElement !== $('instUrl')) $('instUrl').value = d.installer_url || '';
     if(document.activeElement !== $('instVer')) $('instVer').value = d.installer_version || '';
+    if(document.activeElement !== $('cpaused')) $('cpaused').value = d.cloud_paused ? '1' : '0';
+    if(document.activeElement !== $('cpausedMsg')) $('cpausedMsg').value = d.cloud_paused_message || '';
     const now = Date.now()/1000;
     $('users').innerHTML = d.users.length ? d.users.map(u =>
       '<tr><td>'+esc(u.email)+(u.licensed?' <span class="pill p-topup" title="Watermark license">no watermark</span>':'')+
@@ -596,6 +634,15 @@ async function saveInstaller(){
     const d = await post('settings', {installer_url:$('instUrl').value, installer_version:$('instVer').value});
     out.innerHTML = '<span class="green">'+(d.installer_url
       ? 'Download page now points to your installer.' : 'Download link cleared — page shows "coming soon".')+'</span>';
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+
+async function saveCloudPause(){
+  out.textContent='Working…';
+  try{
+    const d = await post('settings', {cloud_paused:$('cpaused').value==='1', cloud_paused_message:$('cpausedMsg').value});
+    out.innerHTML = '<span class="green">'+(d.cloud_paused
+      ? 'Cloud AI features are now PAUSED for every customer.' : 'Cloud AI features are running normally again.')+'</span>';
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 
