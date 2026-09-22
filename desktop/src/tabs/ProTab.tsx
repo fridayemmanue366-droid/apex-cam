@@ -157,9 +157,19 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   // `account` is refreshed from anywhere in this tab (many call sites do
   // `cloud.me().then(setAccount)` — watching the value itself here, rather
   // than adding this call at every one of them, means none can be missed).
+  //
+  // REAL BUG FIXED (2026-09-22): this used to run `?? false` while `account`
+  // was still null (e.g. every time this tab remounts, which the sidebar's
+  // ternary render does on every navigation away-and-back) and actually
+  // push that wrong "unlicensed" false to the local pipeline BEFORE the
+  // real value arrived. If the user navigated away again quickly, the
+  // corrective real sync (inside cloud.me().then(setAccount)) never landed
+  // on a still-mounted component, leaving the local app stuck reporting
+  // unlicensed even for a genuinely licensed account. Now this only ever
+  // sends a value once we actually HAVE one.
   useEffect(() => {
-    api.setLicensed(account?.licensed ?? false).catch(() => undefined);
-  }, [account?.licensed]);
+    if (account) api.setLicensed(account.licensed).catch(() => undefined);
+  }, [account]);
 
   // Packages come LIVE from the cloud server — adding, removing or repricing a
   // package updates every customer instantly, with no app update.

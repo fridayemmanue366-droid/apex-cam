@@ -49,6 +49,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Poll, not just a one-time fetch on launch: this is the license sync source
+  // for local face swap, which never visits the Apex Pro tab at all, so a
+  // purchase or an admin grant made mid-session (no restart) needs a live path
+  // to reach the local watermark decision, not just app-launch's one-shot call.
+  useEffect(() => {
+    if (!signedIn()) return;
+    const t = setInterval(refresh, 20_000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
   return <Ctx.Provider value={{ status, offline, loading, refresh }}>{children}</Ctx.Provider>;
 }
 
