@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api, getAiCameraIndex, setAiCameraIndex, type CameraInfo, type ProStatus } from "../api/client";
-import { cloud, getToken, signedIn, type Account, type Pkg } from "../api/cloud";
+import { cloud, getToken, signedIn, type Account, type LicensePricing, type Pkg } from "../api/cloud";
 import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
+import { WatermarkNoticeModal } from "../components/WatermarkNoticeModal";
 import { usePipeline } from "../context/PipelineContext";
 import {
   MIN_REFERENCE_S,
@@ -364,6 +365,20 @@ export function ProTab({ onExit }: { onExit: () => void }) {
       .finally(() => setBuyingLicense(false));
   };
 
+  // Upfront watermark notice — shown once each time this tab is entered
+  // (re-mounting resets `showWatermarkNotice`, which is intentional: it
+  // should keep reminding an unlicensed account, not just once ever) rather
+  // than leaving a customer to discover the watermark only by looking at
+  // their own output. Price is fetched lazily since it isn't needed until
+  // there's actually something unlicensed to show it for.
+  const [showWatermarkNotice, setShowWatermarkNotice] = useState(true);
+  const [licensePrice, setLicensePrice] = useState<LicensePricing | null>(null);
+  useEffect(() => {
+    if (account && !account.licensed && !licensePrice) {
+      cloud.licensePricing().then(setLicensePrice).catch(() => undefined);
+    }
+  }, [account, licensePrice]);
+
   // Apex Pro requires a cloud account (that's where the credits live).
   if (!authChecked) return (
     <section className="panel">
@@ -412,6 +427,15 @@ export function ProTab({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="pro pro-universe">
+      {!account.licensed && showWatermarkNotice && licensePrice && (
+        <WatermarkNoticeModal
+          priceLabel={licensePrice.currency === "USD" ? `$${licensePrice.charge.toFixed(2)}`
+                     : `${licensePrice.currency} ${licensePrice.charge.toLocaleString()}`}
+          buying={buyingLicense}
+          onBuy={() => { buyLicense(); setShowWatermarkNotice(false); }}
+          onDismiss={() => setShowWatermarkNotice(false)}
+        />
+      )}
       <div className="pro-hero">
         <span className="pro-crown">✦</span>
         <div>
