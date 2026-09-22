@@ -41,3 +41,16 @@ def mint_token(seconds: int = 300) -> str:
         headers={"Authorization": f"Key {_key()}", "Content-Type": "application/json"},
         method="POST")
     return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+
+
+def check_billing() -> dict:
+    """Diagnostic (2026-09-22): fal support said the realtime failure isn't an
+    account lock on their end, and suggested confirming the app is using the
+    SAME account that was topped up. This asks fal directly, using our actual
+    configured key, which account/balance it belongs to -- so we can compare
+    against what the owner sees in their own browser session, without ever
+    exposing the raw key itself."""
+    req = urllib.request.Request(
+        "https://api.fal.ai/v1/account/billing",
+        headers={"Authorization": f"Key {_key()}"}, method="GET")
+    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())

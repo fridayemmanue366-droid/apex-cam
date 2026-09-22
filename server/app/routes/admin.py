@@ -236,6 +236,21 @@ def license_pending(key: str = Form(...)) -> dict:
                         for r in db.pending_licenses()]}
 
 
+@router.post("/fal-check")
+def fal_check(key: str = Form(...)) -> dict:
+    """Diagnostic: confirms which fal.ai account/balance our server's configured
+    APEXCAM_LUCY_KEY actually belongs to (2026-09-22, prompted by fal support's
+    own suggestion to verify the app is using the same account that was topped
+    up). Never returns the key itself -- only what fal's own billing API says
+    about the account behind it."""
+    _require_admin(key)
+    from app import fal_lucy
+    try:
+        return {"ok": True, "billing": fal_lucy.check_billing()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 @router.post("/overview")
 def overview(key: str = Form(...), limit: int = Form(60)) -> dict:
     """Everything the owner needs on one screen: totals, accounts, recent activity."""
