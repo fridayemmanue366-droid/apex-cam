@@ -4,7 +4,7 @@ import { cloud } from "../api/cloud";
 // Sign in / create an Apex Pro account. Credits live on our server (tied to this
 // account), so the balance follows the user across machines and can't be edited
 // locally. Shown before the Pro universe when signed out.
-export function ProAuth({ onSignedIn }: { onSignedIn: (email: string) => void }) {
+export function ProAuth({ onSignedIn, onExit }: { onSignedIn: (email: string) => void; onExit?: () => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,6 +30,10 @@ export function ProAuth({ onSignedIn }: { onSignedIn: (email: string) => void })
           <p className="pro-sub">Sign in to use the cloud studio.</p>
         </div>
         <span className="pro-vip">VIP</span>
+        {onExit && (
+          <button type="button" className="pro-linkbtn pro-exit" style={{ marginLeft: "auto" }}
+                  onClick={onExit}>← Apex Cam</button>
+        )}
       </div>
 
       <form className="pro-card narrow" onSubmit={submit}>

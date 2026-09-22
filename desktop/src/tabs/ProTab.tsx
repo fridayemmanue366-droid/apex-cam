@@ -365,9 +365,15 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   };
 
   // Apex Pro requires a cloud account (that's where the credits live).
-  if (!authChecked) return <section className="panel"><p className="muted">Loading…</p></section>;
+  if (!authChecked) return (
+    <section className="panel">
+      <p className="muted">Loading…</p>
+      <button type="button" className="pro-linkbtn" onClick={onExit}>← Apex Cam</button>
+    </section>
+  );
   if (!account) {
-    return <ProAuth onSignedIn={() => { cloud.me().then(setAccount).catch(() => undefined); }} />;
+    return <ProAuth onExit={onExit}
+                    onSignedIn={() => { cloud.me().then(setAccount).catch(() => undefined); }} />;
   }
   if (!pro) return <section className="panel"><p className="muted">Backend offline.</p></section>;
 
