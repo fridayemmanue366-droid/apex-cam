@@ -253,10 +253,16 @@ def fal_check(key: str = Form(...)) -> dict:
     about the account behind it."""
     _require_admin(key)
     from app import fal_lucy
+    import hashlib
+    k = fal_lucy.FAL_KEY
+    # A one-way fingerprint so the owner can compare against the key they topped
+    # up / tested with locally -- the key itself is never returned.
+    ident = {"key_fingerprint": hashlib.sha256(k.encode()).hexdigest()[:12] if k else None,
+             "key_len": len(k), "live_model": fal_lucy.LIVE_MODEL}
     try:
-        return {"ok": True, "billing": fal_lucy.check_billing()}
+        return {"ok": True, **ident, "billing": fal_lucy.check_billing()}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, **ident, "error": str(exc)}
 
 
 @router.post("/overview")
