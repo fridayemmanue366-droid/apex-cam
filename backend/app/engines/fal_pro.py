@@ -105,9 +105,88 @@ class _DecodeFailureCounter(logging.Filter):
         return True
 
 
+UDP_RECV_BUFFER = int(os.environ.get("APEXCAM_LUCY_UDP_RCVBUF", str(4 * 1024 * 1024)))
+_udp_buffer_patched = False
+
+
+def _enlarge_udp_receive_buffer() -> None:
+    """Found 2026-09-23: with a REAL identity swap (reference = a different
+    person) fal connected and sent video, but only ~1 packet a second got
+    through and every one was undecodable -- while a same-face test streamed
+    fine. A detailed swapped frame is a big burst of UDP packets; Windows'
+    default socket receive buffer is tiny (64 KB), so part of every keyframe
+    was dropped before Python read it, the decoder asked for a new keyframe,
+    and that one overflowed too, forever. A browser (fal's playground, where
+    the same swap worked) uses a much larger buffer. Give aiortc's ICE
+    sockets a few MB so a whole keyframe fits."""
+    global _udp_buffer_patched
+    if _udp_buffer_patched:
+        return
+    try:
+        import socket
+
+        from aioice import ice
+        orig = ice.StunProtocol.connection_made
+
+        def connection_made(self, transport):
+            sock = transport.get_extra_info("socket")
+            if sock is not None:
+                try:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, UDP_RECV_BUFFER)
+                except OSError as exc:
+                    log.warning("Apex Pro (fal): could not enlarge UDP buffer: %s", exc)
+            return orig(self, transport)
+
+        ice.StunProtocol.connection_made = connection_made
+        _udp_buffer_patched = True
+    except Exception as exc:
+        log.warning("Apex Pro (fal): UDP buffer patch not applied: %s", exc)
+
+
 _decode_failures = _DecodeFailureCounter()
 for _name in ("aiortc.codecs.vpx", "aiortc.codecs.h264"):
     logging.getLogger(_name).addFilter(_decode_failures)
+
+
+# Owner discovery (2026-09-23, on fal's own playground): with a reference photo
+# loaded, fal's default prompt ("Change the background to a sunlit tropical
+# beach") sat on "connecting" forever; replacing it with a plain "swap me with
+# this person" worked immediately. The prompt must TELL Lucy to use the
+# reference -- and fal's docs say to name it in words ("the character in the
+# reference image"; @-mentions aren't supported). Our old default ("a
+# photorealistic person, studio lighting") and the app's look presets ("30-year-
+# old man", "young woman"...) never mentioned the reference at all, and the
+# presets even described a DIFFERENT person than the photo.
+REFERENCE_SWAP_PROMPT = (
+    "Replace the person in the video with the character in the reference image, "
+    "keeping the reference's face, hair and skin tone exactly, while following the "
+    "head movements and expressions of the person in the video. Photorealistic.")
+
+
+# The app's old one-click looks, still saved in many installs' pro_config.json.
+_OLD_PERSON_PRESETS = {p.lower() for p in (
+    "Photorealistic 30-year-old man, studio lighting",
+    "Photorealistic young woman, soft cinematic light",
+    "Anime character, vibrant colors",
+    "Realistic older gentleman, warm tone",
+    "Fashion model, editorial lighting",
+)}
+
+
+def effective_prompt(prompt: str, has_reference: bool) -> str:
+    """What actually goes to Lucy. With a reference photo, the swap instruction
+    always leads; the customer's own text is kept as extra detail unless it
+    already talks about the reference itself."""
+    prompt = (prompt or "").strip()
+    if not has_reference:
+        return prompt or "a photorealistic person, studio lighting"
+    if prompt.lower() in _OLD_PERSON_PRESETS:
+        prompt = ""   # a saved old preset describing someone else -- see above
+    if not prompt:
+        return REFERENCE_SWAP_PROMPT
+    if "reference" in prompt.lower():
+        return prompt
+    return f"{REFERENCE_SWAP_PROMPT} {prompt}"
 
 
 def _frame_for_send(img: np.ndarray) -> np.ndarray:
@@ -460,6 +539,7 @@ class LucyProEngine:
                             RTCSessionDescription, VideoStreamTrack)
         from av import VideoFrame
 
+        _enlarge_udp_receive_buffer()
         engine = self
 
         class PipeTrack(VideoStreamTrack):
@@ -575,8 +655,8 @@ class LucyProEngine:
                     # (re)send prompt/reference whenever they change — also covers
                     # the very first send, right after the offer goes out.
                     if self._prompt != self._sent_prompt or self._reference != self._sent_ref:
-                        msg: dict = {"prompt": self._prompt or
-                                     "a photorealistic person, studio lighting"}
+                        msg: dict = {"prompt": effective_prompt(self._prompt,
+                                                                bool(self._reference))}
                         if self._reference:
                             b64 = base64.b64encode(self._reference).decode()
                             msg["reference_image_url"] = f"data:image/jpeg;base64,{b64}"

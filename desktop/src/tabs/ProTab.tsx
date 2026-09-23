@@ -46,12 +46,17 @@ const MODELS: ModelDef[] = [
     tag: "Clone a voice, type a message, get an audio file", status: "available" },
 ];
 
+// With a reference photo loaded, these are added AFTER the engine's own
+// "become the character in the reference image" instruction (see
+// backend fal_pro.effective_prompt) -- so they describe lighting/scene only,
+// never a different person (the old "30-year-old man" / "young woman" presets
+// contradicted the reference photo and could stall Lucy entirely).
 const LOOKS = [
-  "Photorealistic 30-year-old man, studio lighting",
-  "Photorealistic young woman, soft cinematic light",
-  "Anime character, vibrant colors",
-  "Realistic older gentleman, warm tone",
-  "Fashion model, editorial lighting",
+  "Swap me with the person in the reference image",
+  "Soft cinematic lighting",
+  "Bright studio lighting",
+  "Warm natural daylight",
+  "Keep my background, only swap the person",
 ];
 
 // Ready-made faces to test Lucy Realtime with, no upload needed. Every one
@@ -742,7 +747,8 @@ function LucyRealtimePlayground(props: {
       <div className="pro-card">
         <h3>Look / prompt</h3>
         <input className="pro-input" type="text" value={prompt}
-               placeholder="Describe your look…"
+               placeholder={pro.has_reference ? "Swap me with the person in the reference image"
+                                              : "Describe your look…"}
                onChange={(e) => setPrompt(e.target.value)} onBlur={() => save(pro.enabled)} />
         <div className="row preset-row" style={{ marginTop: 10 }}>
           {LOOKS.map((l) => (
