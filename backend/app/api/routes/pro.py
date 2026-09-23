@@ -165,6 +165,20 @@ def _heartbeat(session_id: str, cloud_url: str, auth: str) -> None:
             pass                               # a dropped beat just isn't billed
 
 
+def _fal_token_refresher(session_id: str, cloud_url: str, auth: str):
+    """For the fal engine's reconnects: a fresh live JWT from our server for this
+    same session (the one from /live/start expires after 5 minutes)."""
+    def refresh() -> tuple[str, str]:
+        import requests
+        r = requests.post(cloud_url.rstrip("/") + "/studio/live/token",
+                          headers={"Authorization": f"Bearer {auth}"},
+                          data={"session_id": session_id}, timeout=15)
+        r.raise_for_status()
+        d = r.json()
+        return d["jwt"], d["model"]
+    return refresh
+
+
 @router.post("/live/cloud")
 def live_cloud(r: CloudRoom) -> ProStatus:
     """Go live via OUR CLOUD SERVER: it minted credentials with ITS key (Decart
@@ -181,6 +195,8 @@ def live_cloud(r: CloudRoom) -> ProStatus:
         if not r.jwt or not r.model:
             raise HTTPException(400, "Missing jwt/model for fal provider")
         lucy_pro.start_cloud(r.jwt, r.model)
+        if r.session_id and r.cloud_url and r.auth:
+            lucy_pro.token_refresher = _fal_token_refresher(r.session_id, r.cloud_url, r.auth)
     else:
         if not r.livekit_url or not r.token:
             raise HTTPException(400, "Missing livekit_url/token for decart provider")

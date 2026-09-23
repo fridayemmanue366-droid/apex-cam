@@ -514,6 +514,25 @@ async def live_tick(session_id: str = Form(...), streaming: str = Form("false"),
     return {"stopped": False}
 
 
+@router.post("/live/token")
+async def live_token(session_id: str = Form(...), uid: int = Depends(current_user)) -> dict:
+    """fal only: a FRESH short-lived JWT for a session that's already running.
+    The app reconnects on its own when a connection drops, and used to reuse
+    the token it was handed at /live/start -- which expires after 5 minutes,
+    so any reconnect after that could never succeed. Only for the caller's own
+    live session; no credit changes hands here (the tick meter does that)."""
+    sess = _live.get(session_id)
+    if not sess or sess["uid"] != uid or sess.get("provider") != "fal":
+        raise HTTPException(404, "No such session")
+    _require_not_paused(uid)
+    if db.credit_seconds(uid) < 1.0:
+        raise HTTPException(402, "Not enough credit — top up first")
+    try:
+        return {"jwt": fal_lucy.mint_token(), "model": fal_lucy.LIVE_MODEL}
+    except Exception as exc:
+        raise HTTPException(502, f"Could not refresh live token: {exc}")
+
+
 @router.post("/live/prompt")
 async def live_prompt(session_id: str = Form(...), prompt: str = Form(...),
                       uid: int = Depends(current_user)) -> dict:

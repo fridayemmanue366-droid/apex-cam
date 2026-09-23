@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import random
 import threading
@@ -76,6 +77,64 @@ FIRST_FRAME_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_FIRST_FRAME_S", "20"))
 # real frames are flowing). Give up after this many CONSECUTIVE attempts that
 # never deliver a single live frame, instead of retrying indefinitely.
 MAX_DEAD_ATTEMPTS = int(os.environ.get("APEXCAM_LUCY_MAX_DEAD_ATTEMPTS", "4"))
+# fal answers "Concurrent session limit reached." when every Lucy slot is busy
+# (seen 2026-09-23 coming and going on its own, with nothing of ours running).
+# It arrives BEFORE any video is set up, so waiting it out costs nothing --
+# but the old 2-4s retry just hammered it and burned the dead-attempt cap in
+# seconds. Wait longer between tries, and give up after this long in total.
+BUSY_RETRY_S = float(os.environ.get("APEXCAM_LUCY_BUSY_RETRY_S", "10"))
+BUSY_GIVE_UP_S = float(os.environ.get("APEXCAM_LUCY_BUSY_GIVE_UP_S", "90"))
+# Video that arrives but can't be decoded (seen 2026-09-23: connected, fal
+# sending, every packet "Vp8Decoder() failed to decode") is billed like working
+# video. Once this many damaged packets pile up with no good frame, reconnect
+# right away instead of waiting out the full FIRST_FRAME_TIMEOUT.
+BAD_PACKETS_RECONNECT = int(os.environ.get("APEXCAM_LUCY_BAD_PACKETS", "40"))
+
+
+class _DecodeFailureCounter(logging.Filter):
+    """aiortc only LOGS a damaged incoming packet (and drops it) -- nothing
+    ever reaches our code, so "video is arriving but unreadable" looked exactly
+    like "fal sent nothing". Count those log lines so the engine can tell."""
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if "failed to decode" in record.getMessage():
+            self.count += 1
+        return True
+
+
+_decode_failures = _DecodeFailureCounter()
+for _name in ("aiortc.codecs.vpx", "aiortc.codecs.h264"):
+    logging.getLogger(_name).addFilter(_decode_failures)
+
+
+def _frame_for_send(img: np.ndarray) -> np.ndarray:
+    """Camera frame -> what Lucy gets: 16:9 (center-cropped, never squashed --
+    a 4:3 camera used to be stretched, and the one test run that got unreadable
+    video back was exactly that), capped at SEND_WIDTH x SEND_HEIGHT but NOT
+    enlarged. Sending a 640x360 camera at its own size tested faster to first
+    frame (6s vs 9s) and smoother (~29 vs ~18 fps) than blowing it up to 720p."""
+    import cv2
+    h, w = img.shape[:2]
+    target = SEND_WIDTH / SEND_HEIGHT
+    if abs(w / h - target) > 0.01:
+        if w / h > target:
+            cw = int(round(h * target))
+            x = (w - cw) // 2
+            img = img[:, x:x + cw]
+        else:
+            ch = int(round(w / target))
+            y = (h - ch) // 2
+            img = img[y:y + ch]
+        h, w = img.shape[:2]
+    if w > SEND_WIDTH:
+        w, h = SEND_WIDTH, SEND_HEIGHT
+    w, h = w - (w % 2), h - (h % 2)          # VP8/H264 want even sizes
+    if (w, h) != (img.shape[1], img.shape[0]):
+        img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+    return np.ascontiguousarray(img)
 
 
 def _load_local_key() -> str | None:
@@ -142,6 +201,11 @@ class LucyProEngine:
         # Cloud mode: server minted this JWT with ITS key; this machine never
         # sees the raw fal API key. Mirrors lucy_pro.start_cloud(livekit_url, token).
         self._cloud: tuple[str, str] | None = None   # (jwt, model)
+        # Cloud mode: asks our server for a FRESH jwt before a reconnect (the
+        # first one expires after 5 min). Set by routes/pro.py; returns
+        # (jwt, model) or raises.
+        self.token_refresher = None
+        self._send_shape: tuple = (SEND_HEIGHT, SEND_WIDTH, 3)
         self._load_config()
 
     # --- persistence ---------------------------------------------------------
@@ -254,7 +318,20 @@ class LucyProEngine:
             return frame_bgr
         if out.shape[:2] != frame_bgr.shape[:2]:
             import cv2
-            out = cv2.resize(out, (frame_bgr.shape[1], frame_bgr.shape[0]))
+            fh, fw = frame_bgr.shape[:2]
+            oh, ow = out.shape[:2]
+            if abs(fw / fh - ow / oh) < 0.01:
+                out = cv2.resize(out, (fw, fh))
+            else:
+                # Lucy got a 16:9 center crop of a differently-shaped camera
+                # (see _frame_for_send): hand it back in the camera's shape
+                # with bars around it, instead of stretching the face.
+                sc = min(fw / ow, fh / oh)
+                nw, nh = int(ow * sc), int(oh * sc)
+                canvas = np.zeros_like(frame_bgr)
+                x, y = (fw - nw) // 2, (fh - nh) // 2
+                canvas[y:y + nh, x:x + nw] = cv2.resize(out, (nw, nh))
+                out = canvas
         return out
 
     # --- cloud mode (server-issued JWT; no raw key on this machine) ---------
@@ -262,12 +339,14 @@ class LucyProEngine:
         if self._enabled:
             self._stop_session()
         self._cloud = (jwt, model)
+        self.token_refresher = None   # the caller sets this session's own, if any
         self._last_error = None
         self._enabled = True
         self._start_session()
 
     def stop_cloud(self) -> None:
         self._cloud = None
+        self.token_refresher = None
         self._enabled = False
         self._stop_session()
 
@@ -313,13 +392,39 @@ class LucyProEngine:
         entirely (stops opening new billable fal connections) instead of
         retrying forever — see MAX_DEAD_ATTEMPTS's comment above."""
         dead_attempts = 0
+        attempt = 0
+        busy_since: float | None = None
         while not self._stop.is_set():
+            busy = False
             try:
+                if attempt > 0:
+                    self._refresh_cloud_token()
+                attempt += 1
                 await self._session_once()
             except Exception as exc:
-                self._last_error = str(exc)
-                log.debug("Apex Pro (fal) session error (will retry): %s", exc)
+                msg = str(exc)
+                busy = "Concurrent session limit" in msg
+                self._last_error = ("Lucy's servers are busy right now — retrying…"
+                                    if busy else msg)
+                log.warning("Apex Pro (fal) session ended (will retry): %s", msg)
             got_live = self._live_flag
+            if busy and not got_live:
+                # Rejected before any video was set up: not billed, not "dead".
+                self._live_flag = False
+                self._connected = False
+                if self._stop.is_set():
+                    return
+                busy_since = busy_since or time.time()
+                if time.time() - busy_since > BUSY_GIVE_UP_S:
+                    self._last_error = ("Lucy's servers stayed busy for too long — "
+                                        "please try GO LIVE again in a few minutes.")
+                    log.warning("Apex Pro (fal): giving up, fal busy for %.0fs", BUSY_GIVE_UP_S)
+                    self._enabled = False
+                    self._cloud = None
+                    return
+                await asyncio.sleep(BUSY_RETRY_S + random.uniform(0, 3.0))
+                continue
+            busy_since = None
             self._live_flag = False
             self._connected = False   # belt-and-suspenders: this attempt's connection is over either way
             if self._stop.is_set():
@@ -337,6 +442,17 @@ class LucyProEngine:
             delay = min(2.0 * dead_attempts, 10.0) + random.uniform(0, 1.0)
             await asyncio.sleep(delay)
 
+    def _refresh_cloud_token(self) -> None:
+        """Before a RECONNECT in cloud mode, swap in a fresh JWT from our
+        server -- the original one is only good for 5 minutes. If the server
+        can't be reached, keep the old one (it may still be valid)."""
+        if self._cloud is None or self.token_refresher is None:
+            return
+        try:
+            self._cloud = self.token_refresher()
+        except Exception as exc:
+            log.warning("Apex Pro (fal): could not refresh live token: %s", exc)
+
     async def _session_once(self) -> None:
         import msgpack
         import websockets
@@ -348,15 +464,17 @@ class LucyProEngine:
 
         class PipeTrack(VideoStreamTrack):
             async def recv(self):
-                import cv2
                 pts, tb = await self.next_timestamp()
                 with engine._lock:
                     img = engine._in_frame
                 if img is None:
-                    img = np.zeros((SEND_HEIGHT, SEND_WIDTH, 3), np.uint8)
-                elif img.shape[0] != SEND_HEIGHT or img.shape[1] != SEND_WIDTH:
-                    img = cv2.resize(img, (SEND_WIDTH, SEND_HEIGHT))
-                f = VideoFrame.from_ndarray(np.ascontiguousarray(img), format="bgr24")
+                    # Same size real frames will be, so the stream doesn't
+                    # change resolution the moment the camera kicks in.
+                    img = np.zeros(engine._send_shape, np.uint8)
+                else:
+                    img = _frame_for_send(img)
+                    engine._send_shape = img.shape
+                f = VideoFrame.from_ndarray(img, format="bgr24")
                 f.pts, f.time_base = pts, tb
                 return f
 
@@ -452,6 +570,7 @@ class LucyProEngine:
                 await send({"type": "offer", "sdp": pc.localDescription.sdp})
 
                 self._last_frame_at = time.time()   # start the stall clock at connect
+                bad_at_start = _decode_failures.count
                 while not self._stop.is_set():
                     # (re)send prompt/reference whenever they change — also covers
                     # the very first send, right after the offer goes out.
@@ -471,6 +590,12 @@ class LucyProEngine:
                     # completing) hung here forever: no timeout, no error, and it
                     # never even reached the outer retry loop to count as a dead
                     # attempt. Now it applies from the very first connection attempt.
+                    bad = _decode_failures.count - bad_at_start
+                    if bad and not self._live_flag:
+                        self._last_error = (f"video is arriving from fal but can't be decoded "
+                                            f"({bad} damaged packets)")
+                        if bad >= BAD_PACKETS_RECONNECT:
+                            raise RuntimeError(self._last_error + " — reconnecting")
                     deadline = STALL_TIMEOUT if self._live_flag else FIRST_FRAME_TIMEOUT
                     if time.time() - self._last_frame_at > deadline:
                         reason = "frames stopped arriving" if self._live_flag else "no frames ever arrived"
