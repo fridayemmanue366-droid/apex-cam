@@ -13,6 +13,7 @@ import {
   encodeWav,
   rms,
 } from "../lib/audioRecorder";
+import frontendVersionTxt from "../../public/frontend-version.txt?raw";
 
 // Apex Pro — its OWN universe, separate from local Apex Cam: its own sign-in,
 // its own pay-per-call credits, its own cloud engine (currently Lucy Realtime,
@@ -21,6 +22,10 @@ import {
 // nothing here is a stub for something half-working.
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Baked in at build time (publish-update.ps1 bumps it before building), so the
+// screen always shows the version it really is -- proof an update landed.
+const SCREEN_VERSION = frontendVersionTxt.trim() || "?";
 
 type SubPage = "playground" | "about" | "privacy";
 
@@ -44,19 +49,6 @@ const MODELS: ModelDef[] = [
     tag: "Restyle a recorded video", status: "available" },
   { id: "voice-note", name: "Voice Note", icon: "🎙️",
     tag: "Clone a voice, type a message, get an audio file", status: "available" },
-];
-
-// With a reference photo loaded, these are added AFTER the engine's own
-// "become the character in the reference image" instruction (see
-// backend fal_pro.effective_prompt) -- so they describe lighting/scene only,
-// never a different person (the old "30-year-old man" / "young woman" presets
-// contradicted the reference photo and could stall Lucy entirely).
-const LOOKS = [
-  "Swap me with the person in the reference image",
-  "Soft cinematic lighting",
-  "Bright studio lighting",
-  "Warm natural daylight",
-  "Keep my background, only swap the person",
 ];
 
 // Ready-made faces to test Lucy Realtime with, no upload needed. Every one
@@ -131,6 +123,11 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   const [modelId, setModelId] = useState<string>(MODELS[0].id);
   const [sub, setSub] = useState<SubPage>("playground");
   const [prompt, setPrompt] = useState("");
+  const [engineVersion, setEngineVersion] = useState("…");
+  useEffect(() => {
+    fetch("http://127.0.0.1:8790/health").then((r) => r.json())
+      .then((h) => setEngineVersion(String(h.update ?? "?"))).catch(() => setEngineVersion("?"));
+  }, []);
   const [voice, setVoice] = useState<number>(0);
   const [pricing, setPricing] = useState<{ usd_per_minute: number; charge_currency: string; charge_per_minute: number } | null>(null);
   const [imgPricing, setImgPricing] = useState<{ credits: number; currency: string; usd: number; charge: number } | null>(null);
@@ -464,6 +461,9 @@ export function ProTab({ onExit }: { onExit: () => void }) {
         <div>
           <h1 className="pro-title">APEX&nbsp;PRO</h1>
           <p className="pro-sub">Cloud studio · pay-per-minute · photorealistic full-cam persona</p>
+          <p className="pro-muted" style={{ margin: "2px 0 0", fontSize: 12 }}>
+            App version: screen v{SCREEN_VERSION} · engine v{engineVersion}
+          </p>
         </div>
         <div className="pro-hero-right">
           <span className="pro-pill" title={`$${perSec.toFixed(2)}/sec`}>
@@ -745,21 +745,15 @@ function LucyRealtimePlayground(props: {
       </div>
 
       <div className="pro-card">
-        <h3>Look / prompt</h3>
+        <h3>Prompt (optional)</h3>
+        {/* Owner: no ready-made prompt buttons. Empty = the engine's own
+            "swap me with the person in the reference image" instruction. */}
         <input className="pro-input" type="text" value={prompt}
-               placeholder={pro.has_reference ? "Swap me with the person in the reference image"
-                                              : "Describe your look…"}
+               placeholder="Swap me with this person"
                onChange={(e) => setPrompt(e.target.value)} onBlur={() => save(pro.enabled)} />
-        <div className="row preset-row" style={{ marginTop: 10 }}>
-          {LOOKS.map((l) => (
-            <button key={l} type="button" className="pro-chip"
-                    onClick={() => { setPrompt(l); save(pro.enabled, l); }}>
-              {l.split(",")[0]}
-            </button>
-          ))}
-        </div>
         <p className="pro-muted pro-note">
-          Updates live while you're already GO LIVE — no need to stop and restart.
+          Leave it empty to simply swap you with the person in your reference photo. Changes
+          apply live while you're already GO LIVE.
         </p>
       </div>
 

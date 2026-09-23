@@ -15,7 +15,14 @@ router = APIRouter(tags=["system"])
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": __version__, "env": settings.env}
+    # "update" = the OTA backend number (backend-version.txt), shown in the app
+    # so the owner can see at a glance which engine version is really running.
+    try:
+        from pathlib import Path
+        update = (Path(__file__).resolve().parents[3] / "backend-version.txt").read_text().strip()
+    except Exception:
+        update = "?"
+    return {"status": "ok", "version": __version__, "env": settings.env, "update": update}
 
 
 @router.get("/capabilities")

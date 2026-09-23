@@ -294,6 +294,11 @@ class LucyProEngine:
                 self._prompt = str(json.loads(CONFIG_FILE.read_text()).get("prompt", ""))
         except Exception:
             pass
+        if self._prompt.strip().lower() in _OLD_PERSON_PRESETS:
+            # Clear an old saved "30-year-old man"-style preset for good, so the
+            # prompt box stops showing it (the owner kept seeing it after the
+            # update even though the engine already ignored it).
+            self.prompt = ""
         if REFERENCE_IMG.exists():
             try:
                 self._reference = REFERENCE_IMG.read_bytes()
