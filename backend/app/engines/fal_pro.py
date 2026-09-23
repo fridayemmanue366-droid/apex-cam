@@ -41,6 +41,7 @@ import base64
 import json
 import logging
 import os
+import sys
 import random
 import threading
 import time
@@ -157,10 +158,10 @@ for _name in ("aiortc.codecs.vpx", "aiortc.codecs.h264"):
 # photorealistic person, studio lighting") and the app's look presets ("30-year-
 # old man", "young woman"...) never mentioned the reference at all, and the
 # presets even described a DIFFERENT person than the photo.
-REFERENCE_SWAP_PROMPT = (
-    "Replace the person in the video with the character in the reference image, "
-    "keeping the reference's face, hair and skin tone exactly, while following the "
-    "head movements and expressions of the person in the video. Photorealistic.")
+# Owner (2026-09-23): send the customer's prompt EXACTLY as typed -- never
+# rewrite or pad it. Only an EMPTY box gets this short default, the same plain
+# style that worked for the owner on fal's playground.
+REFERENCE_SWAP_PROMPT = "Swap me with the person in the reference image"
 
 
 # The app's old one-click looks, still saved in many installs' pro_config.json.
@@ -174,19 +175,14 @@ _OLD_PERSON_PRESETS = {p.lower() for p in (
 
 
 def effective_prompt(prompt: str, has_reference: bool) -> str:
-    """What actually goes to Lucy. With a reference photo, the swap instruction
-    always leads; the customer's own text is kept as extra detail unless it
-    already talks about the reference itself."""
+    """What actually goes to Lucy, in the SAME message as the reference photo:
+    the customer's own text, unchanged. Empty -> the short swap default."""
     prompt = (prompt or "").strip()
-    if not has_reference:
-        return prompt or "a photorealistic person, studio lighting"
     if prompt.lower() in _OLD_PERSON_PRESETS:
         prompt = ""   # a saved old preset describing someone else -- see above
-    if not prompt:
-        return REFERENCE_SWAP_PROMPT
-    if "reference" in prompt.lower():
+    if prompt:
         return prompt
-    return f"{REFERENCE_SWAP_PROMPT} {prompt}"
+    return REFERENCE_SWAP_PROMPT if has_reference else "a photorealistic person"
 
 
 def _frame_for_send(img: np.ndarray) -> np.ndarray:
@@ -456,7 +452,23 @@ class LucyProEngine:
 
     def _run(self) -> None:
         try:
-            asyncio.run(self._session_loop())
+            if sys.platform == "win32":
+                # REAL BUG (2026-09-23, from the owner's first log file): on
+                # Windows, asyncio's default Proactor loop CLOSES a UDP socket
+                # the moment Windows reports "connection reset" (WinError 10054
+                # -- just an ICMP "port unreachable" from one failed ICE check).
+                # All ICE checks share the socket that carries the video, so
+                # Lucy connected and then its video socket was shut: 169 of
+                # those in one GO LIVE. The Selector loop reports the same
+                # error to the protocol and keeps the socket open, as intended.
+                loop = asyncio.SelectorEventLoop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._session_loop())
+                finally:
+                    loop.close()
+            else:
+                asyncio.run(self._session_loop())
         except Exception as exc:
             self._last_error = str(exc)
             log.warning("Apex Pro (fal) session ended: %s", exc)
@@ -482,7 +494,12 @@ class LucyProEngine:
             busy = False
             try:
                 if attempt > 0:
-                    self._refresh_cloud_token()
+                    # A blocking HTTP call -- keep it off this loop so the
+                    # previous session's cleanup isn't frozen meanwhile.
+                    await asyncio.get_running_loop().run_in_executor(
+                        None, self._refresh_cloud_token)
+                    if self._stop.is_set():
+                        return   # customer pressed Stop while we were refreshing
                 attempt += 1
                 await self._session_once()
             except Exception as exc:
@@ -652,7 +669,13 @@ class LucyProEngine:
                         self._connected = True
 
                 await pc.setLocalDescription(await pc.createOffer())
-                await send({"type": "offer", "sdp": pc.localDescription.sdp})
+                try:
+                    await send({"type": "offer", "sdp": pc.localDescription.sdp})
+                except websockets.ConnectionClosed:
+                    # fal hung up before our offer: in every logged case it had
+                    # just sent "Concurrent session limit reached." (while we
+                    # were busy building the offer, so we never read it).
+                    raise RuntimeError("Concurrent session limit reached (fal closed before offer)")
 
                 self._last_frame_at = time.time()   # start the stall clock at connect
                 bad_at_start = _decode_failures.count
