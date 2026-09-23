@@ -26,7 +26,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from app import db, decart, fal_image, fal_lucy, fal_voice_note, pricing
@@ -42,13 +42,17 @@ def _require_not_paused(uid: int) -> None:
     Accounts in cloud_paused_bypass_emails() (admin-panel editable) get
     through anyway -- lets the owner test a fix live on their own account
     without reopening the block to every customer."""
+    if _paused_for(uid):
+        raise HTTPException(503, pricing.cloud_paused_message())
+
+
+def _paused_for(uid: int | None) -> bool:
+    """Is the kill switch on FOR THIS CALLER (None = not signed in)?"""
     if not pricing.cloud_paused():
-        return
-    u = db.get_user(uid)
+        return False
+    u = db.get_user(uid) if uid is not None else None
     email = (u["email"] if u else "").lower()
-    if email in pricing.cloud_paused_bypass_emails():
-        return
-    raise HTTPException(503, pricing.cloud_paused_message())
+    return email not in pricing.cloud_paused_bypass_emails()
 
 # Which realtime engine /live/start hands out. Must match the customer app's
 # default (backend/app/engines/pro_engine.py) or a customer gets credentials
@@ -117,11 +121,19 @@ def _drop_stale_photo_jobs() -> None:
 
 
 @router.get("/pricing")
-def studio_pricing() -> dict:
+def studio_pricing(authorization: str = Header(default="")) -> dict:
     """Live per-second sell rate for every metered mode — the client reads
     THIS instead of hardcoding a ratio to the live rate (video/restyle each
     have their own independent, admin-tunable margin now, not a fixed
-    multiple of live's)."""
+    multiple of live's).
+
+    `cloud_paused` is per caller: a bypass-list account (signed in — the app
+    sends its token here) sees False, or its own app kept showing the pause
+    lightbox and banner even though the server would let it through."""
+    try:
+        uid = current_user(authorization) if authorization else None
+    except HTTPException:
+        uid = None
     return {
         "currency": pricing.currency(),
         "live_usd_per_sec": pricing.mode_sell_usd_per_sec("live"),
@@ -129,7 +141,7 @@ def studio_pricing() -> dict:
         "restyle_usd_per_sec": pricing.mode_sell_usd_per_sec("restyle"),
         "cloud_voice_usd_per_sec": pricing.mode_sell_usd_per_sec("cloud_voice"),
         # Live/Image/Voice Note only -- Video/Restyle run on Decart, unaffected.
-        "cloud_paused": pricing.cloud_paused(),
+        "cloud_paused": _paused_for(uid),
         "cloud_paused_message": pricing.cloud_paused_message(),
     }
 
