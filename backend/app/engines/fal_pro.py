@@ -89,7 +89,7 @@ BUSY_GIVE_UP_S = float(os.environ.get("APEXCAM_LUCY_BUSY_GIVE_UP_S", "90"))
 # sending, every packet "Vp8Decoder() failed to decode") is billed like working
 # video. Once this many damaged packets pile up with no good frame, reconnect
 # right away instead of waiting out the full FIRST_FRAME_TIMEOUT.
-BAD_PACKETS_RECONNECT = int(os.environ.get("APEXCAM_LUCY_BAD_PACKETS", "40"))
+BAD_PACKETS_RECONNECT = int(os.environ.get("APEXCAM_LUCY_BAD_PACKETS", "15"))
 
 
 class _DecodeFailureCounter(logging.Filter):
@@ -440,6 +440,7 @@ class LucyProEngine:
         self._sent_ref = None
         with self._lock:
             self._out_frame = None
+            self._in_frame = None   # wait for a FRESH camera frame (see _session_once)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -582,6 +583,21 @@ class LucyProEngine:
 
         def dec(r):
             return msgpack.unpackb(r) if isinstance(r, (bytes, bytearray)) else json.loads(r)
+
+        # REAL BUG (2026-09-24, watched live in the owner's app): GO LIVE starts
+        # this session and the camera at the same time, and the camera took ~3s
+        # longer to open than fal took to connect -- so Lucy's session began on
+        # black placeholder frames, and right when the real camera kicked in
+        # the returned video turned undecodable (every packet "failed to
+        # decode"). Standalone tests always had a frame ready, so never hit it.
+        # Don't start a fal session until a real camera frame is here.
+        waited = time.time()
+        while self._in_frame is None and not self._stop.is_set() and time.time() - waited < 20:
+            await asyncio.sleep(0.1)
+        if self._stop.is_set():
+            return
+        if self._in_frame is not None:
+            self._send_shape = _frame_for_send(self._in_frame).shape
 
         if self._cloud is not None:
             jwt, model = self._cloud
