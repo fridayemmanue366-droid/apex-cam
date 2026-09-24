@@ -593,6 +593,14 @@ class LucyProEngine:
 
         url = f"wss://fal.run/{model}/realtime?fal_jwt_token={jwt}"
         pc = None
+        # REAL BUG (2026-09-24): these were only reset when GO LIVE started, so
+        # after ANY reconnect (a "busy" retry, a dropped connection) the new
+        # fal session was never sent the prompt or reference photo -- it had
+        # been "sent" to the previous, dead connection. Lucy then sat waiting
+        # for inputs: "fal accepted the connection but hasn't sent any video".
+        # Every connection is a fresh fal session and needs both again.
+        self._sent_prompt = None
+        self._sent_ref = None
         try:
             async with websockets.connect(url, max_size=None, open_timeout=45) as ws:
                 async def send(o: dict) -> None:
