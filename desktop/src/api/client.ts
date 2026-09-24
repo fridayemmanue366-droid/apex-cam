@@ -187,6 +187,8 @@ export interface ProStatus {
   minutes_remaining: number;
   has_credit: boolean;
   error: string | null;
+  /** GO LIVE progress: camera | connecting | busy | starting | reconnecting | live | "" */
+  stage?: string;
 }
 
 export interface Credits {

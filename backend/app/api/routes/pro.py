@@ -35,6 +35,7 @@ class ProStatus(BaseModel):
     minutes_remaining: float = 0.0
     has_credit: bool = False
     error: str | None = None
+    stage: str = ""   # GO LIVE progress for the UI -- see fal_pro's _stage
 
 
 class ProConfig(BaseModel):

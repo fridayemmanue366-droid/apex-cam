@@ -27,6 +27,15 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // screen always shows the version it really is -- proof an update landed.
 const SCREEN_VERSION = frontendVersionTxt.trim() || "?";
 
+// What the customer sees while GO LIVE is still setting up (engine `stage`).
+const STAGE_TEXT: Record<string, string> = {
+  camera: "Starting your camera…",
+  connecting: "Connecting to Lucy…",
+  busy: "Lucy's servers are busy — trying again for you…",
+  starting: "Lucy is getting ready — your video appears in a few seconds…",
+  reconnecting: "Reconnecting to Lucy…",
+};
+
 type SubPage = "playground" | "about" | "privacy";
 
 interface ModelDef {
@@ -213,6 +222,26 @@ export function ProTab({ onExit }: { onExit: () => void }) {
     }, 1500);
     return () => clearInterval(t);
   }, [entered]);
+
+  // Owner (2026-09-24): open the camera as soon as Apex Pro is opened, not at
+  // GO LIVE -- the webcam takes ~5s to start, and GO LIVE now waits for a real
+  // camera frame before connecting to Lucy. Local only: no credit is used
+  // until GO LIVE actually connects. Released again on leaving Apex Pro,
+  // unless it was already running before or Lucy is live.
+  const proEnabledRef = useRef(false);
+  useEffect(() => { proEnabledRef.current = !!pro?.enabled; }, [pro?.enabled]);
+  useEffect(() => {
+    let startedHere = false;
+    if (!pipeline.active && !pipeline.starting) {
+      startedHere = true;
+      pipeline.start().catch(() => undefined);
+    }
+    return () => {
+      if (startedHere && !proEnabledRef.current) pipeline.stop().catch(() => undefined);
+    };
+    // Once per visit to Apex Pro, on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Independent of `entered` (the pause banner has to be visible BEFORE
   // someone clicks GO LIVE, not only after) — refreshes the owner's cloud-
@@ -523,7 +552,13 @@ export function ProTab({ onExit }: { onExit: () => void }) {
         </nav>
 
         <div className="pro-page">
-          {pro.error && <p className="error">{pro.error}</p>}
+          {pro.enabled && pro.stage && STAGE_TEXT[pro.stage] ? (
+            // The normal few-second GO LIVE wait: friendly progress, not the
+            // engine's internal error text (which read like a failure).
+            <p className="pro-muted">{STAGE_TEXT[pro.stage]}</p>
+          ) : (
+            pro.error && <p className="error">{pro.error}</p>
+          )}
           {liveErr && <p className="error">{liveErr}</p>}
 
           {modelId === "credits" ? (

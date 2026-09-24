@@ -271,6 +271,11 @@ class LucyProEngine:
         self._sent_prompt: str | None = None
         self._live_flag = False
         self._connected = False   # drives billing -- see the `live` property's docstring
+        # Where a GO LIVE is up to, for friendly on-screen progress (owner: the
+        # normal few-second wait used to show error-sounding text). One of
+        # "camera", "connecting", "busy", "starting", "reconnecting"; "live"
+        # and "" (off) are derived in status().
+        self._stage = ""
         self._last_frame_at = 0.0     # last time a real output frame arrived
         self._last_active = 0.0       # last time process() was called
         # Cloud mode: server minted this JWT with ITS key; this machine never
@@ -359,6 +364,7 @@ class LucyProEngine:
             "has_reference": self._reference is not None or REFERENCE_IMG.exists(),
             "prompt": self._prompt,
             "live": self.live,
+            "stage": ("" if not self._enabled else "live" if self._live_flag else self._stage),
             "error": self._last_error,
         }
 
@@ -441,6 +447,7 @@ class LucyProEngine:
         with self._lock:
             self._out_frame = None
             self._in_frame = None   # wait for a FRESH camera frame (see _session_once)
+        self._stage = "camera"
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -516,6 +523,7 @@ class LucyProEngine:
                 self._connected = False
                 if self._stop.is_set():
                     return
+                self._stage = "busy"
                 busy_since = busy_since or time.time()
                 if time.time() - busy_since > BUSY_GIVE_UP_S:
                     self._last_error = ("Lucy's servers stayed busy for too long — "
@@ -531,6 +539,7 @@ class LucyProEngine:
             self._connected = False   # belt-and-suspenders: this attempt's connection is over either way
             if self._stop.is_set():
                 return
+            self._stage = "reconnecting"
             dead_attempts = 0 if got_live else dead_attempts + 1
             if dead_attempts >= MAX_DEAD_ATTEMPTS:
                 self._last_error = (self._last_error or "Could not connect") + \
@@ -598,6 +607,8 @@ class LucyProEngine:
             return
         if self._in_frame is not None:
             self._send_shape = _frame_for_send(self._in_frame).shape
+        if self._stage not in ("busy", "reconnecting"):
+            self._stage = "connecting"
 
         if self._cloud is not None:
             jwt, model = self._cloud
@@ -695,6 +706,7 @@ class LucyProEngine:
                 await pc.setLocalDescription(await pc.createOffer())
                 try:
                     await send({"type": "offer", "sdp": pc.localDescription.sdp})
+                    self._stage = "starting"
                 except websockets.ConnectionClosed:
                     # fal hung up before our offer: in every logged case it had
                     # just sent "Concurrent session limit reached." (while we
