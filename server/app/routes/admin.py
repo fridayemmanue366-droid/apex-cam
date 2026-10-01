@@ -747,7 +747,10 @@ function renderPricing(p){
       'value="'+d.margin+'" style="width:70px"></td>'+
       '<td class="right">$'+d.sell_usd_per_sec+'/s</td>'+
       '<td class="right green">'+d.profit_pct+'%</td>'+
-      '<td><button class="grant" onclick="saveModeMargin(\''+m+'\')">Save</button></td></tr>';
+      // data-mode, not a quoted JS argument: this page lives in a Python
+      // string, where an escaped quote collapses to a bare one -- that broke
+      // the WHOLE panel script (every box showed "—"; found 2026-10-01).
+      '<td><button class="grant" data-mode="'+m+'" onclick="saveModeMargin(this.dataset.mode)">Save</button></td></tr>';
   }).join('');
 }
 $('rmode').onchange = () => {
