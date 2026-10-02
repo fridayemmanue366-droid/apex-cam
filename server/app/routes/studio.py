@@ -488,7 +488,12 @@ async def live_start(prompt: str = Form(""), reference: UploadFile | None = File
         try:
             jwt = fal_lucy.mint_token()
         except Exception as exc:
-            raise HTTPException(502, f"Could not start live: {exc}")
+            # A provider-side block (e.g. fal "User is locked ... Exhausted balance",
+            # HTTP 403) used to reach customers as a raw "HTTP Error 403". Nothing is
+            # billed here -- billing only starts once Lucy actually connects.
+            print(f"live/start: fal token mint failed: {exc}", flush=True)
+            raise HTTPException(503, "Lucy Realtime is temporarily unavailable — please try "
+                                     "again a little later. Your credit is safe; nothing was charged.")
         _live[sid] = {"uid": uid, "provider": "fal", "stop": asyncio.Event(),
                       "last_tick": time.monotonic()}
         return {"session_id": sid, "provider": "fal", "jwt": jwt, "model": fal_lucy.LIVE_MODEL}
