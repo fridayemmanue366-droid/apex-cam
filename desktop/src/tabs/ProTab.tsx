@@ -1527,6 +1527,8 @@ function VoiceNotePlayground(props: { account: Account; refreshAccount: () => vo
 
   const noCredit = (account.credit_seconds ?? 0) <= 0;
 
+  if (!account.voice_licensed) return <VoiceLicenseLock />;
+
   return (
     <div className="pro-card">
       <div className="pro-editor">
@@ -1582,6 +1584,45 @@ function VoiceNotePlayground(props: { account: Account; refreshAccount: () => vo
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Voice Note is locked until the one-time Apex Voice license is bought (owner
+// decision 2026-10-06; the server enforces it too). The account is re-polled
+// every 1.5s, so this unlocks on its own once the payment is approved.
+function VoiceLicenseLock() {
+  const [price, setPrice] = useState<LicensePricing | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { cloud.voiceLicensePricing().then(setPrice).catch(() => undefined); }, []);
+  const label = price
+    ? (price.currency === "USD" ? `$${price.charge.toFixed(2)}` : `${price.currency} ${price.charge.toLocaleString()}`)
+    : "…";
+  const buy = () => {
+    setMsg(null);
+    setBusy(true);
+    cloud.startVoiceLicense()
+      .then((r) => {
+        window.open(r.link, "_blank");
+        setMsg(price?.mode === "manual"
+          ? "Finish the payment — Voice Note unlocks once your payment is approved."
+          : "Finish the payment — Voice Note unlocks here automatically.");
+      })
+      .catch((e) => setMsg(e instanceof Error ? e.message : "Could not start payment"))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="pro-card">
+      <h3>🔒 Unlock Voice Note</h3>
+      <p className="pro-muted">
+        Voice Note needs a one-time <b>Apex Voice license</b> — pay once, use it forever.
+        Each voice note still uses credits as normal.
+      </p>
+      <button type="button" className="pro-goldbtn" disabled={busy || !price} onClick={buy}>
+        {busy ? "Opening payment…" : `✦ Unlock — ${label} one-time`}
+      </button>
+      {msg && <p className="pro-muted pro-note">{msg}</p>}
     </div>
   );
 }

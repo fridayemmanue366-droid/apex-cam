@@ -99,6 +99,14 @@ audio{width:100%;margin-top:10px}
     </div>
   </div>
 
+  <div class="card hidden" id="vlicCard">
+    <h2>🔒 Unlock Voice Note</h2>
+    <p class="muted">Voice Note needs a one-time Apex Voice license — pay once, use it forever.
+      Each voice note still uses credits as normal.</p>
+    <button class="gold" id="vlicBtn" onclick="buyVoiceLicense()">Unlock — <span id="vlicPrice">…</span> one-time</button>
+    <div id="vlicMsg"></div>
+  </div>
+
   <div class="card" id="buyCard">
     <h2>Buy credit</h2>
     <div id="pkgs"><p class="muted">Loading packages…</p></div>
@@ -225,6 +233,25 @@ async function afterSignIn(){
   showMain();
   loadPackages();
   updatePricing();
+  loadVoiceLicense();
+}
+
+async function loadVoiceLicense(){
+  if(account.voice_licensed){ $('vlicCard').classList.add('hidden'); return; }
+  $('vlicCard').classList.remove('hidden');
+  try{
+    const p = await apiJson('/pay/voice-license/pricing');
+    if(p.licensed){ $('vlicCard').classList.add('hidden'); return; }
+    $('vlicPrice').textContent = p.currency==='NGN' ? '₦'+Math.round(p.charge).toLocaleString() : '$'+p.charge.toFixed(2);
+  }catch(err){ $('vlicMsg').innerHTML = '<p class="error">' + err.message + '</p>'; }
+}
+async function buyVoiceLicense(){
+  $('vlicMsg').innerHTML = '';
+  try{
+    const d = await apiJson('/pay/voice-license/start', {method:'POST'});
+    window.open(d.link, '_blank');
+    $('vlicMsg').innerHTML = '<p class="muted">Finish the payment, then come back and refresh this page.</p>';
+  }catch(err){ $('vlicMsg').innerHTML = '<p class="error">' + err.message + '</p>'; }
 }
 
 async function loadPackages(){

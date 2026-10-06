@@ -41,6 +41,7 @@ class Me(BaseModel):
     minutes: float
     credits: int   # the SAME balance, shown as Image/Voice-Note credits (not a second wallet)
     licensed: bool  # watermark license -- Lucy Realtime + local face swap output is watermark-free
+    voice_licensed: bool = False  # voice license -- Voice Note unlocked (one-time)
 
 
 def _minutes(seconds: float) -> float:
@@ -84,7 +85,8 @@ def me(uid: int = Depends(current_user)) -> Me:
     return Me(email=u["email"], credit_seconds=u["credit_seconds"],
               minutes=_minutes(u["credit_seconds"]),
               credits=credits_available(u["credit_seconds"]),
-              licensed=db.is_licensed(uid))
+              licensed=db.is_licensed(uid),
+              voice_licensed=db.is_voice_licensed(uid))
 
 
 # Payments, subscription, Decart studio, the auto-update manifest, and

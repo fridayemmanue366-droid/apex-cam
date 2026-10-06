@@ -56,7 +56,11 @@ async function fetchBlob(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-export interface Account { email: string; minutes: number; credit_seconds: number; credits: number; licensed: boolean }
+export interface Account {
+  email: string; minutes: number; credit_seconds: number; credits: number; licensed: boolean;
+  /** One-time Apex Voice license — unlocks Voice Note. */
+  voice_licensed?: boolean;
+}
 export interface Pkg { minutes: number; usd: number; charge: number; currency: string; credits: number }
 export interface SubStatus {
   active: boolean; trial: boolean; ever_paid: boolean; until: number; days_left: number;
@@ -120,6 +124,11 @@ export const cloud = {
   licensePricing: () => call<LicensePricing>("/pay/license/pricing"),
   startLicense: () =>
     call<{ link: string; tx_ref: string }>("/pay/license/start", { method: "POST" }),
+
+  // --- voice license (one-time; unlocks Voice Note) ---
+  voiceLicensePricing: () => call<LicensePricing>("/pay/voice-license/pricing"),
+  startVoiceLicense: () =>
+    call<{ link: string; tx_ref: string }>("/pay/voice-license/start", { method: "POST" }),
 
   // --- studio (metered server-side) ---
   // Per-second sell rate for every metered mode, live from the admin panel —

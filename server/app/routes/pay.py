@@ -21,7 +21,9 @@ from app.deps import current_user
 from app.pricing import (PACKAGES, charge_amount, credits_available, currency,
                          license_charge_amount, license_mode, license_pay_amount,
                          license_usd, pay_charge_amount, pay_currency,
-                         sub_charge_amount, sub_pay_amount, usd_price)
+                         sub_charge_amount, sub_pay_amount, usd_price,
+                         voice_license_charge_amount, voice_license_pay_amount,
+                         voice_license_usd)
 
 router = APIRouter(prefix="/pay", tags=["pay"])
 
@@ -121,6 +123,39 @@ def license_start(uid: int = Depends(current_user)) -> dict:
     return {"link": resp["data"]["link"], "tx_ref": tx_ref}
 
 
+@router.get("/voice-license/pricing")
+def voice_license_pricing(uid: int = Depends(current_user)) -> dict:
+    return {"usd": voice_license_usd(), "charge": voice_license_charge_amount(),
+            "currency": currency(), "mode": license_mode(),
+            "licensed": db.is_voice_licensed(uid)}
+
+
+@router.post("/voice-license/start")
+def voice_license_start(uid: int = Depends(current_user)) -> dict:
+    """One-time checkout (owner set $5) that unlocks Voice Note."""
+    if not FLW_SECRET:
+        raise HTTPException(503, "Payments not configured")
+    if db.is_voice_licensed(uid):
+        raise HTTPException(400, "Voice Note is already unlocked")
+    u = db.get_user(uid)
+    tx_ref = f"apexvlic-{uid}-{uuid.uuid4().hex[:12]}"
+    quoted = voice_license_pay_amount()
+    body = {
+        "tx_ref": tx_ref,
+        "amount": quoted,
+        "currency": pay_currency(),
+        "redirect_url": f"{PUBLIC_URL}/pay/callback",
+        "customer": {"email": u["email"]},
+        "customizations": {"title": "Apex Voice license",
+                           "description": "One-time: unlocks Voice Note (voice clone)"},
+        "meta": {"user_id": uid, "voice_license": True, "charge": quoted},
+    }
+    resp = _flw("POST", "/payments", body)
+    if resp.get("status") != "success":
+        raise HTTPException(502, "Could not start payment")
+    return {"link": resp["data"]["link"], "tx_ref": tx_ref}
+
+
 def _apply(transaction_id: str) -> bool:
     """Verify a transaction and credit the user. Idempotent. Returns True if it
     resulted in (or already was) a successful, correctly-priced payment."""
@@ -146,6 +181,15 @@ def _apply(transaction_id: str) -> bool:
         if abs(amount - sub_pay_amount()) > 1.0:   # amount must match the plan
             return False
         db.extend_subscription(uid, sub_days, tx_ref=tx_ref, detail="subscription")
+        return True
+
+    if meta.get("voice_license"):
+        expected = float(meta.get("charge", 0)) or voice_license_pay_amount()
+        if abs(amount - expected) > max(1.0, expected * 0.02):
+            return False
+        db.record_voice_license_payment(uid, tx_ref, detail="voice license")   # idempotent
+        if license_mode() == "auto":
+            db.set_voice_license(uid, True)
         return True
 
     if meta.get("license"):

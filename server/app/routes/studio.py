@@ -299,6 +299,7 @@ def voicenote_pricing(chars: int = 0) -> dict:
         "usd": pricing.voicenote_sell_usd(chars),
         "charge": pricing.voicenote_charge_amount(chars),
         "max_chars": fal_voice_note.MAX_CHARS,
+        "license_usd": pricing.voice_license_usd(),
     }
 
 
@@ -306,6 +307,11 @@ def voicenote_pricing(chars: int = 0) -> dict:
 async def voicenote_start(reference: UploadFile, text: str = Form(...),
                           uid: int = Depends(current_user)) -> dict:
     _require_not_paused(uid)
+    if not db.is_voice_licensed(uid):
+        # Owner decision (2026-10-06): Voice Note needs a one-time voice license.
+        # Checked BEFORE any credit is spent.
+        raise HTTPException(403, f"Voice Note needs the one-time Apex Voice license "
+                                 f"(${pricing.voice_license_usd():g}). Unlock it first.")
     text = text.strip()
     if not text:
         raise HTTPException(400, "Type something for the voice to say.")

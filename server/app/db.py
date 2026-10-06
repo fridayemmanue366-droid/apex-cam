@@ -65,6 +65,10 @@ def _init(c: sqlite3.Connection) -> None:
     # column added to an existing database never silently un-watermarks anyone.
     if "licensed" not in cols:
         c.execute("ALTER TABLE users ADD COLUMN licensed INTEGER NOT NULL DEFAULT 0")
+    # Voice license (2026-10-06): a one-time purchase (owner set $5) that unlocks
+    # Voice Note (ElevenLabs voice clone). Deny-by-default like `licensed`.
+    if "voice_licensed" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN voice_licensed INTEGER NOT NULL DEFAULT 0")
     c.commit()
 
 
@@ -266,13 +270,51 @@ def pending_licenses() -> list[sqlite3.Row]:
         " GROUP BY u.id ORDER BY paid_at ASC").fetchall()
 
 
+# --- voice license (one-time, gates Voice Note) ----------------------------
+# Same shape as the watermark license above; its payments are kind='voice_license'.
+def is_voice_licensed(uid: int) -> bool:
+    u = get_user(uid)
+    return bool(u["voice_licensed"]) if u else False
+
+
+def set_voice_license(uid: int, licensed: bool) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("UPDATE users SET voice_licensed=? WHERE id=?", (1 if licensed else 0, uid))
+        c.commit()
+
+
+def record_voice_license_payment(uid: int, tx_ref: str, detail: str = "") -> bool:
+    """Idempotent by tx_ref. Does NOT flip voice_licensed -- the caller decides
+    by license_mode() (auto grants now, manual leaves it to the owner)."""
+    with _lock:
+        c = _connect()
+        try:
+            c.execute(
+                "INSERT INTO transactions(user_id,kind,seconds,detail,tx_ref,created)"
+                " VALUES(?,?,?,?,?,?)",
+                (uid, "voice_license", 0, detail or "voice license", tx_ref, time.time()))
+        except sqlite3.IntegrityError:
+            return False
+        c.commit()
+        return True
+
+
+def pending_voice_licenses() -> list[sqlite3.Row]:
+    return _connect().execute(
+        "SELECT u.id, u.email, MIN(t.created) as paid_at"
+        " FROM users u JOIN transactions t ON t.user_id=u.id"
+        " WHERE t.kind='voice_license' AND u.voice_licensed=0"
+        " GROUP BY u.id ORDER BY paid_at ASC").fetchall()
+
+
 # --- reporting (owner panel) ---------------------------------------------
 # Read-only views of the business. Sign convention: topup/refund/subscription are
 # positive, spend is negative. Admin grants are topups whose tx_ref starts
 # 'admin-', which is how comped credit is told apart from real revenue.
 def all_users() -> list[sqlite3.Row]:
     return _connect().execute(
-        "SELECT id,email,credit_seconds,created,access_until,licensed FROM users"
+        "SELECT id,email,credit_seconds,created,access_until,licensed,voice_licensed FROM users"
         " ORDER BY created DESC").fetchall()
 
 

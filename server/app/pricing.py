@@ -370,6 +370,27 @@ def license_mode() -> str:
     return m if m in ("auto", "manual") else "manual"
 
 
+# --- Voice license (one-time, unlocks Voice Note / ElevenLabs voice clone) ---
+# Owner decision (2026-10-06): a one-time $5 to unlock Voice Note; per-message
+# credits are still charged on top. Shares license_mode() (one auto/manual
+# switch for both licenses) and the same display/pay currency split.
+DEFAULT_VOICE_LICENSE_USD = float(os.environ.get("APEXCAM_VOICE_LICENSE_USD", "5"))
+
+
+def voice_license_usd() -> float:
+    return max(0.0, _sf("voice_license_usd", DEFAULT_VOICE_LICENSE_USD))
+
+
+def voice_license_charge_amount() -> float:
+    usd = voice_license_usd()
+    return float(round(usd * effective_rate())) if currency() == "NGN" else usd
+
+
+def voice_license_pay_amount() -> float:
+    usd = voice_license_usd()
+    return float(round(usd * effective_rate())) if pay_currency() == "NGN" else usd
+
+
 # --- Local-app subscription (flat price, separate from the Pro wallet) -------
 SUB_MONTHLY_NGN = float(os.environ.get("APEXCAM_SUB_NGN", "20000"))
 SUB_DAYS = int(os.environ.get("APEXCAM_SUB_DAYS", "30"))
@@ -458,6 +479,8 @@ def pricing_snapshot() -> dict:
         "license_usd": round(license_usd(), 2),
         "license_charge": license_charge_amount(),
         "license_mode": license_mode(),
+        "voice_license_usd": round(voice_license_usd(), 2),
+        "voice_license_charge": voice_license_charge_amount(),
         "modes": {
             m: {
                 "cost_usd_per_sec": COST_USD_PER_SEC[m],
