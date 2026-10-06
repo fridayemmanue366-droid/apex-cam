@@ -514,21 +514,39 @@ async def live_start(prompt: str = Form(""), reference: UploadFile | None = File
 @router.post("/live/tick")
 async def live_tick(session_id: str = Form(...), streaming: str = Form("false"),
                     uid: int = Depends(current_user)) -> dict:
-    """fal-provider heartbeat: the customer's app posts this ~every 2s reporting
-    whether Lucy frames are really flowing (fair metering — connecting/stalled
-    time costs nothing). Debits only the elapsed time since the last tick, capped
-    so a long gap (e.g. this server was asleep) can't over-bill in one jump."""
+    """fal-provider heartbeat: the customer's app posts this ~every 2s.
+
+    OWNER DECISION (2026-10-06): bill from the moment GO LIVE is pressed, not only
+    while video is flowing. fal's own records showed it charges for every second a
+    session is open -- connecting time and failed/retried connections included --
+    and billing only "streaming" time left ~23% of real fal cost unbilled
+    (384s charged by fal vs 296s billed for one customer). So `streaming` is now
+    ignored: the whole time since /live/start is billed, tick by tick.
+
+    Each tick debits the elapsed time since the previous one, capped (TICK_CAP_S)
+    so a long gap -- e.g. this server restarting -- can't over-bill in one jump.
+    The cap was 5s, which also LOST real time on weak networks (one customer's
+    ticks averaged ~4.6s apart)."""
     sess = _live.get(session_id)
     if not sess or sess["uid"] != uid:
         raise HTTPException(404, "No such session")
-    now = time.monotonic()
-    dt = min(now - sess.get("last_tick", now), 5.0)
-    sess["last_tick"] = now
-    if streaming == "true" and dt > 0:
-        if not db.spend(uid, dt, "live"):           # out of credit -> cut the session
-            await _close_live(session_id)
-            return {"stopped": True}
+    if not await _bill_live_until_now(session_id, sess):
+        return {"stopped": True}
     return {"stopped": False}
+
+
+TICK_CAP_S = 15.0
+
+
+async def _bill_live_until_now(session_id: str, sess: dict) -> bool:
+    """Debit the time since the last tick. False if the customer ran out (session cut)."""
+    now = time.monotonic()
+    dt = min(now - sess.get("last_tick", now), TICK_CAP_S)
+    sess["last_tick"] = now
+    if dt > 0 and not db.spend(sess["uid"], dt, "live"):   # out of credit -> cut the session
+        await _close_live(session_id)
+        return False
+    return True
 
 
 @router.post("/live/token")
@@ -574,6 +592,8 @@ async def live_prompt(session_id: str = Form(...), prompt: str = Form(...),
 async def live_stop(session_id: str = Form(...), uid: int = Depends(current_user)) -> dict:
     sess = _live.get(session_id)
     if sess and sess["uid"] == uid:
+        if sess.get("provider") == "fal":
+            await _bill_live_until_now(session_id, sess)   # the last seconds before Stop
         await _close_live(session_id)
     return {"stopped": True}
 

@@ -1,8 +1,8 @@
-"""Apex Cam Pro — Lucy cloud engine (Decart Lucy, via fal's realtime WebRTC relay).
+"""Apex Cam Pro â€” Lucy cloud engine (Decart Lucy, via fal's realtime WebRTC relay).
 
 Alternate provider to lucy_pro.py (Decart's own API + LiveKit). Same public shape
 (process/status/prompt/set_reference/start_cloud/stop_cloud) so app/engines/pro_engine.py
-can pick either one with no other code changes — see APEXCAM_PRO_PROVIDER.
+can pick either one with no other code changes â€” see APEXCAM_PRO_PROVIDER.
 
 PROVEN protocol (verified end-to-end against the funded fal account, including the
 real identity-swap model, not just the VTON demo):
@@ -10,9 +10,9 @@ real identity-swap model, not just the VTON demo):
   1. mint a short-lived JWT: POST https://rest.fal.ai/tokens/ (server-side key)
   2. WS connect wss://fal.run/{model}/realtime?fal_jwt_token=<JWT>
   3. send {type:"ready"} -> recv {type:"ready"} -> recv iceservers/iceServers
-     (field casing differs by model — handle both)
+     (field casing differs by model â€” handle both)
   4. WebRTC: our camera track goes out via aiortc; send {type:"offer", sdp}
-  5. send {prompt, reference_image_url} — reference_image_url is a base64 DATA URI
+  5. send {prompt, reference_image_url} â€” reference_image_url is a base64 DATA URI
      (data:image/jpeg;base64,...), NOT the `image_data` field Decart's own direct
      API uses. This was the missing piece in the original 2026-07 version of this
      engine: it never actually sent the reference photo, so the model only ever
@@ -20,7 +20,7 @@ real identity-swap model, not just the VTON demo):
   6. recv {type:"answer", sdp} -> setRemoteDescription; frames start flowing back
 
 Frame size: send the camera's NATIVE resolution/aspect (1280x720), not a squashed
-square. lucy_pro.py (Decart direct) already learned this the hard way — a 512x512
+square. lucy_pro.py (Decart direct) already learned this the hard way â€” a 512x512
 square both under-fed the model and squashed a 16:9 camera; the same applies here.
 
 Reliability: auto-reconnects with jittered backoff on any failure (including fal's
@@ -58,7 +58,7 @@ REFERENCE_IMG = CONFIG_DIR / "pro_reference.jpg"
 CONFIG_FILE = CONFIG_DIR / "pro_config.json"
 
 # Adding another fal-hosted model later (per the plan to bring in more fal AI
-# models) is just adding a name here and trying it — the protocol above is generic.
+# models) is just adding a name here and trying it â€” the protocol above is generic.
 FAL_MODEL = os.environ.get("APEXCAM_LUCY_MODEL", "decart/lucy-2-5")
 TOKENS_URL = os.environ.get("APEXCAM_FAL_TOKENS_URL", "https://rest.fal.ai/tokens/")
 SEND_WIDTH = int(os.environ.get("APEXCAM_LUCY_SEND_W", "1280"))
@@ -69,7 +69,7 @@ STALL_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_STALL_S", "8"))  # reconnect 
 # negotiation over a slower network) -- give that one longer before treating
 # it as dead, so this fix doesn't itself start killing legitimately-working-
 # but-slow-to-connect sessions.
-FIRST_FRAME_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_FIRST_FRAME_S", "20"))
+FIRST_FRAME_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_FIRST_FRAME_S", "15"))
 # Owner discovery (2026-09-17): a broken connection that never produces a single
 # transformed frame used to retry FOREVER while GO LIVE stayed on -- each retry
 # opens a real, billable connection to fal, so a stuck/broken session silently
@@ -77,14 +77,14 @@ FIRST_FRAME_TIMEOUT = float(os.environ.get("APEXCAM_LUCY_FIRST_FRAME_S", "20"))
 # nothing billed to them locally either, since our own meter only counts while
 # real frames are flowing). Give up after this many CONSECUTIVE attempts that
 # never deliver a single live frame, instead of retrying indefinitely.
-MAX_DEAD_ATTEMPTS = int(os.environ.get("APEXCAM_LUCY_MAX_DEAD_ATTEMPTS", "4"))
+MAX_DEAD_ATTEMPTS = int(os.environ.get("APEXCAM_LUCY_MAX_DEAD_ATTEMPTS", "2"))
 # fal answers "Concurrent session limit reached." when every Lucy slot is busy
 # (seen 2026-09-23 coming and going on its own, with nothing of ours running).
 # It arrives BEFORE any video is set up, so waiting it out costs nothing --
 # but the old 2-4s retry just hammered it and burned the dead-attempt cap in
 # seconds. Wait longer between tries, and give up after this long in total.
 BUSY_RETRY_S = float(os.environ.get("APEXCAM_LUCY_BUSY_RETRY_S", "10"))
-BUSY_GIVE_UP_S = float(os.environ.get("APEXCAM_LUCY_BUSY_GIVE_UP_S", "90"))
+BUSY_GIVE_UP_S = float(os.environ.get("APEXCAM_LUCY_BUSY_GIVE_UP_S", "30"))
 # Video that arrives but can't be decoded (seen 2026-09-23: connected, fal
 # sending, every packet "Vp8Decoder() failed to decode") is billed like working
 # video. Once this many damaged packets pile up with no good frame, reconnect
@@ -231,7 +231,7 @@ def _load_local_key() -> str | None:
 
 def mint_token(api_key: str, app: str = FAL_MODEL, seconds: int = 300) -> str:
     """Mint a short-lived fal realtime JWT from the server-side API key. Call this
-    from the SERVER (never the customer's PC) — the returned JWT is safe to hand
+    from the SERVER (never the customer's PC) â€” the returned JWT is safe to hand
     to an untrusted client: short-lived and scoped to one app via `allowed_apps`."""
     import urllib.request
 
@@ -485,16 +485,16 @@ class LucyProEngine:
 
     async def _session_loop(self) -> None:
         """Reconnect with jittered backoff. fal's "Concurrent session limit
-        reached" was common and transient in testing — a flat retry delay risks
+        reached" was common and transient in testing â€” a flat retry delay risks
         repeatedly colliding with other reconnecting clients, so this backs off
         a little further each failure and adds jitter.
 
         A session that actually delivered at least one live frame resets the
-        dead-attempt counter (it proved the connection CAN work — a later drop
+        dead-attempt counter (it proved the connection CAN work â€” a later drop
         is likely a transient blip worth retrying). A session that NEVER
         delivers a frame counts toward MAX_DEAD_ATTEMPTS; hitting that gives up
         entirely (stops opening new billable fal connections) instead of
-        retrying forever — see MAX_DEAD_ATTEMPTS's comment above."""
+        retrying forever â€” see MAX_DEAD_ATTEMPTS's comment above."""
         dead_attempts = 0
         attempt = 0
         busy_since: float | None = None
@@ -513,7 +513,7 @@ class LucyProEngine:
             except Exception as exc:
                 msg = str(exc)
                 busy = "Concurrent session limit" in msg
-                self._last_error = ("Lucy's servers are busy right now — retrying…"
+                self._last_error = ("Lucy's servers are busy right now â€” retryingâ€¦"
                                     if busy else msg)
                 log.warning("Apex Pro (fal) session ended (will retry): %s", msg)
             got_live = self._live_flag
@@ -526,7 +526,7 @@ class LucyProEngine:
                 self._stage = "busy"
                 busy_since = busy_since or time.time()
                 if time.time() - busy_since > BUSY_GIVE_UP_S:
-                    self._last_error = ("Lucy's servers stayed busy for too long — "
+                    self._last_error = ("Lucy's servers stayed busy for too long â€” "
                                         "please try GO LIVE again in a few minutes.")
                     log.warning("Apex Pro (fal): giving up, fal busy for %.0fs", BUSY_GIVE_UP_S)
                     self._enabled = False
@@ -543,7 +543,7 @@ class LucyProEngine:
             dead_attempts = 0 if got_live else dead_attempts + 1
             if dead_attempts >= MAX_DEAD_ATTEMPTS:
                 self._last_error = (self._last_error or "Could not connect") + \
-                    f" — gave up after {MAX_DEAD_ATTEMPTS} failed tries with no video, " \
+                    f" â€” gave up after {MAX_DEAD_ATTEMPTS} failed tries with no video, " \
                     "to avoid wasting cost. Try GO LIVE again."
                 log.warning("Apex Pro (fal): giving up after %d dead attempts, no frames ever arrived",
                            dead_attempts)
@@ -716,7 +716,7 @@ class LucyProEngine:
                 self._last_frame_at = time.time()   # start the stall clock at connect
                 bad_at_start = _decode_failures.count
                 while not self._stop.is_set():
-                    # (re)send prompt/reference whenever they change — also covers
+                    # (re)send prompt/reference whenever they change â€” also covers
                     # the very first send, right after the offer goes out.
                     if self._prompt != self._sent_prompt or self._reference != self._sent_ref:
                         msg: dict = {"prompt": effective_prompt(self._prompt,
@@ -729,7 +729,7 @@ class LucyProEngine:
                         self._sent_ref = self._reference
 
                     # BUG FIXED: this used to only fire once `_live_flag` was already
-                    # True, i.e. only AFTER at least one frame had arrived — so a
+                    # True, i.e. only AFTER at least one frame had arrived â€” so a
                     # connection that never produced a single frame (e.g. ICE never
                     # completing) hung here forever: no timeout, no error, and it
                     # never even reached the outer retry loop to count as a dead
@@ -739,15 +739,15 @@ class LucyProEngine:
                         self._last_error = (f"video is arriving from fal but can't be decoded "
                                             f"({bad} damaged packets)")
                         if bad >= BAD_PACKETS_RECONNECT:
-                            raise RuntimeError(self._last_error + " — reconnecting")
+                            raise RuntimeError(self._last_error + " â€” reconnecting")
                     deadline = STALL_TIMEOUT if self._live_flag else FIRST_FRAME_TIMEOUT
                     if time.time() - self._last_frame_at > deadline:
                         reason = "frames stopped arriving" if self._live_flag else "no frames ever arrived"
                         # Fall back to the live WebRTC/ICE state if nothing more
-                        # specific was captured — always a real, inspectable cause,
+                        # specific was captured â€” always a real, inspectable cause,
                         # never just a bare "no frames" symptom.
                         detail = self._last_error or f"webrtc={pc.connectionState} ice={pc.iceConnectionState}"
-                        raise RuntimeError(f"{reason} ({deadline:.0f}s) — {detail}")
+                        raise RuntimeError(f"{reason} ({deadline:.0f}s) â€” {detail}")
 
                     try:
                         r = await asyncio.wait_for(ws.recv(), timeout=1.0)
