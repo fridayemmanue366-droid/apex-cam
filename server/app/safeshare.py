@@ -85,7 +85,14 @@ def price_usd() -> float:
 
 
 def trial_days() -> float:
-    return max(0.0, _setting("trial_days", 0))
+    return max(0.0, _setting("trial_days", 1))          # owner: 1-day free trial
+
+
+def free_emails() -> set[str]:
+    """Accounts that never lock (owner: "free access for the owner's own account").
+    Comma-separated setting ss_free_emails; the owner's email is the default."""
+    raw = db.get_setting("ss_free_emails", "fridayemmanue366@gmail.com") or ""
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
 def _amounts() -> tuple[float, str, float, str]:
@@ -181,6 +188,8 @@ def _status(uid: int) -> dict:
     until = float(u["paid_until"])
     shown, cur, _, _ = _amounts()
     left = max(0.0, until - time.time())
+    if u["email"] in free_emails():
+        until, left = time.time() + 3650 * DAY, 3650 * DAY     # free forever (shows ~10 years)
     return {"email": u["email"], "active": left > 0, "paid_until": until,
             "days_left": round(left / DAY, 1), "price": shown, "currency": cur,
             "price_usd": price_usd(), "period_days": MONTH_DAYS}
