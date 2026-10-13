@@ -8,6 +8,7 @@ import {
   type VoiceParams,
 } from "../api/client";
 import { cloud, getToken, signedIn, type Account } from "../api/cloud";
+import { SafeSharePicker, type PickerHandle } from "../components/SafeSharePicker";
 import {
   MAX_REFERENCE_S,
   MIN_REFERENCE_S,
@@ -42,6 +43,7 @@ export function AudioTab() {
   const [refSeconds, setRefSeconds] = useState(0);
   const [refUrl, setRefUrl] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const clipPicker = useRef<PickerHandle>(null);   // voice clips come from SafeShare on the desktop
   const [recordSeconds, setRecordSeconds] = useState(0);
   const micRef = useRef<MicRecorder | null>(null);
   const recordTimerRef = useRef<number | null>(null);
@@ -372,16 +374,11 @@ export function AudioTab() {
             {recording ? `■ Stop recording (${recordSeconds}s)` : "🎙 Record a reference voice"}
           </button>
           <span className="muted">or</span>
-          <label className="btn" style={{ cursor: cloudVoice?.enabled ? "not-allowed" : "pointer" }}>
-            📁 Upload a clip
-            <input
-              type="file"
-              accept="audio/*"
-              hidden
-              disabled={!!cloudVoice?.enabled}
-              onChange={(e) => uploadReference(e.target.files?.[0])}
-            />
-          </label>
+          <button type="button" className="btn" disabled={!!cloudVoice?.enabled}
+                  onClick={() => clipPicker.current?.click()}>
+            📁 Choose a clip from SafeShare
+          </button>
+          <SafeSharePicker ref={clipPicker} kind="audio" onPick={uploadReference} />
         </div>
 
         {refUrl && (

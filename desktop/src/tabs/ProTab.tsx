@@ -1405,6 +1405,9 @@ function RestylePrivacy() {
 function VoiceNotePlayground(props: { account: Account; refreshAccount: () => void }) {
   const { account, refreshAccount } = props;
   const micRef = useRef<MicRecorder | null>(null);
+  // Desktop voice clips come from SafeShare (owner 2026-10-13); only the
+  // mobile /voicenote web page keeps the phone's own library.
+  const clipPicker = useRef<PickerHandle>(null);
   const recordTimerRef = useRef<number | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -1537,11 +1540,11 @@ function VoiceNotePlayground(props: { account: Account; refreshAccount: () => vo
               {recording ? `■ Stop recording (${recordSeconds}s)` : "🎙 Record"}
             </button>
             <span className="pro-muted">or</span>
-            <label className="pro-chip" style={{ cursor: busy ? "not-allowed" : "pointer" }}>
-              📁 Upload a clip
-              <input type="file" accept="audio/*" hidden disabled={busy}
-                     onChange={(e) => uploadReference(e.target.files?.[0])} />
-            </label>
+            <button type="button" className="pro-chip" disabled={busy}
+                    onClick={() => clipPicker.current?.click()}>
+              📁 Choose a clip from SafeShare
+            </button>
+            <SafeSharePicker ref={clipPicker} kind="audio" onPick={uploadReference} />
           </div>
           {refUrl && (
             <div style={{ marginTop: 8 }}>

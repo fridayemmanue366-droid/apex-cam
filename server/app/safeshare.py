@@ -318,6 +318,19 @@ def admin_grant(email: str, days: float) -> dict:
     return _status(int(u["id"]))
 
 
+def admin_delete(email: str) -> dict:
+    """Remove a SafeShare account and its history (e.g. test accounts)."""
+    c = _c()
+    u = c.execute("SELECT id FROM ss_users WHERE email=?", (email.strip().lower(),)).fetchone()
+    if not u:
+        raise HTTPException(404, f"No SafeShare account for {email}")
+    with db._lock:
+        c.execute("DELETE FROM ss_transactions WHERE user_id=?", (u["id"],))
+        c.execute("DELETE FROM ss_users WHERE id=?", (u["id"],))
+        c.commit()
+    return {"deleted": email}
+
+
 def admin_settings(price: float | None, trial: float | None) -> dict:
     if price is not None:
         if not 0 <= price <= 100:

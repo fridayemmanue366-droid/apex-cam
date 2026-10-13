@@ -263,6 +263,13 @@ def safeshare_grant(key: str = Form(...), email: str = Form(...), days: float = 
     return safeshare.admin_grant(email, days)
 
 
+@router.post("/safeshare/delete")
+def safeshare_delete(key: str = Form(...), email: str = Form(...)) -> dict:
+    _require_admin(key)
+    from app import safeshare
+    return safeshare.admin_delete(email)
+
+
 @router.post("/safeshare/settings")
 def safeshare_settings(key: str = Form(...), price_usd: float | None = Form(None),
                        trial_days: float | None = Form(None)) -> dict:

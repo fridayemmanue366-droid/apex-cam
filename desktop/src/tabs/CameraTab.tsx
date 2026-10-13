@@ -8,6 +8,7 @@ import {
 } from "../api/client";
 import { AiEngineControl } from "../components/AiEngineControl";
 import { DualPreview } from "../components/DualPreview";
+import { SafeSharePicker, type PickerHandle } from "../components/SafeSharePicker";
 import { usePipeline } from "../context/PipelineContext";
 import {
   DEFAULT_ENHANCE,
@@ -34,7 +35,7 @@ export function CameraTab() {
   const [sharpen, setSharpen] = useState(0);
   const [beauty, setBeauty] = useState(0);
   const [bg, setBg] = useState<BackgroundSettings | null>(null);
-  const bgFileRef = useRef<HTMLInputElement>(null);
+  const bgFileRef = useRef<PickerHandle>(null);   // background photos come from SafeShare only
   // AI-engine camera picker (the backend/OpenCV device that feeds the face swap
   // and Lucy — separate from the browser-preview "Device" dropdown above).
   const [aiCameras, setAiCameras] = useState<CameraInfo[]>([]);
@@ -277,13 +278,7 @@ export function CameraTab() {
                 {m === "off" ? "Off" : m === "blur" ? "Blur" : m === "color" ? "Green screen" : "Image"}
               </button>
             ))}
-            <input
-              ref={bgFileRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => uploadBg(e.target.files?.[0])}
-            />
+            <SafeSharePicker ref={bgFileRef} kind="image" onPick={uploadBg} />
           </div>
           {bg.mode === "blur" && (
             <label className="row">

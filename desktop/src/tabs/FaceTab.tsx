@@ -7,6 +7,7 @@ import {
   type TrackingSettings,
 } from "../api/client";
 import { DualPreview } from "../components/DualPreview";
+import { SafeSharePicker, type PickerHandle } from "../components/SafeSharePicker";
 import { usePipeline } from "../context/PipelineContext";
 
 export function FaceTab() {
@@ -20,7 +21,7 @@ export function FaceTab() {
   const [enhancers, setEnhancers] = useState<string[]>([]);
   const [enhancer, setEnhancerState] = useState("none");
   const [skinMatch, setSkinMatch] = useState(0.9);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<PickerHandle>(null);   // photos come from SafeShare only
   const { active, faces } = usePipeline();
 
   useEffect(() => {
@@ -67,20 +68,17 @@ export function FaceTab() {
     api.setFace(next).catch((e) => setErr(String(e)));
   };
 
-  const upload = async (files: FileList | null) => {
-    if (!files?.length) return;
+  const upload = async (f: File | undefined) => {
+    if (!f) return;
     setBusy(true);
     try {
-      for (const f of Array.from(files)) {
-        const p = await api.uploadProfile(f);
-        setProfiles((prev) => [...prev, p]);
-      }
+      const p = await api.uploadProfile(f);
+      setProfiles((prev) => [...prev, p]);
       setErr(null);
     } catch (e) {
       setErr(String(e));
     } finally {
       setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
@@ -185,17 +183,11 @@ export function FaceTab() {
               )}
             </div>
           ))}
-          <label className="face-card add">
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".jpg,.jpeg,.png,.webp"
-              multiple
-              hidden
-              onChange={(e) => upload(e.target.files)}
-            />
+          <div className="face-card add" role="button" style={{ cursor: "pointer" }}
+               onClick={() => !busy && fileRef.current?.click()}>
             <span>{busy ? "Uploading…" : "+ Add face"}</span>
-          </label>
+          </div>
+          <SafeSharePicker ref={fileRef} kind="image" onPick={upload} />
         </div>
         {state?.profile_id && (
           <p className="muted">
