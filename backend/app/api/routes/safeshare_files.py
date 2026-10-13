@@ -99,19 +99,25 @@ async def import_file(file: UploadFile) -> dict:
         raise HTTPException(400, "Only photos, videos and audio can be added")
     inbox = root / "Inbox"
     inbox.mkdir(exist_ok=True)
-    dest = _unique_path(inbox, name)
-    # @safeshare's rule: write under a ".safeshare-part" name (SafeShare hides
+    # @safeshare's rules: write under a ".safeshare-part" name (SafeShare hides
     # those) and rename when complete, so nobody ever sees a half-written file.
-    part = dest.with_name(dest.name + PART)
-    try:
-        with part.open("wb") as fh:
-            while chunk := await file.read(1024 * 1024):
-                fh.write(chunk)
-        part.replace(dest)
-    except Exception:
-        part.unlink(missing_ok=True)
-        raise HTTPException(500, "Couldn't copy that file into SafeShare")
-    return {"path": dest.relative_to(root).as_posix(), "name": dest.name}
+    # SafeShare deletes leftover .safeshare-part files when it STARTS, so if it
+    # starts mid-copy our temp file can vanish -> retry the whole copy once.
+    for attempt in (1, 2):
+        dest = _unique_path(inbox, name)
+        part = dest.with_name(dest.name + PART)
+        try:
+            await file.seek(0)
+            with part.open("wb") as fh:
+                while chunk := await file.read(1024 * 1024):
+                    fh.write(chunk)
+            part.replace(dest)
+            return {"path": dest.relative_to(root).as_posix(), "name": dest.name}
+        except OSError:
+            part.unlink(missing_ok=True)
+            if attempt == 2:
+                break
+    raise HTTPException(500, "Couldn't copy that file into SafeShare — please try again")
 
 
 # --- same naming rules as SafeShare itself (safeshare.py safe_name / unique_path) ---
