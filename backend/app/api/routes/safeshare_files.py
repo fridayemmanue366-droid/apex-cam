@@ -11,6 +11,7 @@ or junctions pointing elsewhere are refused.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -61,7 +62,7 @@ def list_files(kind: str = "image") -> dict:
         if len(out) >= MAX_FILES * 4:
             break
         name = p.name
-        if name.startswith(".") or name.endswith((".part", ".partial", ".tmp")):
+        if name.startswith(".") or name.endswith((".part", ".partial", ".tmp", ".safeshare-part")):
             continue
         if p.suffix.lower() in exts and p.is_file() and _inside(root, p):
             st = p.stat()
@@ -93,17 +94,48 @@ async def import_file(file: UploadFile) -> dict:
     root = _root()
     if root is None:
         raise HTTPException(404, "Install SafeShare first")
-    name = Path(file.filename or "file").name
+    name = _safe_name(file.filename or "file")
     if Path(name).suffix.lower() not in ALL_EXTS:
         raise HTTPException(400, "Only photos, videos and audio can be added")
     inbox = root / "Inbox"
     inbox.mkdir(exist_ok=True)
-    dest = inbox / name
-    stem, ext, n = dest.stem, dest.suffix, 1
-    while dest.exists():
-        n += 1
-        dest = inbox / f"{stem} ({n}){ext}"
-    with dest.open("wb") as fh:
-        while chunk := await file.read(1024 * 1024):
-            fh.write(chunk)
+    dest = _unique_path(inbox, name)
+    # @safeshare's rule: write under a ".safeshare-part" name (SafeShare hides
+    # those) and rename when complete, so nobody ever sees a half-written file.
+    part = dest.with_name(dest.name + PART)
+    try:
+        with part.open("wb") as fh:
+            while chunk := await file.read(1024 * 1024):
+                fh.write(chunk)
+        part.replace(dest)
+    except Exception:
+        part.unlink(missing_ok=True)
+        raise HTTPException(500, "Couldn't copy that file into SafeShare")
     return {"path": dest.relative_to(root).as_posix(), "name": dest.name}
+
+
+# --- same naming rules as SafeShare itself (safeshare.py safe_name / unique_path) ---
+PART = ".safeshare-part"
+_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+             *(f"LPT{i}" for i in range(1, 10))}
+
+
+def _safe_name(name: str) -> str:
+    name = str(name).replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(c for c in name if c not in '<>:"/\\|?*' and ord(c) >= 32).strip().strip(".")
+    if name.endswith(PART):
+        name = name[:-len(PART)]
+    if not name or name.split(".")[0].upper() in _RESERVED:
+        name = f"file_{int(time.time())}" + (f"_{name}" if name else "")
+    return name[:200]
+
+
+def _unique_path(directory: Path, name: str) -> Path:
+    """Adds ' (1)', ' (2)' … exactly like SafeShare; also avoids names still being written."""
+    p = Path(name)
+    i = 0
+    while True:
+        cand = directory / (f"{p.stem} ({i}){p.suffix}" if i else name)
+        if not cand.exists() and not cand.with_name(cand.name + PART).exists():
+            return cand
+        i += 1
