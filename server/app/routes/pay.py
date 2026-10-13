@@ -164,6 +164,11 @@ def _apply(transaction_id: str) -> bool:
     if d.get("status") != "successful":
         return False
     meta = d.get("meta") or {}
+    # SafeShare (owner's 2nd product) shares this Flutterwave account + webhook;
+    # its payments are kept entirely in its own tables (app/safeshare.py).
+    if meta.get("app") == "safeshare":
+        from app import safeshare
+        return safeshare.apply_verified(d)
     uid = int(meta.get("user_id", 0))
     # Flutterwave was charged in pay_currency() (see /start), not the
     # DISPLAY currency() -- verify against what was actually sent.

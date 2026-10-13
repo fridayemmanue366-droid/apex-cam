@@ -246,6 +246,31 @@ def license_admin(key: str = Form(...), email: str = Form(...),
     return {"email": email, "which": which, "licensed": action == "grant"}
 
 
+@router.post("/safeshare/overview")
+def safeshare_overview(key: str = Form(...)) -> dict:
+    """SafeShare (separate product, same server): accounts, payments, price."""
+    _require_admin(key)
+    from app import safeshare
+    return safeshare.admin_overview()
+
+
+@router.post("/safeshare/grant")
+def safeshare_grant(key: str = Form(...), email: str = Form(...), days: float = Form(...)) -> dict:
+    _require_admin(key)
+    if not 0 < days <= 3650:
+        raise HTTPException(400, "days must be between 1 and 3650")
+    from app import safeshare
+    return safeshare.admin_grant(email, days)
+
+
+@router.post("/safeshare/settings")
+def safeshare_settings(key: str = Form(...), price_usd: float | None = Form(None),
+                       trial_days: float | None = Form(None)) -> dict:
+    _require_admin(key)
+    from app import safeshare
+    return safeshare.admin_settings(price_usd, trial_days)
+
+
 @router.post("/license/pending")
 def license_pending(key: str = Form(...)) -> dict:
     """Customers who paid the $10 in MANUAL mode and are waiting for the owner
@@ -520,6 +545,26 @@ tr:last-child td{border-bottom:0}
 </div>
 
 <div class="card">
+  <h2>SafeShare (separate app, same server)</h2>
+  <p class="sub" style="margin:0 0 12px">Monthly subscription for SafeShare, paid through the same Flutterwave
+    account. Separate accounts from Apex Cam. Public download page:
+    <a href="/safeshare/download" target="_blank">/safeshare/download</a></p>
+  <div id="ssStats" class="stats"></div>
+  <div class="fields" style="margin-top:12px">
+    <div><label>Price per month (USD)</label><input id="ssPrice" type="number" min="0" max="100" step="0.01" placeholder="1.66"></div>
+    <div><label>Free trial for new accounts (days)</label><input id="ssTrial" type="number" min="0" max="365" step="1" placeholder="0"></div>
+    <div style="align-self:end"><button class="grant" onclick="ssSave()">Save</button></div>
+  </div>
+  <div class="fields" style="margin-top:12px">
+    <div><label>SafeShare customer email</label><input id="ssEmail" type="email" placeholder="name@example.com"></div>
+    <div><label>Days to add (free)</label><input id="ssDays" type="number" min="1" max="3650" value="30"></div>
+    <div style="align-self:end"><button class="sub2" onclick="ssGrant()">Add days</button></div>
+  </div>
+  <div class="scroll" style="margin-top:12px"><table><thead><tr><th>Email</th><th>Status</th><th>Joined</th></tr></thead>
+    <tbody id="ssUsers"><tr><td colspan="3" class="muted">load with your key</td></tr></tbody></table></div>
+</div>
+
+<div class="card">
   <h2>Credits (Lucy Image)</h2>
   <div class="stats" id="imgstats">
     <div class="stat"><div class="n muted">—</div><div class="l">load with your key</div></div>
@@ -620,6 +665,7 @@ async function post(action, extra){
 
 async function load(){
   if(!$('k').value.trim()) return;
+  ssLoad();
   try{
     const d = await post('overview', {limit:60});
     const t = d.totals;
@@ -823,6 +869,36 @@ async function licenseAction(action){
     out.innerHTML = '<span class="green">'+esc(email)+(d.licensed
       ? ' now has the '+name+'.' : ' had the '+name+' revoked.')+'</span>';
     load();
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+function ssRender(d){
+  const now = Date.now()/1000, active = d.users.filter(u => u.active).length;
+  const rev = Object.keys(d.revenue||{}).map(c => c+' '+Math.round(d.revenue[c]).toLocaleString()).join(', ') || '0';
+  $('ssStats').innerHTML = stat(d.users.length, 'accounts', 'blue') + stat(active, 'paid up', 'green') +
+    stat(d.currency==='USD' ? '$'+d.price_usd : d.currency+' '+Math.round(d.price).toLocaleString(), 'per month', 'gold') +
+    stat(rev, 'revenue', 'green') + stat(d.download_ready ? 'ready' : 'missing', 'download file', d.download_ready ? 'green' : 'red');
+  const act = document.activeElement;
+  if(act!==$('ssPrice')) $('ssPrice').value = d.price_usd;
+  if(act!==$('ssTrial')) $('ssTrial').value = d.trial_days;
+  $('ssUsers').innerHTML = d.users.length ? d.users.map(u =>
+    '<tr><td>'+esc(u.email)+'</td><td>'+(u.paid_until>now
+      ? '<span class="pill p-topup">until '+when(u.paid_until)+'</span>' : '<span class="muted">not paid</span>')+
+    '</td><td class="muted">'+when(u.created)+'</td></tr>').join('')
+    : '<tr><td colspan="3" class="muted">No SafeShare accounts yet</td></tr>';
+}
+async function ssLoad(){ try{ ssRender(await post('safeshare/overview', {})); }catch(err){} }
+async function ssSave(){
+  out.textContent='Working…';
+  try{ const d = await post('safeshare/settings', {price_usd:$('ssPrice').value, trial_days:$('ssTrial').value});
+    ssRender(d); out.innerHTML='<span class="green">SafeShare saved — $'+d.price_usd+'/month, '+d.trial_days+'-day trial.</span>';
+  }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
+}
+async function ssGrant(){
+  const email = $('ssEmail').value.trim();
+  if(!email){ out.innerHTML='<span class="red">Enter a SafeShare email.</span>'; return; }
+  out.textContent='Working…';
+  try{ const d = await post('safeshare/grant', {email, days:$('ssDays').value});
+    out.innerHTML='<span class="green">'+esc(email)+' — SafeShare active for '+d.days_left+' days.</span>'; ssLoad();
   }catch(err){ out.innerHTML='<span class="red">'+esc(err.message)+'</span>'; }
 }
 function grantPending(email, which){

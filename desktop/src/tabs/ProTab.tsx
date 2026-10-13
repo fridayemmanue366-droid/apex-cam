@@ -5,6 +5,7 @@ import { DualPreview } from "../components/DualPreview";
 import { ProAuth } from "../components/ProAuth";
 import { WatermarkNoticeModal } from "../components/WatermarkNoticeModal";
 import { CloudPausedModal } from "../components/CloudPausedModal";
+import { SafeSharePicker, type PickerHandle } from "../components/SafeSharePicker";
 import { usePipeline } from "../context/PipelineContext";
 import {
   MIN_REFERENCE_S,
@@ -149,7 +150,7 @@ export function ProTab({ onExit }: { onExit: () => void }) {
   // either — it has to be fetched.
   const [rates, setRates] = useState<{ live_usd_per_sec: number; video_usd_per_sec: number;
     restyle_usd_per_sec: number; cloud_paused: boolean; cloud_paused_message: string } | null>(null);
-  const refFile = useRef<HTMLInputElement>(null);
+  const refFile = useRef<PickerHandle>(null);
 
   // Cloud account — credits live on our server, tied to this login (so they
   // follow the user to any PC and can't be edited locally).
@@ -702,7 +703,7 @@ function LucyRealtimePlayground(props: {
   prompt: string;
   setPrompt: (p: string) => void;
   save: (enabled: boolean, p?: string) => void;
-  refFile: React.RefObject<HTMLInputElement>;
+  refFile: React.RefObject<PickerHandle>;
   uploadRef: (f: File | undefined) => void;
   voice: number;
   pickVoice: (semitones: number) => void;
@@ -764,8 +765,7 @@ function LucyRealtimePlayground(props: {
               {pro.has_reference ? "Change face" : "Upload face"}
             </button>
           </div>
-          <input ref={refFile} type="file" accept="image/*" hidden
-                 onChange={(e) => uploadRef(e.target.files?.[0])} />
+          <SafeSharePicker ref={refFile} kind="image" onPick={uploadRef} />
         </div>
         <p className="pro-muted" style={{ marginTop: 10 }}>Or try one of these — every face here is
           AI-generated, not a real person, so there's no likeness/rights question testing with them:</p>
@@ -920,8 +920,8 @@ function LucyImagePlayground(props: {
   refreshAccount: () => void;
 }) {
   const { account, imageCredits, refreshAccount } = props;
-  const mainInput = useRef<HTMLInputElement>(null);
-  const refInput = useRef<HTMLInputElement>(null);
+  const mainInput = useRef<PickerHandle>(null);
+  const refInput = useRef<PickerHandle>(null);
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [refFile, setRefFile] = useState<File | null>(null);
   const [mainPreview, setMainPreview] = useState<string | null>(null);
@@ -1016,10 +1016,8 @@ function LucyImagePlayground(props: {
               )}
             </div>
           </div>
-          <input ref={mainInput} type="file" accept="image/*" hidden
-                 onChange={(e) => pickMain(e.target.files?.[0])} />
-          <input ref={refInput} type="file" accept="image/*" hidden
-                 onChange={(e) => pickRef(e.target.files?.[0])} />
+          <SafeSharePicker ref={mainInput} kind="image" onPick={pickMain} />
+          <SafeSharePicker ref={refInput} kind="image" onPick={pickRef} />
 
           <div className="pro-uplabel" style={{ marginTop: 4 }}>Instruction</div>
           <textarea className="pro-input pro-photo-prompt" rows={3} value={prompt}
@@ -1135,8 +1133,8 @@ function RestylePlayground(props: {
   refreshAccount: () => void;
 }) {
   const { account, perSecRate, refreshAccount } = props;
-  const videoInput = useRef<HTMLInputElement>(null);
-  const refInput = useRef<HTMLInputElement>(null);
+  const videoInput = useRef<PickerHandle>(null);
+  const refInput = useRef<PickerHandle>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
@@ -1252,10 +1250,8 @@ function RestylePlayground(props: {
               </div>
             )}
           </div>
-          <input ref={videoInput} type="file" accept="video/*" hidden
-                 onChange={(e) => pickVideo(e.target.files?.[0])} />
-          <input ref={refInput} type="file" accept="image/*" hidden
-                 onChange={(e) => pickRef(e.target.files?.[0])} />
+          <SafeSharePicker ref={videoInput} kind="video" onPick={pickVideo} />
+          <SafeSharePicker ref={refInput} kind="image" onPick={pickRef} />
 
           <div className="row preset-row" style={{ marginTop: 4 }}>
             <button type="button" className={`pro-chip${styleBy === "prompt" ? " on" : ""}`}

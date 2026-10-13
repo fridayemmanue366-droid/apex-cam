@@ -93,6 +93,7 @@ def me(uid: int = Depends(current_user)) -> Me:
 # public web pages (mobile-friendly Voice Note — same account/studio APIs,
 # just a different front door than the desktop app).
 from app.routes import admin, pay, studio, subscription, update, web  # noqa: E402
+from app import safeshare  # noqa: E402  -- owner's 2nd product, separate tables/tokens/routes
 
 app.include_router(admin.router)
 app.include_router(pay.router)
@@ -100,3 +101,4 @@ app.include_router(subscription.router)
 app.include_router(studio.router)
 app.include_router(update.router)
 app.include_router(web.router)
+app.include_router(safeshare.router)

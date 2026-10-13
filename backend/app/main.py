@@ -17,6 +17,7 @@ from app.api.routes import (
     models,
     pipeline as pipeline_routes,
     pro,
+    safeshare_files,
     setup,
     system,
 )
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(setup.router)
     app.include_router(background.router)
     app.include_router(pro.router)
+    app.include_router(safeshare_files.router)
     return app
 
 
